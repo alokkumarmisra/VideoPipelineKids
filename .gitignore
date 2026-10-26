@@ -1,0 +1,10 @@
+.env
+outputs/
+resources/
+reface/
+devotional/
+kids/
+workflows/merged_pipeline.json
+node_modules/
+*.log
+data/

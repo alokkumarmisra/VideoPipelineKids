@@ -1,0 +1,357 @@
+{
+  "id": "shiva",
+  "input": {
+    "title": "Shiva",
+    "story": "तुम का जानो मेरे मन की बात,\nमोहे भावें मेरे भोलेनाथ।\nजिनको तुम कहत हो अजब निराले,\nमोरे तो हैं वे प्राणों के रखवाले।\n\nका जटा, का नाग, का गंगा धारे,\nमोहे तो लगें सबसे प्यारे।\nभस्म रमाए, डमरू बजाए,\nदेखत ही मन मोरा मुस्काए।\n\n**तुम कहत हो—**\n“काय जिद कर रई, काय को मर रई,\nऐसे वर को लाने?”\n\n**मैं कहती हूँ—**\n“मन मोरा जानत, कौन है सच्चा,\nकाहे तुम सब समझाने?”\n\nसीस पे गंगा, गले में नाग,\nमोरे लिए तो प्रेम का सुहाग।\nभोले हैं, पर मन के राजा,\nइनसे सुंदर कौन है दूजा?\n\n---\n\nना सोने का महल माँगूँ,\nना माँगूँ मैं धन-दौलत।\nबस भोले की भक्ति मिले,\nयही मोरी सबसे बड़ी दौलत।\n\nना चाँदी का महल सजाना,\nना रेशम का बिछाना।\nजंगल में भी संग जो मिल जाएँ,\nमोहे वही घराना भाना।\n\nभस्म लगाए, बैल पे आएँ,\nडमरू की धुन सुनाएँ।\nएक नजर जब मोपे डालें,\nसारे दुख मेरे मिट जाएँ।\n\n**तुम कहत हो—**\n“काय खइहैं, कहाँ रहइहैं,\nकैसे घर-गृहस्थी चलिहै?”\n\n**मैं कहती हूँ—**\n“जिनके संग खुद महादेव हों,\nउनके घर में कमी कहाँ रहिहै?”\n\n---\n\nजटा उनकी गंगा जैसी,\nमन उनका निर्मल पानी।\nतीनों लोक के स्वामी हैं वे,\nफिर भी सबसे भोले ज्ञानी।\n\nराम नाम के रसीया हैं,\nसबके दुख हरने वाले।\nदीन-दुखी के नाथ हैं मेरे,\nसब पर कृपा बरसाने वाले।\n\nकामदेव को भस्म किया तो,\nइसमें कौन सी बात?\nमन पर जिसने जीत है पाई,\nवही तो मेरे साथ।\n\nतुम घर-गृहस्थी की चिंता करते,\nमैं उनका मन पहचानूँ।\nजो जग का भार संभाल सकें,\nउनको अपना वर मैं मानूँ।\n\n---\n\n**तुम कहत हो—**\n“काय तप कर रई, काय को मर रई,\nऐसे वर को लाने?”\n\n**मैं कहती हूँ—**\n“जनम-जनम की आस है मोरी,\nभोले को अपना बनाने।”\n\nना खपरा चाहूँ, ना चाँदी,\nना महलों की चाहत।\nभोले मेरे साथ रहें बस,\nयही मोरी चाहत।\n\nगले में उनके नाग सही,\nमाथे चंदा प्यारा।\nमोरे मन के राजा हैं वे,\nसबसे न्यारे भोला हमारा।\n\n---\n\n### 🌺 FINAL CHORUS\n\nतुम कहो अरे भोलेनाथ,\nमैं कहूँ मेरे प्राणनाथ।\nतुमको दिखें अजब निराले,\nमोहे लगें सबसे प्यारे।\n\nतुम कहो “ये क्या वर लाईं?”\nमैं कहूँ “भाग्य से पाईं!”\nतुम दुनिया की बात सुनाओ,\nमैं बस भोले को अपनाऊँ।\n\n**काय जिद कर रई? — हाँ, जिद कर रई!\nकाय तप कर रई? — हाँ, तप कर रई!\nभोले जैसे वर को पाने,\nजनम-जनम तक तप कर रई!**\n\n**हर हर महादेव!\nजय जय भोलेनाथ!**",
+    "language": "Hindi",
+    "genre": "Devotional",
+    "genreCustom": "",
+    "visualStyle": "Indian Mythological",
+    "styleCustom": "",
+    "targetSeconds": 300,
+    "sceneSeconds": 3,
+    "aspectRatio": "16:9",
+    "instructions": "Use vibrant colors and intricate details for Shiva's attire.\nShow devotion through soft, flowing camera movements.\nHighlight the contrast between Shiva's fierce and gentle aspects.\nEmphasize eyes to convey deep emotion and connection.\nAvoid over-the-top visuals; maintain a balanced, respectful tone.",
+    "includeDialogue": false,
+    "chainContinuity": false
+  },
+  "status": "analyzed",
+  "blueprint": {
+    "logline": "The story of Shiva's devotion and the relationship between him and his devotee through various scenes showcasing his fierce and gentle aspects.",
+    "analysis": {
+      "plot": "A devotional narrative highlighting Shiva's dual nature, from his fierce to gentle aspects, and the deep bond with his devotees.",
+      "beginning": "Introduction of Shiva as a protector and his divine attributes like the Jata, Naga, Ganga, and Damru.",
+      "middle": "Shiva's actions such as smearing ash on his body, playing the Damru, and using these to bring joy and comfort.",
+      "climax": "A climactic moment where Shiva appears in various forms to his devotee, testing her faith and devotion.",
+      "ending": "Reaffirmation of the bond between Shiva and his devotee through their conversation about tapasya and love.",
+      "main_character": "Shiva",
+      "supporting_characters": [
+        "devotee"
+      ],
+      "antagonist": null,
+      "objects": [
+        "jata",
+        "naga",
+        "ganga",
+        "damru"
+      ],
+      "locations": [
+        "[object Object]",
+        "[object Object]"
+      ],
+      "events": [
+        "Shiva's divine attributes displayed in a temple setting",
+        "Shiva's actions of smearing ash and playing Damru",
+        "Devotee's devotion and understanding of Shiva’s nature",
+        "Conversational exchange about tapasya and love"
+      ],
+      "relationships": "Deep bond between Shiva and his devotee, showcasing mutual respect and devotion.",
+      "emotional_progression": "From awe and reverence to a deeper understanding and connection through shared experiences.",
+      "timeline": "[object Object],[object Object],[object Object],[object Object]",
+      "visual_moments": [
+        "Shiva's divine attributes displayed in a temple setting",
+        "Devotee observing Shiva’s actions of smearing ash and playing Damru",
+        "Conversational exchange about tapasya and love",
+        "Final affirmation of devotion"
+      ]
+    },
+    "characters": [
+      {
+        "character_id": "shiva",
+        "name": "Shiva",
+        "role": "main_character",
+        "species": "limbless serpentine snake body, no legs, no arms, no hands, no feet, no ears, no wings",
+        "age": "Eternal",
+        "appearance": {
+          "body": "one continuous elongated limbless serpentine body",
+          "fur": "",
+          "eyes": "large almond-shaped, deep blue with pupils like a cat's, expressive and knowing",
+          "ears": "none"
+        },
+        "clothing": {
+          "top": "ornate serpent scales in rich jewel tones and intricate designs, adorned with emeralds and rubies",
+          "bottom": ""
+        },
+        "personality": [
+          "fierce",
+          "gentle",
+          "devout",
+          "mystical"
+        ],
+        "visual_identity_prompt": "limbless serpentine snake body, no legs, no arms, no hands, no feet, no ears, deep blue eyes with pupils like a cat's, rich jewel tones and intricate designs on scales, adorned with emeralds and rubies",
+        "consistency_rules": [
+          "Keep the exact same face: shape, eyes, nose, lips, jawline and skin tone in every scene.",
+          "Keep the exact same body, species traits and proportions in every scene.",
+          "Keep the exact species body plan — never add legs, arms, hands, feet, ears, wings or human parts the species lacks (a snake stays one continuous limbless serpentine body); stage only physically possible actions.",
+          "Keep the exact same clothing, colors and accessories unless the story explicitly changes them.",
+          "Paste the visual_identity_prompt verbatim into every image_prompt — never paraphrase or shorten it.",
+          "Keep the same art style and rendering for this character across all scenes.",
+          "Stage speaking scenes front-facing so the face stays clearly visible."
+        ]
+      },
+      {
+        "character_id": "devotee",
+        "name": "Devotee",
+        "role": "supporting_character",
+        "species": "human female",
+        "age": "Young to middle-aged",
+        "appearance": {
+          "body": "slim and graceful with flowing hair",
+          "fur": "",
+          "eyes": "large, expressive, dark brown eyes filled with devotion and understanding",
+          "ears": "present"
+        },
+        "clothing": {
+          "top": "ornate silk sari with intricate patterns in deep jewel tones, adorned with gold thread work",
+          "bottom": ""
+        },
+        "personality": [
+          "devout",
+          "intelligent",
+          "perceptive"
+        ],
+        "visual_identity_prompt": "human female with flowing dark brown hair, slim and graceful body, large expressive dark brown eyes filled with devotion and understanding, ornate silk sari with intricate patterns in deep jewel tones, adorned with gold thread work",
+        "consistency_rules": [
+          "Keep the exact same face: shape, eyes, nose, lips, jawline and skin tone in every scene.",
+          "Keep the exact same body, species traits and proportions in every scene.",
+          "Keep the exact species body plan — never add legs, arms, hands, feet, ears, wings or human parts the species lacks (a snake stays one continuous limbless serpentine body); stage only physically possible actions.",
+          "Keep the exact same clothing, colors and accessories unless the story explicitly changes them.",
+          "Paste the visual_identity_prompt verbatim into every image_prompt — never paraphrase or shorten it.",
+          "Keep the same art style and rendering for this character across all scenes.",
+          "Stage speaking scenes front-facing so the face stays clearly visible."
+        ]
+      }
+    ],
+    "locations": [
+      {
+        "location_id": "shivalinga_temple",
+        "name": "Shivalinga Temple",
+        "description": "A grand temple dedicated to Lord Shiva, with intricate carvings and statues of various forms of Shiva.",
+        "visual_identity_prompt": "Shivalinga temple with elaborate carvings and statues, ancient architecture, serene environment, soft lighting, vibrant colors.",
+        "time_of_day": "",
+        "lighting": "",
+        "color_palette": ""
+      },
+      {
+        "location_id": "jungle",
+        "name": "Jungle",
+        "description": "A dense jungle with lush greenery and wildlife, where Shiva often meditates.",
+        "visual_identity_prompt": "Dense jungle with tall trees, undergrowth, sunlight filtering through leaves, natural beauty, soft dappled light.",
+        "time_of_day": "",
+        "lighting": "",
+        "color_palette": ""
+      }
+    ],
+    "objects": [
+      {
+        "object_id": "jata",
+        "name": "Jata",
+        "description": "Shiva's long matted hair, symbolizing his wisdom and power.",
+        "visual_identity_prompt": "long matted hair, symbolizing wisdom and power"
+      },
+      {
+        "object_id": "naga",
+        "name": "Naga",
+        "description": "Coiling snakes around Shiva’s body, representing protection and eternity.",
+        "visual_identity_prompt": "coiling serpents around Shiva's body, representing protection and eternity"
+      },
+      {
+        "object_id": "ganga",
+        "name": "Ganga",
+        "description": "The river Ganga flowing from Shiva’s head, symbolizing purification and renewal.",
+        "visual_identity_prompt": "river Ganga flowing from Shiva's head, symbolizing purification and renewal"
+      },
+      {
+        "object_id": "damru",
+        "name": "Damru",
+        "description": "Shiva's small drum, representing the sound of creation and destruction.",
+        "visual_identity_prompt": "small drum (Damru) in Shiva's hand, representing sound of creation and destruction"
+      }
+    ],
+    "lyric_lines": [],
+    "beats": [
+      {
+        "n": 1,
+        "title": "Introduction",
+        "summary": "Shiva as a protector with Jata, Naga, Ganga, Damru.",
+        "location": "shivalinga_temple",
+        "objects": [
+          "jata",
+          "naga",
+          "ganga",
+          "damru"
+        ]
+      },
+      {
+        "n": 2,
+        "title": "Devotee's Observation",
+        "summary": "Devotee observes Shiva smearing ash and playing Damru, bringing joy and comfort.",
+        "location": "shivalinga_temple",
+        "objects": [
+          "jata",
+          "naga",
+          "ganga",
+          "damru"
+        ]
+      },
+      {
+        "n": 3,
+        "title": "Conversational Exchange",
+        "summary": "Devotee and Shiva discuss tapasya, devotion, and the nature of love.",
+        "location": "shivalinga_temple"
+      },
+      {
+        "n": 4,
+        "title": "Final Affirmation",
+        "summary": "Final affirmation of their bond through shared experiences.",
+        "location": "jungle",
+        "objects": [
+          "naga",
+          "ganga"
+        ]
+      }
+    ]
+  },
+  "storyPlan": {
+    "version": 1,
+    "logline": "The story of Shiva's devotion and the relationship between him and his devotee through various scenes showcasing his fierce and gentle aspects.",
+    "theme": "From awe and reverence to a deeper understanding and connection through shared experiences.",
+    "structure": {
+      "beginning": "Introduction of Shiva as a protector and his divine attributes like the Jata, Naga, Ganga, and Damru.",
+      "development": "Shiva's actions such as smearing ash on his body, playing the Damru, and using these to bring joy and comfort.",
+      "climax": "A climactic moment where Shiva appears in various forms to his devotee, testing her faith and devotion.",
+      "resolution": "Reaffirmation of the bond between Shiva and his devotee through their conversation about tapasya and love."
+    },
+    "narrativeOutline": [
+      "Introduction of Shiva as a protector and his divine attributes like the Jata, Naga, Ganga, and Damru.",
+      "Shiva's actions such as smearing ash on his body, playing the Damru, and using these to bring joy and comfort.",
+      "A climactic moment where Shiva appears in various forms to his devotee, testing her faith and devotion.",
+      "Reaffirmation of the bond between Shiva and his devotee through their conversation about tapasya and love.",
+      "Shiva as a protector with Jata, Naga, Ganga, Damru.",
+      "Devotee observes Shiva smearing ash and playing Damru, bringing joy and comfort.",
+      "Devotee and Shiva discuss tapasya, devotion, and the nature of love.",
+      "Final affirmation of their bond through shared experiences."
+    ],
+    "characterRoster": [
+      {
+        "character_id": "shiva",
+        "name": "Shiva",
+        "role": "main_character",
+        "motivation": ""
+      },
+      {
+        "character_id": "devotee",
+        "name": "Devotee",
+        "role": "supporting_character",
+        "motivation": ""
+      }
+    ],
+    "uncertainties": [],
+    "productionTasks": [
+      {
+        "id": "analyze-story",
+        "label": "Analyze story (bible + beats)",
+        "stage": "story-analysis",
+        "status": "pending",
+        "dependsOn": []
+      },
+      {
+        "id": "lyric-semantics",
+        "label": "Decompose lyrics into singable lines",
+        "stage": "lyric-semantics",
+        "status": "pending",
+        "dependsOn": [
+          "analyze-story"
+        ]
+      },
+      {
+        "id": "scene-breakdown",
+        "label": "Plan scene breakdown covering all lines",
+        "stage": "scene-breakdown",
+        "status": "pending",
+        "dependsOn": [
+          "lyric-semantics"
+        ]
+      },
+      {
+        "id": "shot-direction",
+        "label": "Direct every shot (camera + action + prompts)",
+        "stage": "shot-direction",
+        "status": "pending",
+        "dependsOn": [
+          "scene-breakdown"
+        ]
+      },
+      {
+        "id": "coverage-check",
+        "label": "Check lyric coverage + quality score",
+        "stage": "coverage-validation",
+        "status": "pending",
+        "dependsOn": [
+          "shot-direction"
+        ]
+      },
+      {
+        "id": "repair-flagged",
+        "label": "Repair flagged shots",
+        "stage": "coverage-validation",
+        "status": "pending",
+        "dependsOn": [
+          "coverage-check"
+        ]
+      },
+      {
+        "id": "approve-plan",
+        "label": "Approve plan for production",
+        "stage": "coverage-validation",
+        "status": "pending",
+        "dependsOn": [
+          "repair-flagged"
+        ]
+      },
+      {
+        "id": "generate-keyframes",
+        "label": "Generate keyframes (image stage)",
+        "stage": "image-generation",
+        "status": "pending",
+        "dependsOn": [
+          "approve-plan"
+        ]
+      },
+      {
+        "id": "generate-clips",
+        "label": "Generate clips (video/motion stage)",
+        "stage": "video-motion",
+        "status": "pending",
+        "dependsOn": [
+          "generate-keyframes"
+        ]
+      },
+      {
+        "id": "assemble-final",
+        "label": "Assemble + validate final cut",
+        "stage": "final-assembly",
+        "status": "pending",
+        "dependsOn": [
+          "generate-clips"
+        ]
+      }
+    ],
+    "approvals": {},
+    "revisions": 0,
+    "visualGuide": "",
+    "cinematography": "",
+    "motionPlan": "",
+    "audioSync": "",
+    "editPlan": ""
+  },
+  "scenes": [],
+  "sceneCount": 0,
+  "styleLock": "Ultra photorealistic Indian mythological cinematic film still, highly detailed 8k uhd, divine glowing palette, lifelike faces with natural skin texture and detailed expressive eyes, ornate traditional costumes and jewelry with intricate fabric detail, volumetric temple lighting, sharp focus, epic realistic backgrounds, no cartoon, no painting, no illustration, no blur",
+  "scenarioName": null,
+  "error": null,
+  "createdAt": "2026-10-16T19:02:04.214Z",
+  "updatedAt": "2026-10-16T20:28:35.134Z",
+  "warn": null,
+  "planBatchHint": null
+}

@@ -1,0 +1,1 @@
+{"version":1,"analysis":{"durationSeconds":193.16,"bpm":64,"bpmConfidence":0.3,"beatTimes":[192.09,193.02],"keyEstimate":{"key":null,"confidence":0.03,"method":"goertzel-chroma-estimate"},"rms":0.1662,"peak":1.2238,"vocalActivity":{"status":"not_estimated","note":"Requires a vocal detector/source-separation model."}}}

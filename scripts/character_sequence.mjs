@@ -1,0 +1,145 @@
+// CHARACTER SEQUENCE: 1 reference visual -> N keyframe story beats (same subject,
+// each keyframe Flux img2img-anchored on the reference image)
+// -> each keyframe uploaded + fed to LTX i2v -> stitched final.
+// Generic: any prompts/<scenario>.json with the anime_sequence shape.
+//
+// Prompt JSON shape:
+//   { "duration": 3, "referencePrompt": "...",
+//     "sequence": [ { "title", "image", "motion" }, ... ] }
+//
+// Versioning: regenerating an asset writes a new _vN file (previous versions
+// are kept). The stitched final always uses the version selected as "main"
+// (outputs/<scenario>/state.json; default = latest).
+//
+// Usage:
+//   node scripts/character_sequence.mjs [scenario]           # default: anime_sequence
+//   node scripts/character_sequence.mjs [scenario] --stitch  # only re-stitch (from selected mains)
+//   node scripts/character_sequence.mjs [scenario] --regen ref
+//   node scripts/character_sequence.mjs [scenario] --regen keyframe <beat>
+//   node scripts/character_sequence.mjs [scenario] --regen clip <beat>
+//   node scripts/character_sequence.mjs [scenario] --vertical  # 9:16 Instagram Reel cut
+//     (combines with --stitch / --regen; writes outputs/<scenario>_vertical/)
+//   node scripts/character_sequence.mjs [scenario] --no-dialogue  # silent clips only
+//     (skips the automatic voice + lip-sync pass even when beats carry dialogue)
+//   node scripts/character_sequence.mjs [scenario] --chain  # connected movie:
+//     beats N>1 carry seamless-continuation wording so scenes play
+//     continuously (devotional Shiv/Ram/Krishna docs). Pixels always stay
+//     per-scene (every clip animates its own keyframe).
+//     Also auto-enabled by cfg.chainContinuity (devotional boards set it).
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  buildLtxGraph, buildImageGraph,
+} from "../lib/comfy.mjs";
+import {
+  VERTICAL, VERTICAL_FLUX_WIDTH, VERTICAL_FLUX_HEIGHT, VERTICAL_LTX_RATIO, VERTICAL_LTX_MEGAPIXELS,
+  normalizeFormat, outDirName, prefixForDir, verticalImagePrompt, verticalMotionPrompt,
+} from "../lib/variant.mjs";
+import { runSequence, stitchSequence } from "../lib/sequence.mjs";
+import { beatTargetDuration } from "../lib/tts.mjs";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+const args = process.argv.slice(2);
+const scenario = args.find((a) => !a.startsWith("--")) || "anime_sequence";
+// --config-name <displayName>: the positional arg is the STORAGE folder
+// (outputs/<folder>/, space-free, immutable) while the prompt config lives
+// under the display name (prompts/<displayName>.json). The server passes
+// both when they differ; CLI use omits the flag (config == storage arg).
+const cfgNameIdx = args.indexOf("--config-name");
+// --image-mode <value>: image mode ("flux" = pure t2i, "flux_text_image" = reference-based)
+const imageModeIdx = args.indexOf("--image-mode");
+const imageMode = imageModeIdx >= 0 && args[imageModeIdx + 1] ? args[imageModeIdx + 1] : "flux_text_image";
+const cfgName = cfgNameIdx >= 0 && args[cfgNameIdx + 1] ? args[cfgNameIdx + 1] : scenario;
+// --vertical: regenerate every asset at 9:16 into outputs/<scenario>_vertical/
+// (Instagram Reel cut). Never touches the landscape outputs.
+const format = normalizeFormat(args.includes("--vertical") ? VERTICAL : "landscape");
+const vertical = format === VERTICAL;
+const regenIdx = args.indexOf("--regen");
+const regen = regenIdx >= 0
+  ? { kind: args[regenIdx + 1], index: Number(args[regenIdx + 2]) || 0 }
+  : null;
+
+const cfgPath = path.join(here, `../prompts/${cfgName}.json`);
+if (!fs.existsSync(cfgPath)) {
+  console.error(`[char] no prompts/${cfgName}.json — available:`);
+  console.error("  " + fs.readdirSync(path.join(here, "../prompts")).filter((f) => f.endsWith(".json")).join("\n  "));
+  process.exit(1);
+}
+const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+const outDir = path.resolve(here, `../outputs/${outDirName(scenario, "ltx", format)}`);
+const prefix = prefixForDir(outDirName(scenario, "ltx", format));
+fs.mkdirSync(outDir, { recursive: true });
+
+const fluxSize = vertical ? { width: VERTICAL_FLUX_WIDTH, height: VERTICAL_FLUX_HEIGHT } : {};
+const frame = (prompt) => (vertical ? verticalImagePrompt(prompt) : prompt);
+const move = (motion) => (vertical ? verticalMotionPrompt(motion) : motion);
+// Flux quality: scenario may request higher steps for photoreal detail
+// (documentary devotional boards set fluxSteps=14; default 4 stays fast for
+// cartoon/kids). CLI override: --flux-steps N.
+const fluxStepsIdx = args.indexOf("--flux-steps");
+const fluxSteps = fluxStepsIdx >= 0 && Number(args[fluxStepsIdx + 1])
+  ? Math.min(20, Math.max(1, Math.round(Number(args[fluxStepsIdx + 1]))))
+  : (Number.isFinite(Number(cfg.fluxSteps)) ? Math.min(20, Math.max(1, Math.round(Number(cfg.fluxSteps)))) : 4);
+// Flux.1-dev (flux_text_image) renders properly at its shipped 20 steps;
+// explicit --flux-steps / cfg.fluxSteps still win.
+const fluxTextSteps = fluxStepsIdx >= 0 && Number(args[fluxStepsIdx + 1])
+  ? fluxSteps
+  : (Number.isFinite(Number(cfg.fluxSteps)) ? fluxSteps : 20);
+const fluxTextSize = vertical ? fluxSize : {};
+// The image workflow (the header dropdown's choice) drives the graph, the
+// resolution and the step count:
+//   "flux"                 -> Flux 2 Klein (1280x768, 4 steps; the only mode
+//                             that can anchor on the picked reference image)
+//   "flux_text_image"      -> Flux.1-dev GGUF (960x544, 20 steps)
+//   "flux_reference_image" -> Flux.1-dev reference-image graph, used EXACTLY
+//                             as authored: its own 1920x1024 latent and its
+//                             own 20 steps (the project's fluxSteps /
+//                             --flux-steps never touch it)
+// The vertical (9:16) cut keeps its own size for every mode.
+const isRefImage = imageMode === "flux_reference_image";
+const imgSize = isRefImage
+  ? (vertical ? fluxSize : {})          // {} = the workflow's own 1920x1024
+  : imageMode === "flux" ? fluxSize : fluxTextSize;
+const imgSteps = isRefImage
+  ? undefined                          // the workflow's own 20 steps
+  : imageMode === "flux" ? fluxSteps : fluxTextSteps;
+
+const opts = {
+  scenario,
+  outDir,
+  prefix,
+  tag: `[char:${scenario}${vertical ? "/vertical" : ""}]`,
+  cfg,
+  imageMode,
+  buildRef: (prompt) =>
+    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${scenario}/ref`, steps: imgSteps }),
+  buildKeyframe: (prompt, i, refImage) =>
+    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${scenario}/seq${i + 1}`, steps: imgSteps, image: refImage }),
+  buildClip: (motion, image, i) => buildLtxGraph({
+    prompt: move(motion),
+    image,
+    // Dialogue beats grow to fit their voice audio (lib/tts.mjs) instead
+    // of the fixed global duration.
+    duration: beatTargetDuration({ outDir, prefix, n: i + 1, beat: cfg.sequence[i], fallback: cfg.duration ?? 3 }),
+    ratio: vertical ? VERTICAL_LTX_RATIO : "16:9 (Widescreen)",
+    megapixels: vertical ? VERTICAL_LTX_MEGAPIXELS : 0.5,
+    negative: cfg.negative, // explicit override; undefined -> cartoon-aware auto default in buildLtxGraph
+    prefix: `${scenario}/clip${i + 1}_${cfg.sequence[i].title}`,
+  }),
+  videoNode: "75",
+};
+
+if (process.argv.includes("--stitch")) {
+  try { stitchSequence(opts); }
+  catch (e) { console.error(`[char] ${e.message}`); process.exit(1); }
+  process.exit(0);
+}
+
+try {
+  await runSequence({ ...opts, regen, noDialogue: process.argv.includes("--no-dialogue"), chain: process.argv.includes("--chain") });
+} catch (e) {
+  console.error(`[char] ${e.message}`);
+  process.exit(1);
+}

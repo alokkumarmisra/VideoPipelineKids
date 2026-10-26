@@ -1,0 +1,147 @@
+// CHARACTER SEQUENCE (WAN): 1 reference visual -> N keyframe story beats (same
+// subject, each keyframe Flux img2img-anchored on the reference image)
+// -> each keyframe uploaded + fed to Wan 2.1 i2v -> stitched final.
+// Same scenario JSON shape as character_sequence.mjs; clips are built with
+// buildWanGraph (wan2.1-i2v-14b GGUF + AccVid LoRA) instead of LTX.
+//
+// Wan facts: fixed 16fps, length = frames (4n+1, step 4), width/height min 16
+// step 16, 8 steps default, VIDEO ONLY (no generated audio, unlike LTX-2.5).
+//
+// Prompt JSON shape:
+//   { "duration": 3, "referencePrompt": "...", "width"=512, "height"=512,
+//     "steps"=8, "negative" (optional),
+//     "sequence": [ { "title", "image", "motion" } ] }
+//
+// Versioning: regenerating an asset writes a new _vN file (previous versions
+// are kept). The stitched final always uses the version selected as "main"
+// (outputs/<scenario>_wan/state.json; default = latest).
+//
+// Usage:
+//   node scripts/character_sequence_wan.mjs [scenario]           # default: anime_sequence
+//   node scripts/character_sequence_wan.mjs [scenario] --stitch  # only re-stitch (from selected mains)
+//   node scripts/character_sequence_wan.mjs [scenario] --regen ref
+//   node scripts/character_sequence_wan.mjs [scenario] --regen keyframe <beat>
+//   node scripts/character_sequence_wan.mjs [scenario] --regen clip <beat>
+//   node scripts/character_sequence_wan.mjs [scenario] --vertical  # 9:16 Instagram Reel cut
+//     (combines with --stitch / --regen; writes outputs/<scenario>_wan_vertical/)
+//   node scripts/character_sequence_wan.mjs [scenario] --no-dialogue  # silent clips only
+//     (skips the automatic voice + lip-sync pass even when beats carry dialogue)
+//   node scripts/character_sequence_wan.mjs [scenario] --chain  # connected movie:
+//     beats N>1 carry seamless-continuation wording so scenes play continuously
+//     (devotional Shiv/Ram/Krishna docs). Pixels always stay per-scene
+//     (every clip animates its own keyframe). Also auto-enabled by
+//     cfg.chainContinuity.
+// Outputs go to outputs/<scenario>_wan/ (never clobbers the LTX run of the same scenario);
+// --vertical writes outputs/<scenario>_wan_vertical/ instead.
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  buildWanGraph, buildImageGraph,
+} from "../lib/comfy.mjs";
+import {
+  VERTICAL, VERTICAL_FLUX_WIDTH, VERTICAL_FLUX_HEIGHT,
+  VERTICAL_WAN_WIDTH, VERTICAL_WAN_HEIGHT,
+  normalizeFormat, outDirName, prefixForDir, verticalImagePrompt, verticalMotionPrompt,
+} from "../lib/variant.mjs";
+import { runSequence, stitchSequence } from "../lib/sequence.mjs";
+import { beatTargetDuration } from "../lib/tts.mjs";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+const args = process.argv.slice(2);
+const scenario = args.find((a) => !a.startsWith("--")) || "anime_sequence";
+// --config-name <displayName>: the positional arg is the STORAGE folder
+// (outputs/<folder>_wan/, space-free, immutable) while the prompt config
+// lives under the display name (prompts/<displayName>.json). The server
+// passes both when they differ; CLI use omits the flag (config == storage).
+const cfgNameIdx = args.indexOf("--config-name");
+const cfgName = cfgNameIdx >= 0 && args[cfgNameIdx + 1] ? args[cfgNameIdx + 1] : scenario;
+// --image-mode <value>: same semantics as character_sequence.mjs
+const imageModeIdx = args.indexOf("--image-mode");
+const imageMode = imageModeIdx >= 0 && args[imageModeIdx + 1] ? args[imageModeIdx + 1] : "flux_text_image";
+// --vertical: regenerate every asset at 9:16 into outputs/<scenario>_wan_vertical/
+// (Instagram Reel cut). Never touches the landscape outputs.
+const format = normalizeFormat(args.includes("--vertical") ? VERTICAL : "landscape");
+const vertical = format === VERTICAL;
+const regenIdx = args.indexOf("--regen");
+const regen = regenIdx >= 0
+  ? { kind: args[regenIdx + 1], index: Number(args[regenIdx + 2]) || 0 }
+  : null;
+
+const cfgPath = path.join(here, `../prompts/${cfgName}.json`);
+if (!fs.existsSync(cfgPath)) {
+  console.error(`[wanchar] no prompts/${cfgName}.json — available:`);
+  console.error("  " + fs.readdirSync(path.join(here, "../prompts")).filter((f) => f.endsWith(".json")).join("\n  "));
+  process.exit(1);
+}
+const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+const outDir = path.resolve(here, `../outputs/${outDirName(scenario, "wan", format)}`);
+const prefix = prefixForDir(outDirName(scenario, "wan", format));
+fs.mkdirSync(outDir, { recursive: true });
+
+/** duration (s) -> Wan frame count (4n+1 at fixed 16fps). 3s -> 49, 4s -> 65. */
+const wanFrames = (duration) => Math.floor((duration * 16) / 4) * 4 + 1;
+const length = cfg.length ?? wanFrames(cfg.duration ?? 3);
+
+const fluxSize = vertical ? { width: VERTICAL_FLUX_WIDTH, height: VERTICAL_FLUX_HEIGHT } : {};
+const frame = (prompt) => (vertical ? verticalImagePrompt(prompt) : prompt);
+const move = (motion) => (vertical ? verticalMotionPrompt(motion) : motion);
+// Flux quality: scenario may request higher steps for photoreal detail
+// (documentary devotional boards set fluxSteps=14; default 4 stays fast).
+const fluxStepsIdx = args.indexOf("--flux-steps");
+const fluxSteps = fluxStepsIdx >= 0 && Number(args[fluxStepsIdx + 1])
+  ? Math.min(20, Math.max(1, Math.round(Number(args[fluxStepsIdx + 1]))))
+  : (Number.isFinite(Number(cfg.fluxSteps)) ? Math.min(20, Math.max(1, Math.round(Number(cfg.fluxSteps)))) : 4);
+const fluxTextSteps = fluxStepsIdx >= 0 && Number(args[fluxStepsIdx + 1])
+  ? fluxSteps
+  : (Number.isFinite(Number(cfg.fluxSteps)) ? fluxSteps : 20);
+const fluxTextSize = vertical ? fluxSize : {};
+// The image workflow (the header dropdown's choice) drives the graph, the
+// resolution and the step count — see scripts/character_sequence.mjs. The
+// reference-image workflow keeps its OWN 1920x1024 latent and 20 steps.
+const isRefImage = imageMode === "flux_reference_image";
+const imgSize = isRefImage
+  ? (vertical ? fluxSize : {})
+  : imageMode === "flux" ? fluxSize : fluxTextSize;
+const imgSteps = isRefImage
+  ? undefined
+  : imageMode === "flux" ? fluxSteps : fluxTextSteps;
+
+const opts = {
+  scenario,
+  outDir,
+  prefix,
+  tag: `[wanchar:${scenario}${vertical ? "/vertical" : ""}]`,
+  cfg,
+  imageMode,
+  buildRef: (prompt) =>
+    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${scenario}/wan_ref`, steps: imgSteps }),
+  buildKeyframe: (prompt, i, refImage) =>
+    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${scenario}/wan_seq${i + 1}`, steps: imgSteps, image: refImage }),
+  buildClip: (motion, image, i) => buildWanGraph({
+    prompt: move(motion),
+    image,
+    width: vertical ? VERTICAL_WAN_WIDTH : (cfg.width ?? 512),
+    height: vertical ? VERTICAL_WAN_HEIGHT : (cfg.height ?? 512),
+    // Dialogue beats grow to fit their voice audio (lib/tts.mjs).
+    length: wanFrames(beatTargetDuration({ outDir, prefix, n: i + 1, beat: cfg.sequence[i], fallback: cfg.duration ?? 3 })),
+    steps: cfg.steps ?? 8,
+    negative: cfg.negative,
+    prefix: `${scenario}/wan_clip${i + 1}_${cfg.sequence[i].title}`,
+  }),
+  videoNode: "56",
+};
+
+if (process.argv.includes("--stitch")) {
+  try { stitchSequence(opts); }
+  catch (e) { console.error(`[wanchar] ${e.message}`); process.exit(1); }
+  process.exit(0);
+}
+
+try {
+  await runSequence({ ...opts, regen, noDialogue: process.argv.includes("--no-dialogue"), chain: process.argv.includes("--chain") });
+} catch (e) {
+  console.error(`[wanchar] ${e.message}`);
+  process.exit(1);
+}

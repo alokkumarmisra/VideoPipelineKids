@@ -1,0 +1,1842 @@
+import type { Scenario, ScenarioInfo, Run, ComfyStatus, AuthUser, OutputsInfo, AssetKind, ProjectAsset, ProjectReference, DashboardResponse, HealthResponse, SongInfo } from "./types";
+
+// Never treat an HTTP error body as data: a 500 {error: ...} object once
+// resolved into array state and crashed the gallery (assets.filter is not a
+// function). Reject like every other helper in this file; callers already
+// handle rejections (they fall back to disk listings / empty states).
+const get = async <T,>(url: string) => {
+  const r = await fetch(url);
+  const d = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(d?.error || `request failed (HTTP ${r.status})`);
+  return d as T;
+};
+
+const post = async <T,>(url: string, body?: unknown) => {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  const d = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(d?.error || `request failed (HTTP ${r.status})`);
+  return d as T;
+};
+
+// ------------------------------------------------- service-offline alerts
+// Every AI/LLM request (director + documentary planning, craft, estimates,
+// captions) and every ComfyUI request (generation runs) funnels failures
+// here so a down API pops an alert window instead of failing silently.
+// Server tags connectivity failures at the choke points ("LLM API offline:"
+// from llmPostChat, "ComfyUI API offline:" from lib/comfy.mjs); the legacy
+// markers below cover older messages (LLM_BASE, EXEC ERROR, ...).
+export type OfflineService = "llm" | "comfy";
+
+/** Minimal dialog surface (structural so api.ts never imports components). */
+export interface AlertDialog {
+  alert(message: string, opts?: { title?: string; tone?: "info" | "success" | "warning" | "error"; okText?: string }): Promise<void>;
+}
+
+const LLM_OFFLINE_RE = /LLM API offline|LLM_BASE|LLM timed out/i;
+const LLM_ERROR_RE = /LLM HTTP|llama|chat\/completions|LM Studio/i;
+const COMFY_OFFLINE_RE = /ComfyUI API offline|COMFY_BASE|fetchJson gave up|upload gave up|ComfyUI API offline: download failed|upload\/image|system_stats/i;
+const COMFY_ERROR_RE = /ComfyUI|EXEC ERROR|UPLOAD ERROR|download failed/i;
+
+/** "llm"/"comfy" only when the message means that API is down/unreachable. */
+export const serviceOfflineKind = (msg: unknown): OfflineService | null => {
+  const s = msg instanceof Error ? msg.message : String(msg ?? "");
+  if (LLM_OFFLINE_RE.test(s)) return "llm";
+  if (COMFY_OFFLINE_RE.test(s)) return "comfy";
+  return null;
+};
+
+export interface ServiceError {
+  kind: OfflineService;
+  /** False for service errors that do NOT mean offline (e.g. LLM HTTP 400). */
+  offline: boolean;
+}
+
+/** Any LLM/ComfyUI-flavored failure (offline or not, e.g. LLM HTTP 400). */
+export const serviceErrorKind = (msg: unknown): ServiceError | null => {
+  const s = msg instanceof Error ? msg.message : String(msg ?? "");
+  if (LLM_OFFLINE_RE.test(s)) return { kind: "llm", offline: true };
+  if (COMFY_OFFLINE_RE.test(s)) return { kind: "comfy", offline: true };
+  if (LLM_ERROR_RE.test(s)) return { kind: "llm", offline: false };
+  if (COMFY_ERROR_RE.test(s)) return { kind: "comfy", offline: false };
+  return null;
+};
+
+/**
+ * Pop the alert window for an AI/ComfyUI failure. Returns "offline" when an
+ * API-offline alert was shown, "error" when a generic service-error alert was
+ * shown, null when the message is not service-related (caller keeps its own
+ * inline/generic handling). `action` names what the user tried to do.
+ */
+export const alertServiceError = async (
+  msg: unknown,
+  dialog: AlertDialog,
+  action = "AI request",
+): Promise<"offline" | "error" | null> => {
+  const text = msg instanceof Error ? msg.message : String(msg ?? "");
+  const found = serviceErrorKind(text);
+  if (!found) return null;
+  if (found.offline && found.kind === "llm") {
+    await dialog.alert(
+      `${action} needs the AI service (LM Studio / llama-server), but it is unreachable. ` +
+        `Start LM Studio with a model loaded, check LLM_BASE, then retry. ` +
+        `Live status: the topbar pills / GET /api/health.\n\nDetail: ${text.slice(0, 300)}`,
+      { title: "LLM API offline", tone: "error" },
+    );
+    return "offline";
+  }
+  if (found.offline && found.kind === "comfy") {
+    await dialog.alert(
+      `${action} needs ComfyUI, but it is unreachable. ` +
+        `Check the ComfyUI box and the reverse-proxy tunnel (COMFY_BASE), then retry generation. ` +
+        `Live status: the topbar pills / GET /api/health.\n\nDetail: ${text.slice(0, 300)}`,
+      { title: "ComfyUI API offline", tone: "error" },
+    );
+    return "offline";
+  }
+  await dialog.alert(text.slice(0, 500), {
+    title: found.kind === "llm" ? "AI request failed" : "ComfyUI request failed",
+    tone: "error",
+  });
+  return "error";
+};
+
+// ---------------------------------------------------------------- auth
+export type { AuthUser } from "./types";
+
+export const me = async (): Promise<AuthUser> => {
+  const r = await fetch("/api/me");
+  if (!r.ok) throw new Error("unauthorized");
+  return r.json() as Promise<AuthUser>;
+};
+export const login = (username: string, password: string) =>
+  fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  }).then((r) => (r.ok ? r.json() as Promise<AuthUser> : r.json().then((d) => Promise.reject(new Error(d.error || "login failed")))));
+export const logout = () => fetch("/api/logout", { method: "POST" }).then((r) => r.json());
+
+export const listScenarios = () =>
+  fetch("/api/scenarios").then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !Array.isArray(d))
+      throw new Error(d?.error || `project list failed (HTTP ${r.status})`);
+    return d as ScenarioInfo[];
+  });
+
+// 06-Sep-2025
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const fmtDate = (ms: number) => {
+  const d = new Date(Number(ms));
+  return `${String(d.getDate()).padStart(2, "0")}-${MONTHS[d.getMonth()]}-${d.getFullYear()}`;
+};
+// 06-Sep-2026 14:04 (local time)
+export const fmtDateTime = (ms: number) => {
+  const d = new Date(Number(ms));
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}-${MONTHS[d.getMonth()]}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+export const getScenario = (name: string) =>
+  fetch(`/api/scenario/${encodeURIComponent(name)}`).then(async (r) => {
+    // The backend always replies JSON — but never treat an HTTP error as
+    // data: callers used to read `.config` off a 401/404/503 body and render
+    // an empty workspace with no error shown.
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || typeof d !== "object" || !("config" in d))
+      throw new Error(d?.error || `load failed (HTTP ${r.status})`);
+    return d as { name: string; config: Scenario; project_type?: string };
+  });
+
+// Saved versions of a scenario (every explicit Save = a new version in the DB).
+// The server attaches a delta summary per version: v1 lists all scenes (full
+// snapshot), v2+ lists only what changed vs the previous version, e.g.
+// { refChanged: false, beats: [3] } — so the UI never shows v2 as if all
+// scenes were regenerated.
+export interface ScenarioVersionInfo {
+  version: number;
+  created_at: string;
+  changes?: { refChanged: boolean; beats: number[] } | null;
+}
+export const listVersions = (name: string) =>
+  get<ScenarioVersionInfo[]>(`/api/scenario/${name}/versions`);
+export const getVersion = (name: string, version: number) =>
+  get<{ name: string; version: number; config: Scenario; created_at: string }>(
+    `/api/scenario/${name}/versions/${version}`);
+// Delete one saved version (prompt config). Deleting the latest rolls the
+// current config back to the previous version; outputs are untouched.
+export const deleteVersion = (name: string, version: number) =>
+  fetch(`/api/scenario/${name}/versions/${version}`, { method: "DELETE" }).then((r) =>
+    r.ok
+      ? r.json() as Promise<{ ok: boolean; deleted: number; latest: number | null }>
+      : r.json().then((d) => Promise.reject(new Error(d.error || "delete version failed")))
+  );
+export const saveScenario = (name: string, config: Scenario) =>
+  fetch(`/api/scenario/${name}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  }).then(async (r) => {
+    // Never treat an HTTP error as success — callers (Create/Edit dialogs)
+    // must show the failure instead of closing as if the data was saved.
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `save failed (HTTP ${r.status})`);
+    return d as { ok: boolean; version: number | null; project_id: number | null; unchanged?: boolean; updated?: boolean };
+  });
+export const deleteScenario = (name: string) =>
+  fetch(`/api/scenario/${name}`, { method: "DELETE" }).then((r) =>
+    r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error(d.error || `HTTP ${r.status}`)))
+  );
+// Import an external storyboard/project JSON file as a first-class project.
+// The server converts scenes[] (scene_number/name/timestamp/camera_angle/
+// visual_assets/character_actions/on_screen_text/audio_cues + any extras)
+// into a canonical Scenario and saves it through the standard pipeline
+// (scenarios + versions + projects + project_assets + prompts JSON).
+// Rejects with `exists=true` (plus `name`) when the project already exists
+// and `overwrite` was not set, so the UI can ask before replacing it.
+export interface ImportResult {
+  ok: boolean;
+  name: string;
+  version: number | null;
+  project_id: number | null;
+  scenes: number;
+  duration: number | null;
+  warnings: string[];
+  overwritten: boolean;
+}
+export const importProject = (project: unknown, opts: { name?: string; overwrite?: boolean } = {}) =>
+  fetch("/api/scenarios/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, ...(opts.name ? { name: opts.name } : {}), ...(opts.overwrite ? { overwrite: true } : {}) }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) {
+      const e = new Error(d?.error || `import failed (HTTP ${r.status})`) as Error & { exists?: boolean; name?: string };
+      if (d?.exists) {
+        e.exists = true;
+        e.name = d?.name;
+      }
+      throw e;
+    }
+    return d as ImportResult;
+  });
+
+// Rename a project (prompts JSON + outputs dirs + every name-keyed DB row +
+// favorites move with it). Blocked server-side while a run is active.
+export const renameScenario = (name: string, newName: string) =>
+  fetch(`/api/scenario/${name}/rename`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ newName }),
+  }).then((r) =>
+    r.ok
+      ? r.json() as Promise<{ ok: boolean; name: string }>
+      : r.json().then((d) => Promise.reject(new Error(d.error || "rename failed")))
+  );
+
+// Predefined video-type presets (system-owned presets/*.md) + per-project
+// rule customizations (Scenario.presetRules, stored with the project). The
+// server resolves ids to files; the client only ever sends/stores ids plus
+// an optional custom rules string that replaces the preset file for that
+// project only.
+export interface PresetInfo {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+}
+export interface PresetDetail extends PresetInfo {
+  content: string;
+}
+export const DEFAULT_PRESET_ID = "cinematic";
+export const listPresets = () => get<PresetInfo[]>("/api/presets");
+// Shared in-flight cache — every Video Type dropdown on screen reuses one
+// request instead of each firing its own.
+let presetsCache: Promise<PresetInfo[]> | null = null;
+export const getPresetsCached = () => {
+  if (!presetsCache) {
+    presetsCache = listPresets().catch((e) => {
+      presetsCache = null;
+      throw e;
+    });
+  }
+  return presetsCache;
+};
+export const getPreset = (id: string) =>
+  get<PresetDetail>(`/api/presets/${encodeURIComponent(id)}`);
+// Clamp any stored/selected value to a known id (unknown -> default).
+export const presetOrDefault = (id: string | undefined | null, list: PresetInfo[]): string =>
+  (id && list.some((p) => p.id === id) ? id : DEFAULT_PRESET_ID);
+
+export const setFavorite = (name: string, on: boolean) =>
+  fetch("/api/favorites", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, on }),
+  }).then((r) => r.json() as Promise<{ ok: boolean; names: string[] }>);
+
+// UI theme persisted server-side in data/theme.json (source of truth —
+// survives reloads, restarts and browser changes; localStorage is only a
+// cache). Shape: { mode: "dark" | "light", color: "" | "#rrggbb" (active
+// accent, legacy), darkColor?: "" | "#rrggbb", lightColor?: "" | "#rrggbb",
+// darkBg?: "" | "#rrggbb" (dark-mode background), lightBg?: "" | "#rrggbb" }.
+// Empty = factory default (dark theme, default backgrounds, red buttons).
+export interface ThemeFile {
+  mode: "dark" | "light";
+  color: string;
+  darkColor?: string;
+  lightColor?: string;
+  darkBg?: string;
+  lightBg?: string;
+}
+export const getTheme = () => get<ThemeFile>("/api/theme");
+export const saveTheme = (t: ThemeFile) =>
+  fetch("/api/theme", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(t),
+  }).then((r) => r.json() as Promise<ThemeFile>);
+
+export type Engine = "ltx" | "wan";
+
+// Image mode select in the topbar ("Main" image dropdown): chooses the AI
+// workflow for image generation — every image the app renders (project
+// keyframes AND the Devotional Library's reference stills) uses the picked
+// one. "flux_reference_image" = the Flux.1-dev reference-image workflow
+// (workflows/TextToImage/Flux_REFERENCE_IMAGE.json).
+export type ImageMode = "flux" | "flux_text_image" | "flux_reference_image" | "ltx" | "wan";
+
+  // Landscape = the main (YouTube-style 16:9) cut; vertical = the 9:16
+  // Instagram Reel cut (fresh vertical images + clips in a separate folder).
+  export type VideoFormat = "landscape" | "vertical";
+  // Catalog cut label stored per project_assets row (video_type): YOUTUBE =
+  // landscape main cut, INSTAGRAM = vertical Reel cut.
+  export type VideoType = "YOUTUBE" | "INSTAGRAM";
+
+export interface RegenSpec {
+  kind: "ref" | "keyframe" | "clip";
+  index?: number;
+}
+
+// One run request: full run (neither set), stitch-only, or a single-asset
+// regen. Queued client-side and drained serially (the server — and the
+// ComfyUI queue behind it — accepts only one active run). `format` selects
+// the landscape cut (default) or the vertical Instagram Reel cut.
+// `mode: "dialogue"` runs the voice + lip-sync pass instead of generation.
+// `mode: "song"` runs the ACE-Step lyrics-to-song pass (Create Song tab).
+// Full Generate runs voice + lip-sync automatically for dialogue beats
+// (dynamic clip lengths from the voice audio); `noDialogue` opts out.
+export interface RunRequest {
+  stitch?: boolean;
+  regen?: RegenSpec | null;
+  count?: number;
+  engine?: Engine;
+  format?: VideoFormat;
+  mode?: "dialogue" | "song";
+  beats?: string;
+  skipTts?: boolean;
+  skipLipsync?: boolean;
+  /** Full generate: skip the automatic voice + lip-sync pass (silent clips). */
+  noDialogue?: boolean;
+  /** Full generate: chain scenes — beats N>1 carry seamless-continuation wording (connected movie). Pixels always stay per-scene. */
+  chain?: boolean;
+  /** Dialogue mode: voice+sync clips but leave the final cut alone (merge later). */
+  noStitch?: boolean;
+  /** Dialogue mode: lip-sync engine for this run ("wav2lip" | "musetalk-comfy"). */
+  lipsync?: string;
+  /** Song mode: which audio model renders sung takes ("ace-step" | "minimax"). */
+  songModel?: string;
+  /** Image generation mode for ref/keyframes ("flux" t2i | "flux_text_image" ref-anchored). */
+  imageMode?: ImageMode;
+}
+
+export const startRun = (scenario: string, opts: { stitch?: boolean; engine?: Engine; format?: VideoFormat; regen?: RegenSpec | null; count?: number; mode?: "dialogue" | "song"; beats?: string; skipTts?: boolean; skipLipsync?: boolean; noStitch?: boolean; noDialogue?: boolean; chain?: boolean; lipsync?: string; songModel?: string; imageMode?: ImageMode } = {}) =>
+  fetch("/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      scenario,
+      stitch: !!opts.stitch,
+      engine: opts.engine || "ltx",
+      format: opts.format || "landscape",
+      regen: opts.regen || null,
+      count: opts.count ?? 1,
+      mode: opts.mode,
+      beats: opts.beats,
+      skipTts: !!opts.skipTts,
+      skipLipsync: !!opts.skipLipsync,
+        noStitch: !!opts.noStitch,
+        noDialogue: !!opts.noDialogue,
+        chain: !!opts.chain,
+        lipsync: opts.lipsync,
+        songModel: opts.songModel,
+      imageMode: opts.imageMode,
+    }),
+  }).then((r) => r.json() as Promise<{ id: string; folder?: string; error?: string }>);
+
+// Output dir for a storage folder + engine + format. Takes the IMMUTABLE
+// folder (project.folder_name), never the display name — pass folder names
+// here so renames can't orphan media. Vertical Reel cuts live in
+// outputs/<folder>[_wan]_vertical/ so they never touch the main cut.
+export const outScenario = (folder: string, engine: Engine, format: VideoFormat = "landscape") =>
+  `${folder}${engine === "wan" ? "_wan" : ""}${format === "vertical" ? "_vertical" : ""}`;
+
+// Client-side copy of the server's storage slug (single source of truth is
+// lib/variant.mjs — keep byte-identical). Fallback only: the server is
+// authoritative and returns the real folder_name everywhere it matters.
+export const slugFolder = (s: string) =>
+  String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 100) || "project";
+
+// Storage folder for a project reference that may carry folder_name
+// (dashboard projects, scenario list entries) — falls back to the slug.
+export const folderOf = (p: { name: string; folder_name?: string | null } | null | undefined, fallbackName = "") =>
+  p?.folder_name || (p ? slugFolder(p.name) : slugFolder(fallbackName));
+
+// True when an output dir holds the vertical (9:16) cut.
+export const isVerticalOut = (dir: string) => String(dir || "").endsWith("_vertical");
+
+export const listRuns = () => get<Run[]>("/api/runs");
+export const killRun = (id: string) => fetch(`/api/runs/${id}`, { method: "DELETE" }).then((r) => r.json());
+
+// Character dialogue pipeline (lib/dialogue_pipeline.mjs via
+// /api/project/:name/dialogue). Per-beat lines + per-stage status
+// (voice/video/lipsync/final: PENDING|COMPLETED|...) so the UI shows every
+// stage independently; retry of one failed stage = startRun({ mode:
+// "dialogue", beats: "N" }) without regenerating the other stages.
+export type DialogueStage = "PENDING" | "GENERATING_AUDIO" | "GENERATING_VIDEO" | "LIP_SYNCING" | "MERGING" | "COMPLETED" | "FAILED";
+export interface DialogueLine {
+  speaker: string;
+  line: string;
+  expression?: string;
+  emotion?: string;
+  pitch?: string;
+}
+export interface DialogueBeatStatus {
+  beat: number;
+  title: string | null;
+  hasDialogue: boolean;
+  speakers: string[];
+  segmented: boolean;
+  voice: DialogueStage;
+  video: DialogueStage;
+  lipsync: DialogueStage;
+  final: DialogueStage;
+  dialogue: DialogueLine[];
+  lineDurations: (number | null)[];
+  timing?: { speaker: string; line: string; start: number; end: number; duration: number }[];
+  total?: number;
+}
+export interface DialogueStatus {
+  name: string;
+  folder: string;
+  engine: string;
+  format: string;
+  dir: string;
+  providers: { tts: string; lipsync: string; musetalkWorkflow: boolean };
+  beats: DialogueBeatStatus[];
+}
+export const getDialogueStatus = (name: string, engine = "ltx", format: VideoFormat = "landscape") =>
+  get<DialogueStatus>(`/api/project/${encodeURIComponent(name)}/dialogue?engine=${engine}&format=${format}`);
+export const saveSceneDialogue = (name: string, scene: number, dialogue: DialogueLine[], duration?: number) =>
+  fetch(`/api/project/${encodeURIComponent(name)}/scene/${scene}/dialogue`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dialogue, ...(duration != null ? { duration } : {}) }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `dialogue save failed (HTTP ${r.status})`);
+    return d as { ok: boolean; version: number | null; scene: number; dialogue: DialogueLine[]; segmented: boolean; invalidated: number };
+  });
+
+// Saved Create Song form for a project (project_songs table, one row per
+// AUDIO project). Null song = project has no saved song form yet.
+export interface SongFormData {
+  description: string | null;
+  tags: string | null;
+  lyrics: string | null;
+  duration: number | null;
+  bpm: number | null;
+  language: string | null;
+  keyscale: string | null;
+  timesignature: string | null;
+  seed: number | null;
+  steps: number | null;
+  songPreset?: string | null;
+  songVocal?: string | null;
+  cfgScale?: number | null;
+  temperature?: number | null;
+  /** Audio model for sung takes ("ace-step" | "minimax", null on old rows = ace-step). */
+  songModel?: string | null;
+  /** Stored generated take (outputs/<folder>/<file>) + playable URL. */
+  file_path: string | null;
+  file?: string;
+  url?: string;
+  project_id: number | null;
+  updated_at?: string | null;
+}
+export const getProjectSong = (name: string) =>
+  get<{ name: string; folder: string; project_type: string; song: SongFormData | null }>(
+    `/api/project/${encodeURIComponent(name)}/song`);
+// Generated songs for a project (ACE-Step mp3s, versioned takes newest-last).
+// This is what the Create Song tab's "Generated Songs" section displays.
+export const listSongs = (name: string) =>
+  get<{ folder: string; songs: SongInfo[] }>(`/api/project/${encodeURIComponent(name)}/songs`);
+// Delete one generated song take: removes the mp3 from disk and repoints
+// project_songs.file_path in the DB (next-latest take, or null).
+export const deleteSong = (name: string, file: string) =>
+  fetch(`/api/project/${encodeURIComponent(name)}/songs/${encodeURIComponent(file)}`, { method: "DELETE" }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `delete failed (HTTP ${r.status})`);
+    return d as { ok: boolean; deleted: string; file_path: string | null };
+  });
+// Ask the local LLM to read lyrics (+ song mode) and return the exact
+// singable length in seconds (plus optional bpm/key refinements). Falls back
+// to the local heuristic server-side when the LLM is offline — never rejects
+// for a missing LLM, the `source` field tells which path answered.
+export interface SongEstimate {
+  duration: number;
+  bpm?: number;
+  keyscale?: string;
+  reasoning?: string;
+  source: "llm" | "heuristic";
+}
+export const estimateSongLength = (lyrics: string, presetId?: string, language?: string) =>
+  fetch("/api/song-estimate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lyrics, presetId, language }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `estimate failed (HTTP ${r.status})`);
+    return d as SongEstimate;
+  });
+// Ask the local LLM to read a story (+ genre/language) and suggest the exact
+// video target duration in seconds. Falls back to a local heuristic
+// server-side when the LLM is offline — never rejects for a missing LLM,
+// the `source` field tells which path answered.
+export interface DirectorEstimate {
+  duration: number;
+  reasoning?: string;
+  source: "llm" | "heuristic";
+}
+export const estimateDirectorLength = (story: string, opts?: { title?: string; genre?: string; language?: string; sceneSeconds?: number }) =>
+  fetch("/api/director-estimate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ story, ...opts }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `estimate failed (HTTP ${r.status})`);
+    return d as DirectorEstimate;
+  });
+// Ask the local LLM to read a story/lyrics (+ title/genre/style/language) and
+// draft Additional director instructions. Stateless — the caller fills its
+// textarea with the result. Rejects when the LLM is offline (no heuristic
+// fallback for free-form text); the `source` field tells which path answered.
+export interface DirectorInstructionsSuggestion {
+  instructions: string;
+  reasoning?: string;
+  source: "llm";
+}
+export const suggestDirectorInstructions = (story: string, opts?: { title?: string; genre?: string; visualStyle?: string; language?: string; existing?: string }) =>
+  fetch("/api/director-instructions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ story, ...opts }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `suggest failed (HTTP ${r.status})`);
+    return d as DirectorInstructionsSuggestion;
+  });
+
+// Song analysis for the Kids Video Director: mood, timed segments, narration
+// style, visual recommendations. Stateless — nothing persisted.
+export interface DirectorSongSegment {
+  start: number;
+  end: number;
+  label: string;
+  mood: string;
+  action: string;
+}
+export interface DirectorSongAnalysis {
+  title: string;
+  durationSeconds: number;
+  mood: string;
+  structure: string;
+  narrationStyle: string;
+  visualStyle: string;
+  educationalFocus: string;
+  segments: DirectorSongSegment[];
+  source: "llm" | "heuristic";
+  hasLyrics: boolean;
+  measured?: {
+    meanVolumeDb?: number | null; peakVolumeDb?: number | null; silenceRanges?: { start: number; end: number }[]; source: string;
+    signal?: { bpm: number | null; bpmConfidence: number; beatTimes: number[]; keyEstimate: { key: string | null; confidence: number; method: string }; vocalActivity: { status: string; note: string }; rms: number; peak: number } | null;
+  };
+  transcript?: { status: "complete" | "not_configured" | "unavailable"; text: string; note: string; segments: { start: number; end: number; text: string }[] };
+}
+export const analyzeSong = (opts: {
+  title: string;
+  lyrics: string;
+  genre: string;
+  language: string;
+  durationSeconds: number;
+  file?: string;
+  audioMode?: "song" | "story";
+}) =>
+  fetch("/api/director/analyze-song", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `song analysis failed (HTTP ${r.status})`);
+    return d as DirectorSongAnalysis;
+  });
+
+export const comfyStatus = () => get<ComfyStatus>("/api/comfy");
+export const listOutputs = (scenario: string) =>
+  get<OutputsInfo>(`/api/outputs?scenario=${scenario}`);
+
+// Home dashboard + combined service health (real data, no mocks).
+export const getDashboard = () =>
+  fetch("/api/dashboard").then((r) =>
+    r.ok
+      ? r.json() as Promise<DashboardResponse>
+      : r.json().then((d) => Promise.reject(new Error(d.error || `HTTP ${r.status}`)))
+  );
+export const getHealth = () => get<HealthResponse>("/api/health");
+
+// "10 minutes ago" / "3 hours ago" / "2 days ago", falling back to fmtDate.
+export const fmtRelative = (ms: number | null | undefined) => {
+  if (ms == null || !Number.isFinite(Number(ms))) return "—";
+  const diff = Date.now() - Number(ms);
+  if (diff < 0) return fmtDate(Number(ms));
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d} day${d === 1 ? "" : "s"} ago`;
+  return fmtDate(Number(ms));
+};
+
+// Pick which version of an asset is "main" (used for stitching / clip generation).
+export const selectMain = (scenario: string, kind: AssetKind, index: number | null, file: string) =>
+  fetch("/api/outputs/select", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scenario, kind, index, file }),
+  }).then((r) => (r.ok ? r.json() as Promise<OutputsInfo> : r.json().then((d) => Promise.reject(new Error(d.error || "select failed")))));
+
+// Upload an image (data URL) as the scenario's reference — stored as the next
+// ref version and selected as main (the pipeline then skips Flux ref generation).
+export const uploadRef = (scenario: string, data: string) =>
+  fetch("/api/upload/ref", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scenario, data }),
+  }).then((r) => (r.ok ? r.json() as Promise<OutputsInfo> : r.json().then((d) => Promise.reject(new Error(d.error || "upload failed")))));
+
+// Upload an image (data URL) as beat N's keyframe — stored as the next
+// keyframe version and selected as main (clip generation then runs i2v
+// from the uploaded image).
+export const uploadKeyframe = (scenario: string, index: number, data: string) =>
+  fetch("/api/upload/keyframe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scenario, index, data }),
+  }).then((r) => (r.ok ? r.json() as Promise<OutputsInfo> : r.json().then((d) => Promise.reject(new Error(d.error || "upload failed")))));
+
+// Re-stitch the final cut from the currently selected main versions.
+export const stitchOnly = (scenario: string, engine: Engine = "ltx", format: VideoFormat = "landscape") =>
+  fetch("/api/outputs/stitch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scenario, engine, format }),
+  }).then((r) => r.json() as Promise<{ id: string; folder?: string }>);
+
+// Short cut for Instagram Reels/Shorts: trim the output dir's latest final
+// cut down to the first `seconds` (30/60/90). Resolves to the trimmed file
+// (plus both durations); when the final is already shorter, it resolves to
+// the final itself with cut=false (nothing written).
+export const cutReel = (dir: string, seconds: 30 | 60 | 90) =>
+  fetch("/api/reel-cut", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dir, seconds }),
+  }).then(
+    (r) =>
+      r.ok
+        ? r.json() as Promise<{ file: string; duration: number; cut: boolean; from: string; fromDuration: number | null }>
+        : r.json().then((d) => Promise.reject(new Error(d.error || "cut failed")))
+  );
+
+// Ask the local LLM to extend a scenario with the next `count` beats in the story.
+export const craftBeat = (config: Scenario, count = 1) =>
+  fetch("/api/craft-beat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ config, count }),
+  }).then(
+    (r) =>
+      r.ok
+        ? r.json() as Promise<{ beats?: { title: string; image: string; motion: string }[]; beat?: { title: string; image: string; motion: string } }>
+        : r.json().then((d) => Promise.reject(new Error(d.error || "craft beat failed")))
+  );
+
+// AI merge of one Master Prompt addition into one scene's keyframe image
+// prompt. Called once per scene by the "Apply to All Scenes" popup so it can
+// show per-scene progress. The server checks semantic presence first
+// (paraphrase counts as present) and inserts only missing details at the
+// natural place; `fallback:true` means the LLM was offline and the naive
+// append was used instead.
+export interface ApplyMasterSceneResult {
+  image: string;
+  changed: boolean;
+  skipped: boolean;
+  reason: string;
+  fallback: boolean;
+}
+export const applyMasterScene = (master: string, beat: { title?: string; image?: string; motion?: string }) =>
+  fetch("/api/apply-master-scene", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ master, beat }),
+  }).then((r) =>
+    r.ok
+      ? r.json() as Promise<ApplyMasterSceneResult>
+      : r.json().then((d) => Promise.reject(new Error(d.error || "apply scene failed")))
+  );
+
+// Ask the local LLM for publishing metadata (title / description /
+// hashtags) for a scenario. Stateless — the server persists nothing; the
+// caller caches the result per project.
+export interface VideoMeta {
+  title: string;
+  description: string;
+  hashtags: string[];
+}
+export const craftVideoMeta = (config: Scenario) =>
+  fetch("/api/video-meta", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ config }),
+  }).then((r) =>
+    r.ok
+      ? r.json() as Promise<VideoMeta>
+      : r.json().then((d) => Promise.reject(new Error(d.error || "video metadata failed")))
+  );
+
+// Ask the local LLM for a single Master Prompt from a Description + the
+// chosen Video Type (presetId / presetRules). Stateless — the Create New
+// Project dialog fills its Master Prompt box.
+export const craftMasterPrompt = (
+  description: string,
+  opts: { presetId?: string; presetRules?: string } = {}
+) =>
+  fetch("/api/master-prompt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      description,
+      ...(opts.presetId ? { presetId: opts.presetId } : {}),
+      ...(opts.presetRules?.trim() ? { presetRules: opts.presetRules } : {}),
+    }),
+  }).then(async (r) => {
+    // The backend always replies JSON — but guard against a stale server or
+    // proxy HTML page so the dialog shows the real cause, not a parse error.
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `master prompt failed (HTTP ${r.status})`);
+    if (!d?.masterPrompt) throw new Error("LM Studio returned an empty master prompt.");
+    return d as { masterPrompt: string };
+  });
+
+export interface AssetEvent {
+  kind: "image" | "video" | "audio";
+  file: string;
+  stage: "reference" | "keyframe" | "clip" | "final" | "dialogue";
+  index?: number;
+  /** True for pre-refresh backlog replayed once on SSE connect (reattaching
+      after a refresh). Restores counts/gallery; carries no timing — the real
+      completion time is unknown, so the client must not stamp it "now". */
+  replay?: boolean;
+}
+
+// SSE tail of a run's log. Returns a close function.
+export function tailRun(
+  id: string,
+  onChunk: (line: string) => void,
+  onDone: (status: string) => void,
+  onAsset?: (a: AssetEvent) => void
+) {
+  const es = new EventSource(`/api/runs/${id}/logs`);
+  es.onmessage = (e) => onChunk(JSON.parse(e.data).line);
+  if (onAsset) es.addEventListener("asset", (e) => onAsset(JSON.parse(e.data) as AssetEvent));
+  es.addEventListener("close", (e) => { onDone(JSON.parse(e.data).status); es.close(); });
+  es.onerror = () => {
+    // Dead stream (e.g. backend restarted mid-run → unknown id): never retry
+    // forever on "running" — surface it as an error instead.
+    if (es.readyState === EventSource.CLOSED) {
+      try { onChunk("\n[log stream lost — backend restarted?]\n"); onDone("error"); }
+      finally { es.close(); }
+    }
+  };
+  return () => es.close();
+}
+
+export const outputUrl = (scenario: string, file: string) => `/outputs/${scenario}/${file}`;
+
+// Resource library (the Resource page): user-uploaded images/videos, each
+// with an AI-generated prompt. "Use in project" wires one into the exact
+// Project workflow — a new project (caption as Master Prompt + pixels as the
+// pinned reference visual) or an existing project's reference.
+export interface ResourceEntry {
+  id: string;
+  file: string;
+  kind: "image" | "video";
+  thumb: string | null;
+  prompt: string | null;
+  captionError: string | null;
+  novision?: boolean;
+  created_at: string;
+}
+export const resourceUrl = (file: string) => `/resources/${file}`;
+export const listResources = () => get<ResourceEntry[]>("/api/resources");
+export const uploadResource = (data: string) =>
+  fetch("/api/resources", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `upload failed (HTTP ${r.status})`);
+    return d as ResourceEntry;
+  });
+// (Re)generate the AI prompt by having the local vision model read the
+// image (or the video's middle frame). Rejects with `vision: false` on the
+// error when no vision model is loaded, so the UI can point at Qwen3-VL.
+export const captionResource = (id: string) =>
+  fetch(`/api/resources/${id}/caption`, { method: "POST" }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) {
+      const e = new Error(d?.error || `caption failed (HTTP ${r.status})`) as Error & { vision?: boolean };
+      if (d?.vision === false) e.vision = false;
+      throw e;
+    }
+    return d as ResourceEntry;
+  });
+export const saveResourcePrompt = (id: string, prompt: string) =>
+  fetch(`/api/resources/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `save failed (HTTP ${r.status})`);
+    return d as ResourceEntry;
+  });
+export const deleteResource = (id: string) =>
+  fetch(`/api/resources/${id}`, { method: "DELETE" }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `delete failed (HTTP ${r.status})`);
+    return d as { ok: boolean; deleted: string };
+  });
+export const useResource = (
+  id: string,
+  opts: { mode: "new"; name: string } | { mode: "ref"; project: string }
+) =>
+  fetch(`/api/resources/${id}/use`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `use failed (HTTP ${r.status})`);
+    return d as { ok: boolean; mode: string; name?: string; project?: string; file?: string };
+  });
+// Save the WHOLE library as one project: one beat per resource (oldest
+// first), each AI prompt as its scene image prompt, first prompt as Master
+// Prompt, first pixels as the pinned reference — through the same project
+// save path as every other project (scenarios row + prompts JSON + projects
+// row + one KEYFRAME/VIDEO project_assets row per scene). Media lands under
+// the pipeline filename pattern so Keyframes → clips, Story Board and
+// Rendered Clip resolve by name.
+export const buildProjectFromResources = (name: string) =>
+  fetch("/api/resources/build-project", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `save failed (HTTP ${r.status})`);
+    return d as {
+      ok: boolean; name: string; folder: string; scenes: number;
+      version: number | null; project_id: number | null; warnings: string[];
+    };
+  });
+
+// Reference visuals for a project (project_references — one row per
+// generation/upload, is_main = UI-selected main). Optional dir narrows to
+// one output dir; without it every cut is returned.
+export const listReferences = (name: string, dir?: string) =>
+  get<ProjectReference[]>(
+    `/api/project/${name}/references${dir ? `?dir=${dir}` : ""}`
+  );
+// Narrow project_assets rows for a project (one row per asset:
+// KEYFRAME/VIDEO per beat, FINAL per stitch — references live in
+// project_references, see listReferences). Version defaults to latest.
+// Versions are DELTA-based (v2 may store only the changed beat), so this
+// returns the EFFECTIVE state by default — the latest applicable row per
+// (beat, asset type) with version <= requested — and the UI keeps showing
+// all scenes. Pass mode "exact" for the raw delta rows stored at a version.
+export const listProjectAssets = (name: string, version?: number, mode?: "effective" | "exact", videoType?: VideoType) => {
+  const params = new URLSearchParams();
+  if (version != null) params.set("version", String(version));
+  if (mode === "exact") params.set("mode", "exact");
+  if (videoType) params.set("video_type", videoType);
+  const q = params.toString();
+  return get<ProjectAsset[]>(`/api/project/${name}/assets${q ? `?${q}` : ""}`);
+};
+
+// ---------------------------------------------------------------- AI Story Director
+// Story-to-Video boards (director/*.json on the server). The director only
+// authors storyboards — APPROVE hands a standard scenario config to the
+// existing saveScenario/workspace pipeline, so generation stays 100% existing.
+export interface DirectorInput {
+  title: string;
+  story: string;
+  language: string;
+  /**
+   * The language of the SOURCE TEXT for the meaning analysis
+   * ("auto" | "hi" | "en" | "hinglish"). It is separate from `language`
+   * (the spoken language): a Hindi story can be narrated in English.
+   */
+  semanticsLanguage?: string;
+  genre: string;
+  genreCustom?: string;
+  visualStyle: string;
+  styleCustom?: string;
+  /**
+   * Master Prompt: auto-filled from the visual-style preset on style change,
+   * freely editable — a non-empty value becomes THE style lock appended to
+   * every image prompt (wins over the preset/custom text).
+   */
+  masterPrompt?: string;
+  targetSeconds: number;
+  sceneSeconds: number;
+  aspectRatio: string;
+  instructions?: string;
+  /** Silent-film opt-out (false = no dialogues, no voice/lip-sync). Default true. */
+  includeDialogue?: boolean;
+  /** Connected movie (true = scenes continue the previous shot in their prompts). Default true. Pixels always stay per-scene. */
+  chainContinuity?: boolean;
+  // Music-video mode: uploaded song attachment (from directorUploadSong).
+  // durationSeconds drives the storyboard timeline; the story field carries
+  // the pasted lyrics (or an instrumental placeholder when hasLyrics=false).
+  song?: DirectorSong | null;
+  /** Optional narration/dialogue source; provides transcript/context without activating music-video rules. */
+  sourceAudio?: DirectorSong | null;
+  songAnalysis?: DirectorSongAnalysis | null;
+}
+
+// Uploaded song attachment for the Director's music-video mode.
+export interface DirectorSong {
+  file: string;
+  fileName: string;
+  durationSeconds: number;
+  hasLyrics?: boolean;
+  transcript?: { status: "complete" | "not_configured" | "unavailable"; text: string; note: string; segments: { start: number; end: number; text: string }[] };
+}
+
+// Upload an mp3/wav (data URL) for music-video mode. The server stores it in
+// director/ and returns the file handle + ffprobe duration (the timeline).
+export const directorUploadSong = (data: string, fileName: string) =>
+  fetch("/api/director/song-upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data, fileName }),
+  }).then(
+    directorOk<{ file: string; fileName: string; durationSeconds: number; sizeBytes: number }>(
+      "song upload failed"
+    )
+  );
+
+// Preview URL for an uploaded director song.
+export const directorSongUrl = (file: string) =>
+  `/api/director/audio/${encodeURIComponent(file)}`;
+
+// Lay the board's uploaded song over an output dir's latest final cut.
+// Returns the muxed file (outputs/<dir>/<prefix>_with_song.mp4).
+export const directorMuxSong = (id: string, dir: string) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/mux-song`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dir }),
+  }).then(
+    directorOk<{ file: string; from: string; songDuration: number | null; finalDuration: number | null }>(
+      "song mix failed"
+    )
+  );
+
+export interface DirectorScene {
+  scene_number: number;
+  title: string;
+  story_beat: string;
+  duration_seconds: number;
+  characters: string[];
+  location: string;
+  time_of_day: string;
+  action: string;
+  emotion: string;
+  expression: string;
+  body_language: string;
+  camera: { shot_type: string; angle: string; movement: string };
+  lighting: string;
+  environment: string;
+  continuity_from_previous_scene: string;
+  transition_to_next_scene: string;
+  dialogue: { speaker: string; line: string; expression?: string; emotion?: string; pitch?: string }[];
+  image_prompt: string;
+  video_prompt: string;
+  // Lyric-semantic shot linkage (song boards; absent on story/old scenes).
+  // Multiple shots share one parent_line_id (shot_id "12-A", "12-B", ...).
+  lyric_line_id?: number | null;
+  parent_line_id?: number | null;
+  lyric_text?: string;
+  lyric_segment?: string;
+  semantic_meaning?: string;
+  visual_event?: string;
+  shot_id?: string | null;
+  shot_number?: number;
+  song_start_time?: number | null;
+  song_end_time?: number | null;
+  continuity_required?: boolean;
+  reference_source?: string;
+  continuity_refs?: string[];
+  // Intelligent Director direction (optional; absent on legacy scenes):
+  // rich per-character action/motion direction + dramatic purpose.
+  characters_detailed?: {
+    character_id: string;
+    role?: string;
+    emotion?: string;
+    gaze_target?: string;
+    starting_state?: string;
+    action?: string;
+    ending_state?: string;
+    expression?: string;
+  }[];
+  dramatic_purpose?: string;
+  // Source-line coverage (line-by-line planning): numbered story/lyric lines
+  // this scene covers. Null on old scenes.
+  line_from?: number | null;
+  line_to?: number | null;
+  // Timed sub-shots that tile duration_seconds exactly (multi-shot scenes).
+  // [] / absent = legacy single-image scene. Each shot flattens to one
+  // generation beat at approve time.
+  shots?: DirectorShot[];
+}
+
+// One timed shot inside a multi-shot DirectorScene. start_time/end_time are
+// scene-relative seconds (cumulative from 0); shot_number is 1-based within
+// the scene (rendered as "3.2" for scene 3, shot 2).
+export interface DirectorShot {
+  shot_id: string;
+  shot_number: number;
+  lyric_segment?: string;
+  semantic_meaning?: string;
+  visual_event?: string;
+  characters: string[];
+  // Intelligent Director direction (optional; absent on legacy shots).
+  characters_detailed?: {
+    character_id: string;
+    role?: string;
+    emotion?: string;
+    gaze_target?: string;
+    starting_state?: string;
+    action?: string;
+    ending_state?: string;
+    expression?: string;
+  }[];
+  dramatic_purpose?: string;
+  location: string;
+  time_of_day?: string;
+  action: string;
+  emotion?: string;
+  expression?: string;
+  body_language?: string;
+  camera: { shot_type: string; angle: string; movement: string };
+  lighting?: string;
+  environment?: string;
+  continuity_from_previous_scene?: string;
+  transition_to_next_scene?: string;
+  dialogue: { speaker: string; line: string; expression?: string; emotion?: string; pitch?: string }[];
+  image_prompt: string;
+  video_prompt: string;
+  duration_seconds: number;
+  start_time: number;
+  end_time: number;
+  lyric_line_id?: number | null;
+  parent_line_id?: number | null;
+  lyric_text?: string;
+  continuity_required?: boolean;
+  reference_source?: string;
+  continuity_refs?: string[];
+}
+
+export interface DirectorBoard {
+  id: string;
+  input: DirectorInput;
+  status: "analyzed" | "scenes-partial" | "ready" | "approved" | "approved-partial";
+  blueprint: {
+    logline: string;
+    analysis: Record<string, unknown>;
+    characters: Record<string, unknown>[];
+    locations: Record<string, unknown>[];
+    objects: Record<string, unknown>[];
+    beats: { n: number; title: string; summary: string }[];
+    lyric_lines?: { lyric_line_id: number; lyric_text: string; semantic_analysis?: string; visual_complexity?: string; planned_shots?: number }[];
+  } | null;
+  scenes: DirectorScene[];
+  audioTimeline?: DirectorAudioTimeline;
+  sceneCount: number;
+  styleLock?: string;
+  scenarioName?: string | null;
+  /** Approved storyboard -> generated project link (integer projects id). */
+  project_id?: number | null;
+  // Scenes already migrated into scenarioName (partial-migration flow).
+  migratedScenes?: number | null;
+  error?: string | null;
+  // Grounding report for the latest scene batch (repaired/skipped cast or
+  // places) — rendered as a ⚠️ hint; cleared by manual edits. Null when clean.
+  warn?: string | null;
+  // Intelligent Director story plan (staged analysis artefacts: story
+  // summary, lyric semantics, coverage snapshots). Optional; scenes stay the
+  // executable source of truth.
+  storyPlan?: Record<string, unknown> | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface DirectorAudioShot {
+  shot_id: string;
+  source_scene_number?: number | null;
+  source_shot_index?: number | null;
+  start_seconds: number;
+  end_seconds: number;
+  duration_seconds: number;
+  audio_type: "instrumental" | "vocal" | "dialogue" | "mixed";
+  voice_ids: string[];
+  lyrics_or_dialogue: string;
+  music_section: string;
+  mood: string;
+  bpm: number | null;
+  beat_timestamps: number[];
+  character_ids: string[];
+  character_reference_ids: string[];
+  action: string;
+  facial_expression: string;
+  body_movement: string;
+  camera_shot: string;
+  camera_angle: string;
+  camera_movement: string;
+  framing: string;
+  location: string;
+  background: string;
+  props: string[];
+  lighting: string;
+  color_palette: string[];
+  lip_sync_required: boolean;
+  aligned_vocal_cues: { start_seconds: number; end_seconds: number; text: string; voice_ids: string[] }[];
+  continuity_from_previous_shot: string;
+  continuity_to_next_shot: string;
+  transition_in: string;
+  transition_out: string;
+  image_generation_prompt: string;
+  video_motion_prompt: string;
+  model_profile: string | null;
+  workflow_id: string | null;
+  generation_status: string;
+  confidence: { timing: number | null; content: number | null; speaker: number | null };
+  analysis_warnings: string[];
+  director_mode: "music_video" | "story_video";
+}
+export interface DirectorAudioTimeline {
+  schema_version: number;
+  director_mode: "music_video" | "story_video";
+  duration_seconds: number;
+  source_audio: string | null;
+  status: string;
+  storyboard_sync?: "synced" | "timeline_only";
+  coverage: { start_seconds: number; end_seconds: number; complete: boolean };
+  warnings: string[];
+  shots: DirectorAudioShot[];
+  source_signature?: string;
+}
+
+export interface DirectorBoardMeta {
+  id: string;
+  title: string;
+  status: DirectorBoard["status"];
+  scenes: number;
+  sceneCount: number;
+  /** Timed shots planned so far (one generation beat per shot). */
+  shots?: number | null;
+  scenarioName?: string | null;
+  /** Approved storyboard -> generated project link (integer projects id). */
+  project_id?: number | null;
+  updatedAt?: string | null;
+  /** Card fields for the Saved Storyboards grid (null on old boards). */
+  createdAt?: string | null;
+  genre?: string | null;
+  visualStyle?: string | null;
+  language?: string | null;
+  aspectRatio?: string | null;
+  targetSeconds?: number | null;
+  logline?: string | null;
+}
+
+const directorOk = <T,>(label: string) => (r: Response) =>
+  r.ok
+    ? r.json() as Promise<T>
+    : r.json().then((d) => {
+        // The Story QA gate returns { error, errors[], warnings[] } — show
+        // the full checklist, not just the first line.
+        const list = Array.isArray(d?.errors) ? d.errors.filter(Boolean).slice(0, 6) : [];
+        const msg = list.length && d?.error && list[0] && String(d.error).includes(String(list[0]))
+          ? `${d.error}${list.length > 1 ? `\n• ${list.slice(1).join("\n• ")}` : ""}`
+          : [d?.error || label, ...list].filter(Boolean).join("\n• ");
+        return Promise.reject(new Error(msg));
+      });
+
+export const directorBoards = () =>
+  get<DirectorBoardMeta[]>("/api/director/boards");
+
+export const directorBoard = (id: string) =>
+  get<DirectorBoard>(`/api/director/boards/${encodeURIComponent(id)}`);
+
+export const directorAudioTimeline = (id: string) =>
+  get<DirectorAudioTimeline>(`/api/director/boards/${encodeURIComponent(id)}/timeline`);
+
+export const saveDirectorAudioTimeline = (id: string, timeline: DirectorAudioTimeline) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/timeline`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(timeline),
+  }).then(directorOk<DirectorAudioTimeline>("timeline save failed"));
+
+export const directorAnalyze = (input: DirectorInput, promptOverride?: string, liveId?: string) =>
+  fetch("/api/director/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...input,
+      ...(promptOverride && promptOverride.trim() ? { promptOverride } : {}),
+      // Client-generated request id — when set, the bible call streams into a
+      // server-side buffer served by directorAnalyzeLive (live response view).
+      ...(liveId ? { liveId } : {}),
+    }),
+  }).then(directorOk<DirectorBoard>("story analysis failed"));
+
+// Analyze live stream (read-only): the raw LLM response streaming RIGHT NOW
+// for the pre-board analyze request with the matching liveId. Polled ~1s
+// while the form generates; touches only a Node-side buffer, never the model.
+export interface DirectorAnalyzeLive {
+  active: boolean;
+  text: string;
+}
+export const directorAnalyzeLive = (id: string) =>
+  get<DirectorAnalyzeLive>(`/api/director/analyze-live/${encodeURIComponent(id)}`);
+
+// The exact user prompt the Generate Storyboard (bible) call will send —
+// no model call. Shown (and editable) in the Show Prompt popup.
+export const directorBiblePreview = (input: DirectorInput) =>
+  post<{ prompt: string }>("/api/director/prompt-preview", input);
+
+// Optimize Prompt (Show Prompt popup): the LLM rewrites the directing prompt
+// for clarity/impact — every constraint kept — and returns the optimized text
+// plus approx token counts (chars/4, same convention as the board preview)
+// for BOTH the optimized and the original (main) prompt. Nothing is saved.
+export interface DirectorPromptOptimize {
+  optimized: string;
+  tokens: { original: number; optimized: number };
+  usage?: { prompt_tokens: number | null; completion_tokens: number | null } | null;
+}
+export const directorOptimizePrompt = (prompt: string, title?: string) =>
+  post<DirectorPromptOptimize>("/api/director/optimize-prompt", { prompt, ...(title ? { title } : {}) });
+
+export const directorScenes = (id: string, count?: number, signal?: AbortSignal) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/scenes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(count != null ? { count } : {}),
+    ...(signal ? { signal } : {}),
+  }).then(directorOk<DirectorBoard>("scene planning failed"));
+
+// Prompt preview (dry run): the exact system + user messages the next
+// Continue would send to the LLM — no model call, nothing saved.
+export interface DirectorPromptPreview {
+  ready: boolean;
+  system?: string;
+  user?: string;
+  startNumber?: number;
+  count?: number;
+  batchSeconds?: number;
+  systemChars?: number;
+  userChars?: number;
+  approxTokens?: number;
+  scenes?: number;
+  sceneCount?: number;
+  note?: string;
+}
+export const directorPromptPreview = (id: string, count?: number) =>
+  get<DirectorPromptPreview>(
+    `/api/director/boards/${encodeURIComponent(id)}/prompt-preview${count != null ? `?count=${count}` : ""}`,
+  );
+
+// Director live stream (read-only): what the backend LLM is writing right now
+// for the running scene batch. Polled ~1s while planning; touches only a
+// Node-side buffer, never the model, so planning is unaffected.
+export interface DirectorLiveScene {
+  scene_number: number;
+  title: string;
+  action: string;
+  shots: { shot_id: string; text: string }[];
+  dialogue: { speaker: string; line: string }[];
+}
+export interface DirectorLive {
+  active: boolean;
+  phase?: string;
+  batchFrom?: number | null;
+  batchTo?: number | null;
+  startedAt?: number;
+  chars?: number;
+  scenes: DirectorLiveScene[];
+  tail: string;
+}
+export const directorLive = (id: string) =>
+  get<DirectorLive>(`/api/director/boards/${encodeURIComponent(id)}/live`);
+
+// Intelligent Director: Lyric Coverage Map (read-only) — every lyric line
+// with its meaningful phrases, assigned scenes/shots and coverage status.
+export interface DirectorCoveragePhrase {
+  text: string;
+  meaning: string;
+  startMs: number | null;
+  endMs: number | null;
+  coveredByShot: boolean;
+  coverage: "covered" | "uncovered";
+  sceneIds: (number | string)[];
+  shotIds: string[];
+}
+export interface DirectorCoverageLine {
+  lyric_line_id: number;
+  lyric_text: string;
+  phrases: DirectorCoveragePhrase[];
+  status: "covered" | "partial" | "uncovered" | "empty";
+}
+export interface DirectorCoverage {
+  board_id: string;
+  lines: DirectorCoverageLine[];
+  summary: { totalPhrases: number; coveredPhrases: number; pct: number };
+}
+export const directorCoverage = (id: string) =>
+  get<DirectorCoverage>(`/api/director/boards/${encodeURIComponent(id)}/coverage`);
+
+// Intelligent Director: quality-control validation pass (read-only) — 0–100
+// rule-based score with breakdown, actionable issues, continuity findings and
+// the structural story-board gate.
+export interface DirectorValidation {
+  board_id: string;
+  score: number;
+  breakdown: {
+    lyricCoverage: number;
+    actionClarity: number;
+    continuity: number;
+    timing: number;
+    promptCompleteness: number;
+  };
+  issues: string[];
+  coverage: { totalPhrases: number; coveredPhrases: number; pct: number };
+  errors: string[];
+  warnings: string[];
+  continuity: string[];
+  genreNote: string;
+}
+export const directorValidate = (id: string) =>
+  get<DirectorValidation>(`/api/director/boards/${encodeURIComponent(id)}/validate`);
+
+// ---------------------------------------------------------------------------
+// The MEANING-AWARE semantic analysis (lib/semantics.mjs).
+// Every source line is analysed before the scenes are planned: the language,
+// the interpretation, the visible action, the camera and the timed beats.
+// ---------------------------------------------------------------------------
+export interface DirectorSemanticAction {
+  action: string;
+  body_part: string;
+  grounded: boolean;
+}
+export interface DirectorSemanticLine {
+  line_id: number;
+  source_text: string;
+  language: string;
+  interpretation: string;
+  line_kind: string;
+  action_plan: DirectorSemanticAction[];
+  camera: { shot_type: string; angle: string; movement: string; rationale?: string } | null;
+  beats: { start_seconds: number; end_seconds: number; action: string; estimated?: boolean }[];
+  warnings: string[];
+}
+export interface DirectorSemantics {
+  board_id: string;
+  language: string;
+  source: string;
+  warning?: string;
+  lines: DirectorSemanticLine[];
+  issues: string[];
+  attached?: number;
+  repaired?: number;
+}
+export const directorSemantics = (id: string) =>
+  get<DirectorSemantics>(`/api/director/boards/${encodeURIComponent(id)}/semantics`);
+export const directorAnalyzeSemantics = (id: string, body: { useModel?: boolean; language?: string } = {}) =>
+  post<DirectorSemantics>(`/api/director/boards/${encodeURIComponent(id)}/semantics`, body);
+
+// Chief Director Story Plan + stage pipeline (read-only) — the authoritative
+// narrative source with per-stage done/ready/blocked status and approvals.
+export interface DirectorPlanTask {
+  id: string;
+  label: string;
+  stage: string;
+  status: "pending" | "ready" | "done" | "approved";
+  dependsOn: string[];
+}
+export interface DirectorStageStatus {
+  stage: string;
+  status: "done" | "ready" | "blocked" | "approved";
+  approvedAt: string | null;
+  detail: string;
+}
+export interface DirectorPlan {
+  board_id: string;
+  storyPlan: {
+    version: number;
+    logline: string;
+    theme: string;
+    structure: { beginning: string; development: string; climax: string; resolution: string };
+    narrativeOutline: string[];
+    characterRoster: { character_id: string; name: string; role: string; motivation: string }[];
+    uncertainties: string[];
+    productionTasks: DirectorPlanTask[];
+    approvals: Record<string, string>;
+    revisions: number;
+    visualGuide?: string;
+    cinematography?: string;
+    motionPlan?: string;
+    audioSync?: string;
+    editPlan?: string;
+  };
+  stages: DirectorStageStatus[];
+}
+export const directorPlan = (id: string) =>
+  get<DirectorPlan>(`/api/director/boards/${encodeURIComponent(id)}/plan`);
+
+// Chief Director approval checkpoint — sign off one pipeline stage.
+// Enforces dependency order server-side (force overrides for user edits).
+export const directorApproveStage = (id: string, stage: string, force = false) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/approve-stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stage, force }),
+  }).then(directorOk<DirectorPlan>("stage approval failed"));
+
+export interface DirectorUncovered {
+  board_id: string;
+  uncovered: {
+    lyric_line_id: number;
+    lyric_text: string;
+    phrase: string;
+    song_start_time: number | null;
+    song_end_time: number | null;
+    timing_confidence: string;
+  }[];
+}
+export const directorUncovered = (id: string) =>
+  get<DirectorUncovered>(`/api/director/boards/${encodeURIComponent(id)}/uncovered`);
+
+// World & Asset Intelligence (Phase 2) — reference map + duplicates +
+// style guide + continuity. Read-only.
+export interface DirectorAssetMap {
+  board_id: string;
+  map: {
+    characters: { id: string; name: string; scenes: number[]; shots: string[] }[];
+    locations: { id: string; name: string; scenes: number[]; shots: string[] }[];
+    props: { id: string; name: string; scenes: number[]; shots: string[] }[];
+    styles: { id: string; name: string; scenes: number[]; shots: string[] }[];
+  };
+  duplicates: { name: string; ids: string[] }[];
+  styleGuide: { style: string; characters: number; locations: number; palettes: string[]; lighting: string[]; layout: string };
+  issues: string[];
+}
+export const directorAssets = (id: string) =>
+  get<DirectorAssetMap>(`/api/director/boards/${encodeURIComponent(id)}/assets`);
+
+// Cinematography & shot planning (Phase 3) — read-only shot list, camera,
+// lighting, blocking, transitions + validation.
+export interface DirectorCinematography {
+  board_id: string;
+  shots: { scene_number: number; shot_id: string; lyric_line_id: number | null; lyric_segment: string; dramatic_purpose: string; shot_type: string; movement: string; duration_seconds: number }[];
+  camera: { shot_id: string; movement: string; speed: string; shot_type: string }[];
+  lighting: { scene_number: number; time_of_day: string; lighting: string; emphasis: string }[];
+  blocking: { shot_id: string; cast: { character_id: string; gaze_target: string; starting_state: string; action: string; ending_state: string }[] }[];
+  transitions: { scene_number: number; transition: string }[];
+  issues: string[];
+}
+export const directorCinematography = (id: string) =>
+  get<DirectorCinematography>(`/api/director/boards/${encodeURIComponent(id)}/cinematography`);
+
+// Acting, motion & audio sync (Phase 4) — read-only action/interaction/
+// timeline/audio/sync/lipsync plans + validation.
+export interface DirectorMotionAudio {
+  board_id: string;
+  actions: { shot_id: string; character_id: string; reference: string; starting_state: string; gaze_target: string; emotion: string; expression: string; action: string; ending_state: string; role: string }[];
+  interactions: { shot_id: string; initiator: string; responders: string[]; target: string; cause_effect: string }[];
+  timeline: { shot_id: string; start_time: number; end_time: number; phases: string[]; camera_movement: string }[];
+  audioTiming: { lyric_line_id: number; lyric_text: string; start_time: number | null; end_time: number | null; timing_confidence: string }[];
+  sync: { shot_id: string; lyric_line_id: number | null; lyric_segment: string; action: string; start_time: number | null; end_time: number | null; timing_confidence: string }[];
+  lipsync: { shot_id: string; speaker: string; line: string; estimated_seconds: number; timing_confidence: string }[];
+  issues: string[];
+}
+export const directorMotionAudio = (id: string) =>
+  get<DirectorMotionAudio>(`/api/director/boards/${encodeURIComponent(id)}/motion-audio`);
+
+// Prompt preview (Phase 5) — per-shot Flux image + LTX/Wan video prompts
+// with checklist issues. Dry run, no generation.
+export interface DirectorShotPrompts {
+  board_id: string;
+  shots: { shot_id: string; image_prompt: string; video_prompt: string; image_issues: string[]; video_issues: string[] }[];
+}
+export const directorShotPrompts = (id: string) =>
+  get<DirectorShotPrompts>(`/api/director/boards/${encodeURIComponent(id)}/prompts`);
+
+// Delivery (Phase 7) — edit plan, assembly timeline, render-job spec + QC.
+export interface DirectorDelivery {
+  board_id: string;
+  editPlan: { order: number; scene_number: number; shot_id: string; duration_seconds: number; transition_in: string; has_dialogue: boolean }[];
+  timeline: { order: number; scene_number: number; shot_id: string; duration_seconds: number; transition_in: string; has_dialogue: boolean; start_time: number; end_time: number }[];
+  renderJob: { format: string; beats: string[]; total_seconds: number; resumable: boolean; selective: string[] };
+  qc: { score: number | null; errors: string[]; issues: string[]; regenTargets: number[]; pass: boolean };
+}
+export const directorDelivery = (id: string, opts?: { format?: string; beats?: string; minScore?: number }) => {
+  const q = new URLSearchParams();
+  if (opts?.format) q.set("format", opts.format);
+  if (opts?.beats) q.set("beats", opts.beats);
+  if (opts?.minScore) q.set("minScore", String(opts.minScore));
+  const s = q.toString();
+  return get<DirectorDelivery>(`/api/director/boards/${encodeURIComponent(id)}/delivery${s ? `?${s}` : ""}`);
+};
+
+// Intelligent Director: staged repair — re-plans ONLY the flagged scenes via
+// the reasoning engine, preserving ids and approved neighbours.
+export const directorRepair = (id: string, scene_numbers?: number[]) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/repair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(scene_numbers?.length ? { scene_numbers } : {}),
+  }).then(directorOk<{ board_id: string; repaired: number[]; score: number; board: DirectorBoard }>("repair failed"));
+
+export const directorUpdateBoard = (id: string, patch: Record<string, unknown>) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  }).then(directorOk<DirectorBoard>("board update failed"));
+
+export type DirectorEntryKind = "character" | "location" | "object";
+
+// AI append: the server re-reads the board's master input (title +
+// story/lyrics + genre/style + instructions + song) plus the already
+// generated bible and appends exactly one new entry of `kind`.
+export const directorAddEntry = (id: string, kind: DirectorEntryKind, hint?: string) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/add-entry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, ...(hint?.trim() ? { hint: hint.trim().slice(0, 300) } : {}) }),
+  }).then(directorOk<DirectorBoard>("add failed"));
+
+// AI rewrite: regenerate the selected bible entry (character | location |
+// object) in place — the server re-reads the master input + full bible and
+// swaps in a richer rewrite, keeping the id so scenes keep working.
+export const directorRegenEntry = (id: string, kind: DirectorEntryKind, index: number) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/regen-entry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, index }),
+  }).then(directorOk<DirectorBoard>("regenerate failed"));
+
+export const directorRegenScene = (id: string, index: number) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/regenerate-scene`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ index }),
+  }).then(directorOk<DirectorBoard>("scene regeneration failed"));
+
+export const directorApprove = (id: string) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+  }).then(directorOk<{ name: string; config: Scenario }>("approve failed"));
+
+// Duplicate a board as a fresh version (exact copy of characters, locations,
+// objects, beats + scenes prompts; no linked project so images/videos
+// regenerate from scratch). The server auto-versions the title (v2, v3, …).
+export const directorDuplicateBoard = (id: string) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/duplicate`, {
+    method: "POST",
+  }).then(directorOk<DirectorBoard>("duplicate failed"));
+
+export const directorDeleteBoard = (id: string) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  }).then(directorOk<{ ok: boolean }>("delete failed"));
+
+// ---------------------------------------------------------------- Documentary Mode
+// Orchestration layer on the EXISTING pipeline (Documentary tab only).
+// The board authors chapters/sequences/shots + narration + bibles; APPROVE
+// hands a standard Scenario to the existing saveScenario/workspace flow.
+export interface DocBrief {
+  title: string;
+  topic?: string;
+  language?: string;
+  targetMinutes?: number;
+  targetSeconds?: number;
+  aspectRatio?: string;
+  audience?: string;
+  tone?: string;
+  visualStyle?: string;
+  narrationStyle?: string;
+  narrationVoice?: string;
+  musicStyle?: string;
+  sourceMaterial?: string;
+  sourceType?: string;
+  characters?: string;
+  events?: string;
+  locations?: string;
+  instructions?: string;
+}
+
+export interface DocShot {
+  shot_id: string;
+  global_index: number;
+  chapter: number;
+  sequence: number;
+  title: string;
+  duration_seconds: number;
+  narration_lines: string[];
+  // Source-analysis stage fields (dialogue / emotion / time / action /
+  // visual-meaning detection). Optional — older boards simply lack them.
+  dialogue_lines?: string[];
+  emotion?: string;
+  time_of_day?: string;
+  actions?: string[];
+  visual_meaning?: string;
+  visual_type: string;
+  characters: string[];
+  location: string;
+  flux_prompt: string;
+  ltx_prompt: string;
+  camera: { shot_type: string; angle: string; movement: string };
+  motion: string;
+  lighting: string;
+  audio: { music: boolean; sfx: boolean; sfx_kind: string };
+  pacing: string;
+  status: string;
+  approved: boolean;
+  version: number;
+}
+
+export interface DocSequence {
+  sequence_id: string;
+  chapter: number;
+  seq: number;
+  title: string;
+  purpose: string;
+  narration: string;
+  duration_seconds: number;
+  visual_goal: string;
+  pacing: string;
+  shots: DocShot[];
+}
+
+export interface DocChapter {
+  chapter_number: number;
+  title: string;
+  purpose: string;
+  target_duration_seconds: number;
+  sequences: DocSequence[];
+}
+
+export interface DocBoard {
+  id: string;
+  brief: DocBrief & { targetSeconds: number; targetMinutes: number };
+  status: string;
+  chapters: DocChapter[];
+  characters: Record<string, unknown>[];
+  locations: Record<string, unknown>[];
+  musicBeds: Record<string, unknown>[];
+  // Source-analysis pass (RAW POEM → understanding pipeline). Present after
+  // Plan; null on boards created but never planned. Documentary-only.
+  analysis?: DocAnalysis | null;
+  // Per-stage Approve verdicts from the stage tabs (auto or manual).
+  stage_approvals?: Record<string, { approved: boolean; at: string | null; auto: boolean }>;
+  // Past Plan executions (newest first, capped server-side) for the tabs'
+  // past-runs view. Each entry mirrors the 15-stage checklist.
+  stage_history?: { at: string; source: string; stages: { key: string; done: boolean; detail: string }[] }[];
+  styleLock?: string;
+  scenarioName?: string | null;
+  project_id?: number | null;
+  error?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface DocBoardMeta {
+  id: string;
+  title: string;
+  status: string;
+  targetSeconds: number | null;
+  shots: number;
+  shotsTotal: number;
+  scenarioName?: string | null;
+  project_id?: number | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+
+// Source-analysis artifact (Documentary mode only): one LLM/heuristic pass
+// over the raw source text, consumed read-only by the bible + shot planners.
+export interface DocAnalysis {
+  source: "llm" | "heuristic";
+  understanding: { summary: string; themes: string[]; narrative_arc: string[] };
+  characters_detected: { name: string; role: string; mentions: number }[];
+  dialogues: { speaker: string; line: string; context: string }[];
+  narrations: { voice: string; text: string; purpose: string }[];
+  emotions: { scope: string; emotion: string; mood: string; intensity: string }[];
+  locations_times: { location: string; time_of_day: string; time_period: string; environment: string }[];
+  actions: { actor: string; action: string; object: string; context: string }[];
+  visual_meanings: { subject: string; literal: string; symbolic_meaning: string }[];
+}
+
+export const docBoards = () =>
+  get<DocBoardMeta[]>("/api/documentary/boards");
+export const docBoard = (id: string) =>
+  get<DocBoard>(`/api/documentary/boards/${encodeURIComponent(id)}`);
+export const docCreate = (brief: DocBrief) =>
+  fetch("/api/documentary/boards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(brief),
+  }).then(directorOk<DocBoard>("documentary creation failed"));
+// Auto-detect the brief from title/topic/source (Documentary-only):
+// tone, audience, visual style, narration, music, source type, language,
+// characters, events, locations. Stateless — fills the form, nothing stored.
+export const docDetectBrief = (input: { title: string; topic: string; sourceMaterial: string }) =>
+  fetch("/api/documentary/detect-brief", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  }).then((r) =>
+    r.ok
+      ? r.json() as Promise<{ detected: Record<string, string>; source: "llm" | "heuristic" }>
+      : r.json().then((d) => Promise.reject(new Error(d.error || "brief detection failed")))
+  );
+export const docPlan = (id: string) =>
+  fetch(`/api/documentary/boards/${encodeURIComponent(id)}/plan`, {
+    method: "POST",
+  }).then(directorOk<DocBoard>("documentary planning failed"));
+export const docUpdate = (id: string, patch: Record<string, unknown>) =>
+  fetch(`/api/documentary/boards/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  }).then(directorOk<DocBoard>("documentary update failed"));
+export const docApprove = (id: string) =>
+  fetch(`/api/documentary/boards/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+  }).then(directorOk<{ name: string; config: Scenario; shots: number; narrationSeconds: number }>("approve failed"));
+export const docDelete = (id: string) =>
+  fetch(`/api/documentary/boards/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  }).then(directorOk<{ ok: boolean }>("delete failed"));
+export const docTimeline = (id: string) =>
+  get<{ title: string; total_seconds: number; target_seconds: number; chapters: { chapter_number: number; title: string; duration_seconds: number; start_seconds: number; end_seconds: number; sequences: { sequence_id: string; title: string; duration_seconds: number; shots: { shot_id: string; global_index: number; title: string; duration_seconds: number; status: string; approved: boolean }[] }[] }[] }>(
+    `/api/documentary/boards/${encodeURIComponent(id)}/timeline`);
+export const docStatus = (id: string) =>
+  get<{ id: string; status: string; shots: number; ready: number; pct: number; stages: string[]; byStatus: Record<string, number>; narrationSeconds: number; targetSeconds: number; scenarioName: string | null }>(
+    `/api/documentary/boards/${encodeURIComponent(id)}/status`);
+export const docExport = (id: string, dir?: string) =>
+  fetch(`/api/documentary/boards/${encodeURIComponent(id)}/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(dir ? { dir } : {}),
+  }).then(directorOk<{ documentary_final: string; chapters: string[]; narration_audio: string; music_dir: string; subtitles: string; srtPreview: string; metadata: string; total_seconds: number; wrote: string[] }>("export failed"));
+
+// ---------------------------------------------------------------- Database browser
+// SQLite explorer tab: every user table in data/scenarios.sqlite,
+// with full row CRUD.
+export interface DbTableInfo {
+  name: string;
+  rows: number;
+}
+export interface DbFileInfo {
+  key: string;
+  file: string;
+  tables: DbTableInfo[];
+}
+export interface DbColumnInfo {
+  name: string;
+  type: string;
+  notnull: boolean;
+  default: string | null;
+  pk: boolean;
+}
+export type DbValue = string | number | null;
+export interface DbRowsResponse {
+  db: string;
+  table: string;
+  columns: DbColumnInfo[];
+  pk: string[];
+  total: number;
+  limit: number;
+  offset: number;
+  rows: Record<string, DbValue>[];
+}
+export const listDbFiles = () =>
+  get<{ store: string; files: DbFileInfo[] }>("/api/database");
+export const listDbRows = (db: string, table: string, opts: { search?: string; sort?: string; dir?: "ASC" | "DESC"; limit?: number; offset?: number } = {}) => {
+  const q = new URLSearchParams({ db, table });
+  if (opts.search?.trim()) q.set("search", opts.search.trim());
+  if (opts.sort) q.set("sort", opts.sort);
+  if (opts.dir) q.set("dir", opts.dir);
+  if (opts.limit != null) q.set("limit", String(opts.limit));
+  if (opts.offset != null) q.set("offset", String(opts.offset));
+  return get<DbRowsResponse>(`/api/database/rows?${q.toString()}`);
+};
+const dbWrite = <T,>(db: string, table: string, method: "POST" | "PUT" | "DELETE", body: unknown) =>
+  fetch(`/api/database/rows?db=${encodeURIComponent(db)}&table=${encodeURIComponent(table)}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `database ${method} failed (HTTP ${r.status})`);
+    return d as T;
+  });
+export const insertDbRow = (db: string, table: string, values: Record<string, DbValue>) =>
+  dbWrite<{ ok: boolean; row: Record<string, DbValue> | null }>(db, table, "POST", { values });
+export const updateDbRow = (db: string, table: string, key: Record<string, DbValue>, values: Record<string, DbValue>) =>
+  dbWrite<{ ok: boolean; updated: number; row: Record<string, DbValue> | null }>(db, table, "PUT", { key, values });
+export const deleteDbRow = (db: string, table: string, key: Record<string, DbValue>) =>
+  dbWrite<{ ok: boolean; deleted: number }>(db, table, "DELETE", { key });
