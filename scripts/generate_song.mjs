@@ -33,6 +33,8 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 import { buildAceSongGraph, buildMinimaxSongGraph, normalizeSongModel, run, download, firstAudioUrl } from "../lib/comfy.mjs";
 import { audioDuration } from "../lib/tts.mjs";
+import { resolvePromptsJson } from "../lib/config_load.mjs";
+import { configSlug } from "../lib/variant.mjs";
 import {
   isNarrationPreset, isMusicBedNarration, DEVOTIONAL_MUSIC_BED_TAGS,
   structureLyrics, speechParagraphs, songVocalToTtsVoice,
@@ -46,7 +48,7 @@ const cfgName = cfgNameIdx >= 0 && args[cfgNameIdx + 1] ? args[cfgNameIdx + 1] :
 const modelIdx = args.indexOf("--song-model");
 const modelFlag = modelIdx >= 0 && args[modelIdx + 1] ? args[modelIdx + 1] : null;
 
-const cfgPath = path.join(here, `../prompts/${cfgName}.json`);
+const cfgPath = resolvePromptsJson(path.join(here, "../prompts"), cfgName);
 if (!fs.existsSync(cfgPath)) {
   console.error(`[song] no prompts/${cfgName}.json — save the song project from the Create Song tab first.`);
   process.exit(1);
@@ -58,9 +60,12 @@ if (!audio || !String(audio.lyrics || "").trim()) {
   process.exit(1);
 }
 
-const outDir = path.resolve(here, `../outputs/${folder}`);
+// Storage identity is SPACE-FREE: the slug is applied idempotently (the
+// server passes an already-slug folder; CLI display names are slugified).
+const storageName = configSlug(folder);
+const outDir = path.resolve(here, `../outputs/${storageName}`);
 fs.mkdirSync(outDir, { recursive: true });
-const prefix = String(folder);
+const prefix = storageName;
 // Audio model for sung takes (and only those — narration is Edge-TTS):
 // saved choice wins, --song-model overrides it from the CLI.
 const songModel = normalizeSongModel(modelFlag ?? audio.songModel);

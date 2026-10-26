@@ -283,18 +283,22 @@ export default function CreateSongPage({ onOpenProject, focusProject, onProjects
   });
 
   const save = async (): Promise<string> => {
-    const n = name.trim();
+    const display = name.trim();
+    // INTERNAL KEY: stored under the space-free key — URLs/storage use it;
+    // display_name carries the typed text for labels.
+    const n = slugFolder(display);
     if (!n) throw new Error("Song project name is required.");
     if (!lyrics.trim()) throw new Error("Lyrics are required — write or paste the song text first.");
     await saveScenario(n, {
       ...(description.trim() ? { description: description.trim() } : {}),
+      display_name: display || n,
       referencePrompt: "",
       duration: Math.min(1000, Math.max(1, Number(duration) || 120)),
       sequence: [],
       // Audio project (projects.project_type) — never VIDEO from this tab.
       project_type: "AUDIO",
       // Immutable storage folder hint (server is authoritative).
-      folder_name: slugFolder(n),
+      folder_name: n,
       audio: audioBlock(),
     });
     setSaved(n);

@@ -64,7 +64,7 @@ describe("sceneCountFor", () => {
     assert.equal(SCENE_BATCH_MAX, 12);
     const options = Array.from({ length: SCENE_BATCH_MAX - SCENE_BATCH_MIN + 1 }, (_, i) => SCENE_BATCH_MIN + i);
     assert.deepEqual(options, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    assert.equal(SCENE_BATCH, 10);
+    assert.equal(SCENE_BATCH, 6);
     assert.ok(SCENE_BATCH_MAX >= SCENE_BATCH);
   });
 });

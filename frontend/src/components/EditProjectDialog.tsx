@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getScenario, renameScenario, saveScenario } from "../api";
+import { getScenario, renameScenario, saveScenario, slugFolder } from "../api";
 import type { Scenario } from "../types";
 import { IconX, Spinner } from "./Icons";
 
@@ -63,7 +63,10 @@ export default function EditProjectDialog({
 
   const submit = async () => {
     if (!base) return;
-    const n = newName.trim();
+    const display = newName.trim();
+    // INTERNAL KEY: the typed name is stored under its space-free key — the
+    // key is what URLs/storage use; display_name carries the typed text.
+    const n = slugFolder(display);
     if (!n) {
       setError("Project name is required.");
       nameRef.current?.focus();
@@ -75,6 +78,7 @@ export default function EditProjectDialog({
     setError(null);
     const config: Scenario = {
       ...base,
+      display_name: display || n,
       ...(description.trim() ? { description: description.trim() } : { description: undefined }),
       referencePrompt: referencePrompt.trim(),
       duration: Math.min(10, Math.max(1, Number(duration) || 3)),

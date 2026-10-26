@@ -422,10 +422,36 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     return () => window.clearTimeout(t);
   }, [typingScenes, board]);
   const [stoppedNote, setStoppedNote] = useState<string | null>(null);
+  // Character consistency toggle: when enabled, appends the same character
+  // description to every scene's prompt, ensuring visual consistency across
+  // all scenes. May reduce AI creative freedom but greatly improves character
+  // similarity. Persisted in localStorage.
+  const [characterConsistent, setCharacterConsistent] = useState<
+    boolean
+  >(() => {
+    const stored = localStorage.getItem("characterConsistent");
+    return stored !== null ? JSON.parse(stored) : false;
+  });
+  // UI: persist toggle choice so it survives tab refreshes
+  useEffect(() => {
+    localStorage.setItem("characterConsistent", JSON.stringify(characterConsistent));
+  }, [characterConsistent]);
   // Scene-planning batch size (scenes per AI Director LLM batch) — chosen
   // from the Batch Size dropdown before Generate scenes / Continue scenes and
   // sent as the batch count (server default when unset = SCENE_BATCH = 10).
   const [sceneBatch, setSceneBatch] = useState<number>(SCENE_BATCH);
+  // Character consistency toggle UI
+  const characterConsistentToggle = (
+    <label style={{ marginRight: 16, fontSize: 12 }}>
+      <input
+        type="checkbox"
+        checked={characterConsistent}
+        onChange={(e) => setCharacterConsistent(e.target.checked)}
+        style={{ transform: "scale(1.2)", marginRight: 4 }}
+      />
+      Consistent
+    </label>
+  );
   // Intelligent Director panels (spec §13): lyric coverage map + 0–100
   // quality-control validation for the open board. Fetched on demand (no LLM,
   // no board mutation); cleared whenever another board opens.

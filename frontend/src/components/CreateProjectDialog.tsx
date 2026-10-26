@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { saveScenario, craftMasterPrompt, DEFAULT_PRESET_ID } from "../api";
+import { saveScenario, craftMasterPrompt, slugFolder, DEFAULT_PRESET_ID } from "../api";
 import type { Scenario } from "../types";
 import { IconSparkles, IconX, Spinner } from "./Icons";
 import PresetSelect from "./PresetSelect";
@@ -74,7 +74,11 @@ export default function CreateProjectDialog({
   };
 
   const submit = async () => {
-    const n = name.trim();
+    const display = name.trim();
+    // INTERNAL KEY: the typed name ("Pyari billi") is stored under its
+    // space-free key ("pyari_billi") — the key is what URLs, output dirs and
+    // file names use; the typed name rides along as display_name for labels.
+    const n = slugFolder(display);
     if (!n) {
       setError("Project name is required.");
       nameRef.current?.focus();
@@ -86,6 +90,7 @@ export default function CreateProjectDialog({
     setError(null);
     const config: Scenario = {
       ...(description.trim() ? { description: description.trim() } : {}),
+      display_name: display || n,
       referencePrompt: referencePrompt.trim(),
       duration: Math.min(10, Math.max(1, Number(duration) || 3)),
       presetId,
@@ -100,7 +105,7 @@ export default function CreateProjectDialog({
         // Immutable storage folder hint (server is authoritative: it mints a
         // unique folder on creation and freezes it — same rule as
         // lib/variant.mjs folderSlug, kept byte-identical here).
-        folder_name: n.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').substring(0, 100) || 'project'
+        folder_name: n
       });
       
       onClose();

@@ -10,6 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { resolvePromptsJson } from "../lib/config_load.mjs";
+import { configSlug } from "../lib/variant.mjs";
 import {
   run, download, uploadToInput,
   buildFluxGraph, buildLtxGraph, firstImageUrl, firstVideoUrl,
@@ -18,15 +20,17 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const scenario = args.find((a) => !a.startsWith("-")) || "movie_director";
-const cfg = JSON.parse(fs.readFileSync(path.join(here, `../prompts/${scenario}.json`), "utf8"));
-const outDir = path.resolve(here, `../outputs/${scenario}`);
+const cfg = JSON.parse(fs.readFileSync(resolvePromptsJson(path.join(here, "../prompts"), scenario), "utf8"));
+// Storage names are SPACE-FREE: dirs/prefixes always use the slug.
+const storageName = configSlug(scenario);
+const outDir = path.resolve(here, `../outputs/${storageName}`);
 fs.mkdirSync(outDir, { recursive: true });
 
 const seq = cfg.sequence;
 const N = seq.length;
 const TOTAL = cfg.narrationDuration ?? 20;
 const FINAL = cfg.finalDuration ?? TOTAL; // cut the final to this many seconds (default: narration length)
-const finalPath = path.join(outDir, `${scenario}_final.mp4`);
+const finalPath = path.join(outDir, `${storageName}_final.mp4`);
 
 function ff(args) {
   execFileSync("ffmpeg", ["-y", "-v", "error", ...args], { stdio: "inherit" });

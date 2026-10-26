@@ -15,6 +15,9 @@ import InstagramCut from "./InstagramCut";
 interface Props {
   /** Linked project display name (board.scenarioName). Empty = not approved yet. */
   projectName: string | null;
+  /** User-typed project name for LABELS only — projectName stays the
+      space-free internal key used for every API call. */
+  displayName?: string | null;
   /** Board scenes (for the multi-shot header pill only — generation itself
       reads the approved project's flattened shot-beats, one beat per shot). */
   boardScenes?: { scene_number: number; shots?: { shot_id?: unknown }[] }[];
@@ -70,7 +73,7 @@ export function foreignRunForProject(
 // is untouched. Multi-shot scenes need no special casing here: APPROVE
 // already flattens each shot to one generation beat (scene_N_a/b/…), so the
 // beats gallery naturally renders one image + clip per shot.
-export default function DirectorGeneration({ projectName, boardScenes = [], onOpenProject, imageMode: initialImageMode, onImageMode }: Props) {
+export default function DirectorGeneration({ projectName, displayName, boardScenes = [], onOpenProject, imageMode: initialImageMode, onImageMode }: Props) {
   const [engine, setEngine] = useState<Engine>("ltx");
   const [videoType, setVideoType] = useState<VideoType>("YOUTUBE");
   // Always use the passed prop; if not provided, default to "flux_text_image"
@@ -311,9 +314,9 @@ export default function DirectorGeneration({ projectName, boardScenes = [], onOp
   if (!projectName) return null;
 
   return (
-    <section className="card" aria-label={`Generation for ${projectName}`} style={{ marginTop: 12 }}>
+    <section className="card" aria-label={`Generation for ${displayName || projectName}`} style={{ marginTop: 12 }}>
       <div className="card-head">
-        <h2>🎬 Generation — {projectName}</h2>
+        <h2>🎬 Generation — {displayName || projectName}</h2>
         <span className="pill" title="Multi-shot scenes flatten to one image + video clip per shot">
           🎞 {shotInfo.scenes} scenes · {shotInfo.beats} shots/beats{shotInfo.multi ? ` · ${shotInfo.multi} multi-shot` : ""}
         </span>

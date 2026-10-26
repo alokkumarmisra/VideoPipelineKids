@@ -51,6 +51,13 @@ export interface GenerationProgress {
   activeElapsedMs: number | null;
   /** Expected ms for the in-flight asset (null when unknown). */
   activeExpectedMs: number | null;
+  /** 1-based beat indices already finished by THIS run's asset stream
+      (keyframes / clips). Event-driven, so they never lag behind an on-disk
+      listing refresh — the gallery's in-flight heuristic uses them to keep
+      the pulsing tile on the asset actually generating. Optional: absent on
+      older payloads and the dashboard's remote-generation shape. */
+  kfDone?: number[];
+  clipDone?: number[];
 }
 
 export const emptyProgress: GenerationProgress = {

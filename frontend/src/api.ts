@@ -184,7 +184,7 @@ export const saveScenario = (name: string, config: Scenario) =>
     // must show the failure instead of closing as if the data was saved.
     const d = await r.json().catch(() => null);
     if (!r.ok) throw new Error(d?.error || `save failed (HTTP ${r.status})`);
-    return d as { ok: boolean; version: number | null; project_id: number | null; unchanged?: boolean; updated?: boolean };
+    return d as { ok: boolean; version: number | null; project_id: number | null; unchanged?: boolean; updated?: boolean; name?: string | null };
   });
 export const deleteScenario = (name: string) =>
   fetch(`/api/scenario/${name}`, { method: "DELETE" }).then((r) =>

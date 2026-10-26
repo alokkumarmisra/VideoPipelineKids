@@ -1975,18 +1975,18 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                 <button
                   className={`scenario-item ${selected ? "on" : ""}`}
                   onClick={() => openProject(s.name)}
-                  title={s.project_id != null ? `#${s.project_id} · ${s.name}` : s.name}
+                  title={s.project_id != null ? `#${s.project_id} · ${s.display_name || s.name}` : (s.display_name || s.name)}
                   aria-current={selected ? "page" : undefined}
                 >
                   <span className={`scenario-avatar av-${avatarTone(s.name)}`} aria-hidden="true">
-                    {loadingThis ? <Spinner size={13} /> : s.name.slice(0, 1).toUpperCase()}
+                    {loadingThis ? <Spinner size={13} /> : (s.display_name || s.name).slice(0, 1).toUpperCase()}
                   </span>
                   <span className="scenario-main">
                     <span className="scenario-name">
                       {s.project_id != null && (
                         <span className="scenario-id" title={`Project #${s.project_id}`}>#{s.project_id}</span>
                       )}
-                      <span className="scenario-name-text">{s.name}</span>
+                      <span className="scenario-name-text">{s.display_name || s.name}</span>
                     </span>
                     <span className="scenario-date" title={fmtDateTime(s.mtimeMs)}>{fmtDateTime(s.mtimeMs)}</span>
                   </span>
@@ -2184,6 +2184,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
             onGotoEditorScene={(n) => gotoScene("editor", n)}
             summary={boardSummary}
             projectName={contentName}
+            displayName={cfg?.display_name || contentName}
             dialogueEngine={engine}
             dialogueFormat={cutFormat}
             onDialogueSaved={() => {

@@ -45,6 +45,8 @@ import {
   normalizeFormat, outDirName, prefixForDir, verticalImagePrompt, verticalMotionPrompt,
 } from "../lib/variant.mjs";
 import { runSequence, stitchSequence } from "../lib/sequence.mjs";
+import { resolvePromptsJson } from "../lib/config_load.mjs";
+import { configSlug } from "../lib/variant.mjs";
 import { beatTargetDuration } from "../lib/tts.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -69,14 +71,16 @@ const regen = regenIdx >= 0
   ? { kind: args[regenIdx + 1], index: Number(args[regenIdx + 2]) || 0 }
   : null;
 
-const cfgPath = path.join(here, `../prompts/${cfgName}.json`);
+// Storage identity is SPACE-FREE: the slug is applied idempotently.
+const storageName = configSlug(scenario);
+const cfgPath = resolvePromptsJson(path.join(here, "../prompts"), cfgName);
 if (!fs.existsSync(cfgPath)) {
   console.error(`[wanchar] no prompts/${cfgName}.json — available:`);
   console.error("  " + fs.readdirSync(path.join(here, "../prompts")).filter((f) => f.endsWith(".json")).join("\n  "));
   process.exit(1);
 }
 const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-const outDir = path.resolve(here, `../outputs/${outDirName(scenario, "wan", format)}`);
+const outDir = path.resolve(here, `../outputs/${outDirName(storageName, "wan", format)}`);
 const prefix = prefixForDir(outDirName(scenario, "wan", format));
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -116,9 +120,9 @@ const opts = {
   cfg,
   imageMode,
   buildRef: (prompt) =>
-    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${scenario}/wan_ref`, steps: imgSteps }),
+    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${storageName}/wan_ref`, steps: imgSteps }),
   buildKeyframe: (prompt, i, refImage) =>
-    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${scenario}/wan_seq${i + 1}`, steps: imgSteps, image: refImage }),
+    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${storageName}/wan_seq${i + 1}`, steps: imgSteps, image: refImage }),
   buildClip: (motion, image, i) => buildWanGraph({
     prompt: move(motion),
     image,
@@ -128,7 +132,7 @@ const opts = {
     length: wanFrames(beatTargetDuration({ outDir, prefix, n: i + 1, beat: cfg.sequence[i], fallback: cfg.duration ?? 3 })),
     steps: cfg.steps ?? 8,
     negative: cfg.negative,
-    prefix: `${scenario}/wan_clip${i + 1}_${cfg.sequence[i].title}`,
+    prefix: `${storageName}/wan_clip${i + 1}_${cfg.sequence[i].title}`,
   }),
   videoNode: "56",
 };

@@ -763,6 +763,10 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
       activePct,
       activeElapsedMs,
       activeExpectedMs,
+      // Landed beat indices from this run's own asset stream — event-driven
+      // so the gallery's in-flight tile never lags on a stale file listing.
+      kfDone: [...kfIdx],
+      clipDone: [...clipIdx],
     };
   }, [assets, assetTimes, totalBeats, dlgBeats, runMeta, runQueue, status, startedAt, timeAnchor, endedAt, now, cancelled, runScenario, scenario]);
 

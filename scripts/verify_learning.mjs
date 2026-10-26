@@ -24,6 +24,8 @@ import {
   verifyOcrText,
 } from "../lib/director.mjs";
 import { loadState, resolveMain } from "../lib/sequence_state.mjs";
+import { resolvePromptsJson } from "../lib/config_load.mjs";
+import { configSlug } from "../lib/variant.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -49,8 +51,10 @@ if (scenario === "." || scenario === ".." || path.basename(scenario) !== scenari
   console.error("scenario must be a plain project name (no path separators)"); process.exit(2);
 }
 
-const cfgPath = path.join(ROOT, "prompts", `${scenario}.json`);
-const outDir = path.join(ROOT, "outputs", scenario);
+// Storage identity is SPACE-FREE: the slug is applied idempotently.
+const storageName = configSlug(scenario);
+const cfgPath = resolvePromptsJson(path.join(ROOT, "prompts"), scenario);
+const outDir = path.join(ROOT, "outputs", storageName);
 if (!fs.existsSync(cfgPath)) { console.error(`no scenario config: ${cfgPath}`); process.exit(2); }
 if (!fs.existsSync(outDir)) { console.error(`no outputs dir (generate keyframes first): ${outDir}`); process.exit(2); }
 
@@ -61,7 +65,7 @@ const only = new Set(
   beatsOpt ? beatsOpt.split(",").map((x) => Number(x.trim())).filter((n) => Number.isFinite(n) && n > 0) : [],
 );
 const state = loadState(outDir);
-const prefix = scenario;
+const prefix = storageName;
 
 function ocrImage(abs) {
   const langs = langOpt === "eng" ? ["eng"] : [langOpt, "eng"];

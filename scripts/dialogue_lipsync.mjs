@@ -54,6 +54,8 @@ import {
   run, download, uploadToInput, firstVideoUrl, buildLtxGraph, buildWanGraph,
 } from "../lib/comfy.mjs";
 import { lipSyncBeatForProvider, lipSyncProviderName } from "../lib/dialogue_pipeline.mjs";
+import { resolvePromptsJson } from "../lib/config_load.mjs";
+import { configSlug } from "../lib/variant.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -84,14 +86,16 @@ const onlyBeats = beatsIdx >= 0 && args[beatsIdx + 1]
   ? new Set(args[beatsIdx + 1].split(",").map((x) => Number(x)).filter((x) => x > 0))
   : null;
 
-const cfgPath = path.join(here, `../prompts/${cfgName}.json`);
+const cfgPath = resolvePromptsJson(path.join(here, "../prompts"), cfgName);
 if (!fs.existsSync(cfgPath)) {
   console.error(`[dialogue] no prompts/${cfgName}.json`);
   process.exit(1);
 }
 const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-const outDir = path.resolve(here, `../outputs/${outDirName(scenario, engine, format)}`);
-const prefix = prefixForDir(outDirName(scenario, engine, format));
+// Storage identity is SPACE-FREE: the slug is applied idempotently.
+const storageName = configSlug(scenario);
+const outDir = path.resolve(here, `../outputs/${outDirName(storageName, engine, format)}`);
+const prefix = prefixForDir(outDirName(storageName, engine, format));
 if (!fs.existsSync(outDir)) {
   console.error(`[dialogue] no ${outDir} — generate the project first`);
   process.exit(1);
@@ -146,7 +150,7 @@ async function genSilentClip({ b, n, wavDuration }) {
       length: wanFrames(beatTargetDuration({ outDir, prefix, n, beat: b, fallback: target })),
       steps: cfg.steps ?? 8,
       negative: cfg.negative,
-      prefix: `${scenario}/wan_clip${n}_${b.title}`,
+      prefix: `${storageName}/wan_clip${n}_${b.title}`,
     })
     : buildLtxGraph({
       prompt: motion,
@@ -155,7 +159,7 @@ async function genSilentClip({ b, n, wavDuration }) {
       ratio: vertical ? VERTICAL_LTX_RATIO : "16:9 (Widescreen)",
       megapixels: vertical ? VERTICAL_LTX_MEGAPIXELS : 0.5,
       negative: cfg.negative, // explicit override; undefined -> cartoon-aware auto default
-      prefix: `${scenario}/clip${n}_${b.title}`,
+      prefix: `${storageName}/clip${n}_${b.title}`,
     });
   const entry = await run(graph, `clip${n}`);
   const v = nextVersion(outDir, prefix, "clip", n, ".mp4", b.title);

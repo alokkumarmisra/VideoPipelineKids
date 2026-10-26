@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { sceneGroupsOf, sceneColor, sceneTint } from "./sceneGroups";
-import { listOutputs, outputUrl, selectMain, uploadRef, isVerticalOut, getDialogueStatus, saveSceneDialogue, type AssetEvent, type RunRequest, type VideoFormat, type Engine, type DialogueBeatStatus, type DialogueLine } from "../api";
+import { listOutputs, outputUrl, selectMain, uploadRef, isVerticalOut, getDialogueStatus, saveSceneDialogue, listProjectAssets, type AssetEvent, type RunRequest, type VideoFormat, type VideoType, type Engine, type DialogueBeatStatus, type DialogueLine } from "../api";
 import type { AssetVersion, MainsInfo, VersionsInfo, AssetKind, Beat } from "../types";
 import type { GenerationProgress } from "./GenerationProgressBar";
 import { formatLiveElapsed } from "./GenerationProgressBar";
@@ -54,6 +54,9 @@ interface Props {
   /** Project display name owning the Lip-sync stat — enables its View button
       (dialogue viewer/editor popup). Absent = no View button. */
   projectName?: string | null;
+  /** User-typed project name for LABELS only ("Pyari billi") — `projectName`
+      stays the space-free internal key used for every API call. */
+  displayName?: string | null;
   dialogueEngine?: Engine;
   dialogueFormat?: VideoFormat;
   /** Scenario beats in flat order (1:1 with beat index n). When a beat
@@ -178,7 +181,7 @@ function GenOverlay({ label, readout }: { label: string; readout?: string | null
 
 // Gallery of outputs/<scenario>/: ref, keyframes, clips (with version
 // pickers + regenerate), final cut.
-export default function OutputGallery({ scenario, refreshKey, assets, bare, generatingScenario, generatingFormat, section = "all", regenTarget, runQueue = [], onStitch, onRegen, onBulkRegen, onUploaded, onEngineSwitch, totalScenes, progress, onGotoEditorScene, summary, projectName, dialogueEngine = "ltx", dialogueFormat = "landscape", beats, onDialogueSaved }: Props) {
+export default function OutputGallery({ scenario, refreshKey, assets, bare, generatingScenario, generatingFormat, section = "all", regenTarget, runQueue = [], onStitch, onRegen, onBulkRegen, onUploaded, onEngineSwitch, totalScenes, progress, onGotoEditorScene, summary, projectName, displayName, dialogueEngine = "ltx", dialogueFormat = "landscape", beats, onDialogueSaved }: Props) {
   const [files, setFiles] = useState<string[]>([]);
   const [versions, setVersions] = useState<VersionsInfo>({ ref: [], beats: {}, final: [] });
   const [mains, setMains] = useState<MainsInfo>({ ref: null, beats: {}, final: null });
@@ -466,7 +469,7 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
       {lipOpen && (
         <div className="dlg-overlay" role="dialog" aria-modal="true" aria-label="Lip-sync dialogues">
           <div className="dlg-box char-popup lip-view-box" onClick={(e) => e.stopPropagation()}>
-            <h3 className="dlg-title">🎙 Lip-sync dialogues{(projectName || "").trim() ? ` · ${projectName}` : ""}</h3>
+            <h3 className="dlg-title">🎙 Lip-sync dialogues{((displayName || projectName) || "").trim() ? ` · ${displayName || projectName}` : ""}</h3>
             <p className="dlg-message">
               Scenes with dialogue lines. Edit as <b>speaker: line</b> (optional{" "}
               <b>speaker (expression): line</b>), then Save per scene. Re-run LipSync afterwards.
@@ -573,8 +576,14 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
               {liveNums.map((n) => {
                 const kf = kfByIndex.get(n);
                 const clip = clipByIndex.get(n);
-                const kfGen = liveGenTarget === `kf:${n}`;
-                const clipGen = liveGenTarget === `clip:${n}`;
+                // Same direct live signal as the static grid: when the run's
+                // own progress names this project, its active beat pulses.
+                const runHereLive = !!progress && progress.status === "running" && !!progress.scenario &&
+                  ((!!projectName && progress.scenario === projectName) || progress.scenario === viewScenario);
+                const liveKf = runHereLive && progress?.activeKind === "image" && progress?.activeScene === n;
+                const liveClip = runHereLive && progress?.activeKind === "video" && progress?.activeScene === n;
+                const kfGen = liveGenTarget === `kf:${n}` || liveKf;
+                const clipGen = liveGenTarget === `clip:${n}` || liveClip;
                 // Live readout for the in-flight tile (~% when pace exists,
                 // else ticking seconds, else plain "generating").
                 const liveReadout = (kind: "image" | "video"): string => {
@@ -725,10 +734,64 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
   // into the suffixed dir, so both forms match. The format must match too —
   // a vertical Reel run never lights up the landscape cards.
   const activeGeneratingScenario = generatingScenario ?? null;
-  const generating = !!activeGeneratingScenario && !!viewScenario &&
+  // Unbreakable in-flight signal: the run's OWN progress carries its scenario
+  // name (RunPanel reports it from the run record). When it matches THIS
+  // gallery's project — by display name or by output dir — the in-flight
+  // tile must pulse even if the parent's generatingScenario failed to
+  // resolve (folder-lookup miss while the project list loads, engine/cut
+  // drift, a reattached run). This keeps the generating animation alive on
+  // every wiring path instead of depending on the dir-matching chain.
+  const runHere = !!progress && progress.status === "running" && !!progress.scenario &&
+    (!!projectName && progress.scenario === projectName || progress.scenario === viewScenario);
+  const generating = (!!activeGeneratingScenario && !!viewScenario &&
     (activeGeneratingScenario === viewScenario || `${activeGeneratingScenario}_wan` === viewScenario ||
-      `${activeGeneratingScenario}_vertical` === viewScenario || `${activeGeneratingScenario}_wan_vertical` === viewScenario) &&
-    (generatingFormat ?? "landscape") === (isVerticalOut(viewScenario) ? "vertical" : "landscape");
+      `${activeGeneratingScenario}_vertical` === viewScenario || `${activeGeneratingScenario}_wan_vertical` === viewScenario ||
+      // Display-name tolerance (same rule as the Story Board): a caller that
+      // reports the run by its scenario NAME ("Pyari billi") instead of the
+      // storage folder must still light this gallery's generating states.
+      (!!projectName && activeGeneratingScenario === projectName)) &&
+    (generatingFormat ?? "landscape") === (isVerticalOut(viewScenario) ? "vertical" : "landscape")) || runHere;
+
+  // Catalog PROCESSING rows — the SAME source the Story Board's animated
+  // "generating" status uses (project_assets via listProjectAssets). While a
+  // run is active for this project, poll them so the pulsing tile here
+  // always agrees with the Story Board row — including runs the run-wiring
+  // chain couldn't see (a reattached/foreign run, or rows updated by the
+  // server pump directly). Cleared when no run is generating here.
+  const [procBeats, setProcBeats] = useState<{ kf: Set<number>; clip: Set<number> }>({ kf: new Set(), clip: new Set() });
+  const procVideoType: VideoType = dialogueFormat === "vertical" ? "INSTAGRAM" : "YOUTUBE";
+  useEffect(() => {
+    if (!projectName || !generating || !viewScenario) {
+      setProcBeats((p) => (p.kf.size || p.clip.size ? { kf: new Set(), clip: new Set() } : p));
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      listProjectAssets(projectName, undefined, undefined, procVideoType)
+        .then((rows) => {
+          if (cancelled) return;
+          const list = Array.isArray(rows) ? rows : [];
+          const kf = new Set<number>();
+          const clip = new Set<number>();
+          for (const r of list) {
+            if (!r || r.status !== "PROCESSING") continue;
+            const bi = Number(r.beat_index);
+            if (!Number.isFinite(bi) || bi <= 0) continue;
+            if (r.asset_type === "KEYFRAME") kf.add(bi);
+            else if (r.asset_type === "VIDEO") clip.add(bi);
+          }
+          setProcBeats((p) => {
+            const same = p.kf.size === kf.size && p.clip.size === clip.size &&
+              [...p.kf].every((x) => kf.has(x)) && [...p.clip].every((x) => clip.has(x));
+            return same ? p : { kf, clip };
+          });
+        })
+        .catch(() => { /* catalog down — the run-wiring signals above still pulse */ });
+    };
+    load();
+    const t = setInterval(load, 5000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [projectName, generating, viewScenario, procVideoType]);
   const genTarget = (() => {
     if (!generating) return null;
     if (regenTarget) {
@@ -747,12 +810,29 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
       if (progress.activeKind === "video" && progress.activeScene > 0)
         return `clip:${progress.activeScene}`;
     }
-    if (!versions.ref.length) return "ref";
-    for (const n of beatNums) {
-      if (!versions.beats[String(n)].keyframe.length) return `kf:${n}`;
+    // Landed check: on-disk versions (re-listed on a cadence) OR the live
+    // run's own asset stream (kfDone/clipDone — event-driven, never stale).
+    // The live sets keep the pulsing tile on the asset actually in flight
+    // between listing refreshes instead of lagging up to 15s behind.
+    const kfDoneLive = progress?.status === "running" && Array.isArray(progress.kfDone) ? progress.kfDone : null;
+    const clipDoneLive = progress?.status === "running" && Array.isArray(progress.clipDone) ? progress.clipDone : null;
+    const kfLanded = (n: number) =>
+      (versions.beats[String(n)]?.keyframe.length ?? 0) > 0 || (!!kfDoneLive && kfDoneLive.includes(n));
+    const clipLanded = (n: number) =>
+      (versions.beats[String(n)]?.clip.length ?? 0) > 0 || (!!clipDoneLive && clipDoneLive.includes(n));
+    // Candidate span: on-disk beats plus the run's own total (a fresh run on
+    // a project whose listing hasn't caught up yet still finds its target).
+    const spanCandidates = Math.max(
+      beatNums.length,
+      progress?.status === "running" && progress.totalScenes != null ? progress.totalScenes : 0,
+    );
+    const candidates = Array.from({ length: spanCandidates }, (_, i) => i + 1);
+    if (!versions.ref.length && !kfDoneLive && !clipDoneLive) return "ref";
+    for (const n of candidates) {
+      if (!kfLanded(n)) return `kf:${n}`;
     }
-    for (const n of beatNums) {
-      if (!versions.beats[String(n)].clip.length) return `clip:${n}`;
+    for (const n of candidates) {
+      if (!clipLanded(n)) return `clip:${n}`;
     }
     return null; // everything exists — the run is re-stitching the final cut
   })();
@@ -905,6 +985,42 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
     ]),
   ].sort((a, b) => a - b);
 
+  // Keyframes → clips scene blocks: when the beats carry Director linkage
+  // (scene_number), the grid renders GROUPED per scene and scenes follow the
+  // AI Story Director's creation order (scene_number ascending), shots inside
+  // each scene ordered by shot_number — never a raw order that can drift from
+  // the storyboard after re-plans. Legacy/manual beats (no linkage) keep the
+  // single flat grid with no headers. Flat beat indices stay the storage /
+  // jump / regen keys inside every block — grouping is display-only.
+  interface BeatsBlock { key: string; sceneNumber: number | null; title: string | null; color: string | null; tint: string | null; nums: number[] }
+  const beatsBlocks: BeatsBlock[] = (() => {
+    const list = Array.isArray(beats) ? beats : [];
+    const flat: BeatsBlock = { key: "flat", sceneNumber: null, title: null, color: null, tint: null, nums: sceneNums };
+    const linked = list.some((b) => Number((b as Beat | undefined)?.scene_number) > 0);
+    if (!linked) return [flat];
+    const groups = sceneGroupsOf(list)
+      .filter((g) => g.sceneNumber != null)
+      .sort((a, b) => (a.sceneNumber ?? 0) - (b.sceneNumber ?? 0));
+    if (!groups.length) return [flat];
+    const blocks: BeatsBlock[] = groups.map((g, gi) => {
+      const color = sceneColor(g.key, g.sceneNumber, gi);
+      const tint = sceneTint(g.key, g.sceneNumber, gi);
+      // Scene label from its first shot's beat title (a slug): drop the
+      // trailing shot letter the flattener appended (…_dance_a → … dance).
+      const raw = String((list[g.indices[0]] as Beat | undefined)?.title || "").trim();
+      const spaced = raw.replace(/_/g, " ").trim();
+      const title = spaced ? (spaced.replace(/\s+[a-z]$/i, "").trim() || spaced) : null;
+      return { key: g.key, sceneNumber: g.sceneNumber, title, color, tint, nums: g.indices.map((i) => i + 1) };
+    });
+    // Flat indices the linkage doesn't cover (config-known pending beats
+    // beyond the saved sequence — e.g. the in-flight beat while a board grew)
+    // trail in one ungrouped block so no beat ever loses its tile.
+    const covered = new Set(blocks.flatMap((b) => b.nums));
+    const extra = sceneNums.filter((n) => !covered.has(n));
+    if (extra.length) blocks.push({ key: "extra", sceneNumber: null, title: null, color: null, tint: null, nums: extra });
+    return blocks;
+  })();
+
   // Follow the newest stitch automatically: when a fresh final cut lands
   // while the previous latest (or nothing) was showing, drop the pick so
   // the new final clip shows on its own.
@@ -954,8 +1070,13 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
   // flight only when a clip run is active.
   const imgGen = generating && (genTarget === "ref" || (genTarget?.startsWith("kf:") ?? false));
   const clipGen = generating && (genTarget?.startsWith("clip:") ?? false);
-  // Live readout for the in-flight clip on the Current-video tile:
-  // estimated ~% when pace exists, else ticking seconds (real), else null.
+  // Live readouts for the Current image & video tiles: estimated ~% when
+  // pace exists, else ticking seconds (real), else null.
+  const curImgReadout = imgGen && progress?.status === "running" && progress.activeKind === "image"
+    ? (progress.activePct != null
+        ? `~${Math.round(progress.activePct)}%`
+        : (formatLiveElapsed(progress.activeElapsedMs) ?? "generating"))
+    : null;
   const curClipReadout = clipGen && progress?.status === "running" && progress.activeKind === "video"
     ? (progress.activePct != null
         ? `~${Math.round(progress.activePct)}%`
@@ -1297,6 +1418,12 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                     <>
                       <ExpandButton title={`Fullscreen preview of ${pretty(curKf.file)}`} onOpen={() => setPreview({ src: outputUrl(viewScenario, curKf.file), kind: "image", alt: pretty(curKf.file) })} />
                       <SmoothImage src={outputUrl(viewScenario, curKf.file)} alt={pretty(curKf.file)} />
+                      {imgGen && (
+                        <GenOverlay
+                          label={genTarget === "ref" ? "Generating reference…" : `Generating scene ${genScene} keyframe…`}
+                          readout={curImgReadout && curImgReadout !== "generating" ? curImgReadout : null}
+                        />
+                      )}
                     </>
                   ) : (
                     <div className="frame-missing">
@@ -1313,6 +1440,12 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                       <ExpandButton title={`Fullscreen preview of ${pretty(curClip.file)}`} onOpen={() => setPreview({ src: outputUrl(viewScenario, curClip.file), kind: "video", alt: pretty(curClip.file) })} />
                       <video controls preload="metadata" src={outputUrl(viewScenario, curClip.file)} />
                       {clipGen && <span className="gen-scanline" aria-hidden="true" />}
+                      {clipGen && (
+                        <GenOverlay
+                          label={`Generating video ${genScene != null ? genScene : ""}…`.trim()}
+                          readout={curClipReadout && curClipReadout !== "generating" ? curClipReadout : null}
+                        />
+                      )}
                       {clipGen && curClipReadout && curClipReadout !== "generating" && (
                         <span className="gen-pct" title={`Generating video… ${curClipReadout}${curClipReadout.startsWith("~") ? " (estimated)" : " elapsed"}`}>{curClipReadout}</span>
                       )}
@@ -1503,7 +1636,6 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
         <>
           {/* The Keyframes card header already carries this title. */}
           {!isBeats && <div className="section-label">Keyframes → clips</div>}
-          <div className="grid grid-compact grid-5col">
             {(() => {
             const total = sceneNums.length;
             const pctFor = (kind: "image" | "video", beat: number): number | null => {
@@ -1516,14 +1648,21 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
               if (progress.activeKind !== kind || progress.activeScene !== beat) return null;
               return formatLiveElapsed(progress.activeElapsedMs);
             };
-            return sceneNums.map((n) => {
+            const renderBeat = (n: number) => {
               const bv = versions.beats[String(n)] ?? { keyframe: [], clip: [] };
               const kfMain = mains.beats[String(n)]?.keyframe || bv.keyframe[bv.keyframe.length - 1]?.file || null;
               const clipMain = mains.beats[String(n)]?.clip || bv.clip[bv.clip.length - 1]?.file || null;
               const kfV = kfMain ? bv.keyframe.find((v) => v.file === kfMain)?.v ?? null : null;
               const clipV = clipMain ? bv.clip.find((v) => v.file === clipMain)?.v ?? null : null;
-              const kfGen = genTarget === `kf:${n}`;
-              const clipGen = genTarget === `clip:${n}`;
+              // In-flight tile: the resolved genTarget, the run's own live
+              // progress naming this exact beat (the direct signal — works
+              // even when genTarget's chain couldn't resolve the run's dir),
+              // or a catalog row in PROCESSING (same source as the Story
+              // Board's animated status — the two sections always agree).
+              const liveKf = runHere && progress?.activeKind === "image" && progress?.activeScene === n;
+              const liveClip = runHere && progress?.activeKind === "video" && progress?.activeScene === n;
+              const kfGen = genTarget === `kf:${n}` || liveKf || procBeats.kf.has(n);
+              const clipGen = genTarget === `clip:${n}` || liveClip || procBeats.clip.has(n);
               const kfPct = kfGen ? pctFor("image", n) : null;
               const clipPct = clipGen ? pctFor("video", n) : null;
               const kfElapsed = kfGen ? elapsedFor("image", n) : null;
@@ -1568,6 +1707,8 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                       />
                     )}
                   </div>
+                  <div className="shot-body">
+                    <div className="shot-half shot-half-img">
                   <div className="img-frame">
                     {kfMain
                       ? <>
@@ -1605,6 +1746,8 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                     pct={kfPct}
                     elapsed={kfElapsed}
                   />
+                    </div>
+                    <div className="shot-half shot-half-vid">
                   {clipMain ? (
                     <div className="shot-clip-frame">
                       {clipV != null && (
@@ -1674,10 +1817,40 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                     elapsed={clipElapsed}
                     action={editAction}
                   />
+                    </div>
+                  </div>
                 </div>
               );
-            });
+            };
+            // One block per Director scene (AI Story Director creation order,
+            // scene_number ascending) — each block carries its own shot grid;
+            // the ungrouped trailing block only appears for beats the linkage
+            // doesn't cover.
+            return beatsBlocks.map((block) => (
+              <div
+                className="beats-scene-block"
+                key={block.key}
+                style={block.color ? { borderColor: `color-mix(in srgb, ${block.color} 45%, transparent)` } : undefined}
+              >
+                {block.sceneNumber != null && (
+                  <div
+                    className="beats-scene-head"
+                    title={`Scene ${block.sceneNumber} — in the order the AI Story Director created it (${block.nums.length} shot${block.nums.length === 1 ? "" : "s"})`}
+                    style={block.color ? { background: block.tint ?? undefined, borderBottomColor: `color-mix(in srgb, ${block.color} 55%, transparent)`, color: block.color } : undefined}
+                  >
+                    <span aria-hidden="true" className="beats-scene-dot" style={block.color ? { background: block.color } : undefined} />
+                    <span className="beats-scene-name">Scene {block.sceneNumber}{block.title ? ` · ${block.title}` : ""}</span>
+                    <span className="beats-scene-count">{block.nums.length} shot{block.nums.length === 1 ? "" : "s"}</span>
+                  </div>
+                )}
+                <div className="grid grid-compact grid-5col">
+                  {block.nums.map(renderBeat)}
+                </div>
+              </div>
+            ));
             })()}
+            {fallbackShots.length > 0 && (
+            <div className="grid grid-compact grid-5col">
             {fallbackShots.map(({ kf, clip }, fi) => {
               const m = kf.match(/_seq(\d+)_/);
               const fn = m ? Number(m[1]) : fi + 1;
@@ -1722,7 +1895,8 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
               </div>
               );
             })}
-          </div>
+            </div>
+            )}
           <p className="hint">
             Pick a version to make it <b>your pick</b> — the final cut stitches the main version of every beat.
             Regenerate keeps old versions and selects the newest; a reload also selects the newest unless you picked one.

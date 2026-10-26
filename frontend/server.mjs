@@ -12,7 +12,7 @@ import { Pool } from "pg";
 import { versionMap, setMain, clearRefMain, nextVersion } from "../lib/sequence_state.mjs";
 import {
   normalizeFormat, outDirName, cfgNameForDir, prefixForDir, engineForDir,
-  allDirsFor, folderSlug, fileSlug,
+  allDirsFor, folderSlug, fileSlug, configSlug,
 } from "../lib/variant.mjs";
 import {
   planDelta,
@@ -550,9 +550,14 @@ function mergeStateMains(surviveDir, absorbedDir, from, to) {
 }
 // Legacy rename entry point (prompts JSON only — outputs dirs are immutable
 // storage now and move exclusively via moveOutputDirs during migration).
+// Prompts files are SPACE-FREE (slug names): the old file may exist under the
+// legacy raw display name OR the slug — either source moves to the new slug.
 function renameScenarioFiles(oldName, newName) {
-  const pj = path.join(PROMPTS, oldName + ".json");
-  if (fs.existsSync(pj)) fs.renameSync(pj, path.join(PROMPTS, newName + ".json"));
+  const dst = promptsSlugFile(newName);
+  for (const src of [promptsLegacyFile(oldName), promptsSlugFile(oldName)]) {
+    if (!fs.existsSync(src) || src === dst) continue;
+    try { fs.renameSync(src, dst); break; } catch { /* best-effort */ }
+  }
 }
 // Slugify legacy filenames inside one output dir using the CURRENT config
 // beat titles: "<prefix>_{seq,clip}<n>_<raw title>[(_vN)].<ext>" ->
@@ -2302,6 +2307,29 @@ async function pgRefreshProjectFiles(projectName, outputFolder) {
 // output dirs, filenames and DB paths stay stable and media keeps resolving.
 const folderName = folderSlug;
 
+// INTERNAL KEY vs DISPLAY NAME: the user may type "Pyari billi" in the UI;
+// the application stores and routes everything by a SPACE-FREE key
+// ("pyari_billi" — configSlug, same rule as the storage folder). The key is
+// the scenarios/projects identity: /api/scenario/<key>/... URLs, output
+// dirs, image/video/reference file names all derive from it and never carry
+// a space. The typed name rides along as cfg.display_name for UI labels;
+// the UI falls back to the key when a project has none.
+const spaceFreeName = configSlug;
+
+// Prompts-JSON paths: SPACE-FREE file names like every other storage name.
+// Writers always use the slug (`pyari_billi.json`); readers resolve the slug
+// first and fall back to the legacy raw display-name file so exports written
+// before slugification keep loading. configName (what the CLI runners get via
+// --config-name) stays the display name — the runners do the same fallback.
+const promptsSlugFile = (name) => path.join(PROMPTS, `${configSlug(name)}.json`);
+const promptsLegacyFile = (name) => path.join(PROMPTS, `${String(name ?? "")}.json`);
+function promptsReadFile(name) {
+  const slugF = promptsSlugFile(name);
+  if (fs.existsSync(slugF)) return slugF;
+  const rawF = promptsLegacyFile(name);
+  return fs.existsSync(rawF) ? rawF : slugF;
+}
+
 // Get existing folder_name from the database row for a given project.
 const getFolderNameFromRow = async (name) => {
   if (!pgUp) return null;
@@ -2928,8 +2956,11 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
       lastErr = e;
       if (n >= attempts) break; // exhausted — fall through to the annotated throw below
     } finally { clearTimeout(t); }
+    // `msg` above is catch-block scoped — computing the retry log line from
+    // lastErr (same rule as llmPostChat) instead avoids a ReferenceError that
+    // used to crash the retry path itself as "msg is not defined".
     const wait = Math.min(30000, LLM_RETRY_BASE_MS * 2 ** (n - 1)) + Math.floor(Math.random() * 1000);
-    console.warn(`[llm:${tag}] attempt ${n}/${attempts} failed (${msg.slice(0, 160)}) — retrying in ${wait}ms`);
+    console.warn(`[llm:${tag}] attempt ${n}/${attempts} failed (${String((lastErr && lastErr.message) || lastErr).slice(0, 160)}) — retrying in ${wait}ms`);
     await sleep(wait);
   }
   const err = lastErr instanceof Error ? lastErr : new Error(String(lastErr));
@@ -4370,7 +4401,7 @@ async function dashboardPayload() {
     // as fallback (a project row can exist before its first Save).
     let text = r.configText;
     if (text == null) {
-      try { text = fs.readFileSync(path.join(PROMPTS, r.name + ".json"), "utf8"); }
+      try { text = fs.readFileSync(promptsReadFile(r.name), "utf8"); }
       catch { text = null; }
     }
     try { cfgs.set(r.name, text != null ? JSON.parse(text) : null); }
@@ -4549,7 +4580,7 @@ async function loadStoredBrief(name) {
     if (raw) return { config: JSON.parse(raw), from: "database" };
   } catch { /* fall through to the JSON export */ }
   try {
-    const f = path.join(PROMPTS, name + ".json");
+    const f = promptsReadFile(name);
     if (fs.existsSync(f)) return { config: JSON.parse(fs.readFileSync(f, "utf8")), from: "json" };
   } catch { /* no stored brief */ }
   return null;
@@ -5061,7 +5092,9 @@ async function outputsPayload(name) {
   let cfg = null;
   const { base: folderBase } = splitDirSuffix(name);
   const cfgName = (pgUp ? await displayNameForFolder(folderBase) : null) || cfgNameFor(name);
-  const cfgPath = path.join(PROMPTS, cfgName + ".json");
+  // SPACE-FREE prompts files: resolve the slug-named export first, legacy
+  // raw display-name file second (see promptsReadFile).
+  const cfgPath = promptsReadFile(cfgName);
   try {
     if (fs.existsSync(cfgPath)) cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
   } catch { cfg = null; }
@@ -5069,6 +5102,17 @@ async function outputsPayload(name) {
     try {
       const raw = await dbGetScenario(cfgName);
       if (raw) cfg = JSON.parse(raw);
+    } catch { cfg = null; }
+  }
+  if (!cfg) {
+    try {
+      // Folder-keyed fallback: the config may live only in the store under a
+      // legacy display name whose slug IS this folder ("Pyari billi_2" ->
+      // "pyari_billi_2"). Slug-matching finds it in SQLite mode too (where
+      // the projects table can't map folder -> display name).
+      const rows = await dbListScenarios();
+      const hit = rows.find((r) => configSlug(r.name) === configSlug(folderBase));
+      if (hit) cfg = JSON.parse(hit.config);
     } catch { cfg = null; }
   }
   if (files.length && cfg?.referencePrompt && Array.isArray(cfg?.sequence)) {
@@ -5187,6 +5231,10 @@ const server = http.createServer(async (req, res) => {
         const c = JSON.parse(r.config);
         return {
           name: r.name,
+          // The user-typed project name ("Pyari billi") — the identity `name`
+          // is the space-free internal KEY ("pyari_billi"). UI labels prefer
+          // display_name and fall back to the key.
+          display_name: (c && typeof c === "object" && typeof c.display_name === "string" && c.display_name.trim()) || null,
           // A character-sequence project = has a sequence array. The Master
           // Prompt is optional (blank = AI prompt only), so it must not
           // gate listing — otherwise master-less projects vanish.
@@ -5222,8 +5270,14 @@ const server = http.createServer(async (req, res) => {
       let converted;
       try { converted = storyboardToScenario(raw); }
       catch (e) { return json(res, 400, { error: e instanceof Error ? e.message : "invalid project JSON" }); }
-      const wanted = body && typeof body.name === "string" && body.name.trim() ? body.name.trim() : converted.name;
+      const wantedRaw = body && typeof body.name === "string" && body.name.trim() ? body.name.trim() : converted.name;
+      // INTERNAL KEY: the import name becomes a space-free scenario key; the
+      // typed name rides along as display_name for UI labels.
+      const wanted = spaceFreeName(wantedRaw);
       if (!isSafe(wanted)) return json(res, 400, { error: "bad name" });
+      if (converted.config && typeof converted.config === "object" && !converted.config.display_name) {
+        converted.config.display_name = wantedRaw;
+      }
       const overwrite = !!(body && body.overwrite);
       let prevRaw = null;
       try { prevRaw = await dbGetScenario(wanted); }
@@ -5250,12 +5304,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (USE_SQLITE) {
         await dbSaveScenario(wanted, cfg);
-        fs.writeFileSync(path.join(PROMPTS, wanted + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(wanted), JSON.stringify(cfg, null, 2));
         pgSaveScenarioMirror(wanted, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
       } else {
         if (!pgUp) return json(res, 503, { error: "database unavailable" });
         await dbSaveScenario(wanted, cfg);
-        fs.writeFileSync(path.join(PROMPTS, wanted + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(wanted), JSON.stringify(cfg, null, 2));
       }
       let version = null;
       let project_id = null;
@@ -5376,8 +5430,17 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { name, config: JSON.parse(raw), ...(project_type ? { project_type } : {}) });
     }
     if (p.startsWith("/api/scenario/") && req.method === "PUT" && p.split("/").length === 4) {
-      const name = pathName(p.split("/")[3]);
+      let name = pathName(p.split("/")[3]);
       if (!isSafe(name)) return json(res, 400, { error: "bad name" });
+      // INTERNAL KEY: a NEW project whose URL name is a display name (spaces/
+      // caps) is stored under its space-free key ("Pyari billi" ->
+      // "pyari_billi") so /api/scenario/<key>/... URLs never need %20. A
+      // legacy row saved under the raw spelling keeps working untouched
+      // (renaming it migrates it).
+      if (/\s/.test(name)) {
+        const legacy = await dbGetScenario(name).catch(() => null);
+        if (legacy == null) name = spaceFreeName(name);
+      }
       const cfg = await readJson(req);
       // project_type is a projects-TABLE column (VIDEO/AUDIO), not scenario
       // content: extract it as the save signal, then strip it so it never
@@ -5440,14 +5503,14 @@ const server = http.createServer(async (req, res) => {
       if (USE_SQLITE) {
         await dbSaveScenario(name, cfg);
         // Keep the JSON export for the CLI runners.
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
         pgSaveScenarioMirror(name, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
       } else {
         // Postgres is the canonical store: persist first, fail loudly when down.
         if (!pgUp) return json(res, 503, { error: "database unavailable" });
         await dbSaveScenario(name, cfg);
         // Keep the JSON export for the CLI runners.
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
       }
       // Explicit save updates the CURRENT project in place — never a new
       // project row and never a new version row. The scenarios row, the
@@ -5492,7 +5555,7 @@ const server = http.createServer(async (req, res) => {
         }
         catch (e) { console.warn("[pg] version save failed:", e.message); }
       }
-      return json(res, 200, { ok: true, version, project_id, updated: true });
+      return json(res, 200, { ok: true, version, project_id, updated: true, name });
     }
     // Rename a project (POST /api/scenario/:name/rename { newName }).
     // DISPLAY NAME ONLY: scenarios, scenario_versions, projects.name,
@@ -5506,7 +5569,10 @@ const server = http.createServer(async (req, res) => {
       let body;
       try { body = await readJson(req); }
       catch { return json(res, 400, { error: "bad json" }); }
-      const newName = String(body.newName || "").trim();
+      // SPACE-FREE: the new name is stored without whitespace (underscore),
+      // so the renamed project's URLs never carry %20. Renaming a legacy
+      // space-named project to its own name migrates it to the clean spelling.
+      const newName = spaceFreeName(String(body.newName || "").trim());
       if (!isSafe(oldName) || !isSafe(newName)) return json(res, 400, { error: "bad name" });
       if (oldName === newName) return json(res, 200, { ok: true, name: newName });
       let oldRaw;
@@ -5522,6 +5588,18 @@ const server = http.createServer(async (req, res) => {
       try {
         await dbRenameScenario(oldName, newName);
         renameScenarioFiles(oldName, newName);
+        // Keep the display name in sync with what the user typed (the KEY is
+        // the slug; display_name carries the raw text for UI labels).
+        try {
+          const moved = await dbGetScenario(newName);
+          if (moved != null) {
+            const movedCfg = JSON.parse(moved);
+            if (typeof movedCfg === "object" && movedCfg) {
+              movedCfg.display_name = String(body.newName || "").trim() || movedCfg.display_name;
+              await dbSaveScenario(newName, movedCfg);
+            }
+          }
+        } catch { /* display sync is best-effort */ }
         try { await renameDirectorBoardsForProject(oldName, newName); }
         catch (e) { console.warn("[pg] director boards rename failed:", e.message); }
         const favs = readFavs();
@@ -5556,7 +5634,7 @@ const server = http.createServer(async (req, res) => {
           const cfg = nxt.rows[0].config;
           latest = nxt.rows[0].version;
           await dbSaveScenario(name, cfg);
-          fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+          fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
           if (USE_SQLITE) pgSaveScenarioMirror(name, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
         }
       }
@@ -5572,8 +5650,10 @@ const server = http.createServer(async (req, res) => {
       catch (e) { return json(res, 503, { error: "database unavailable" }); }
       if (raw === null) return json(res, 404, { error: "no such scenario" });
       await dbDeleteScenario(name);
-      const f = path.join(PROMPTS, name + ".json");
-      if (fs.existsSync(f)) fs.unlinkSync(f);
+      // Remove the slug-named export AND any legacy raw display-name file.
+      for (const f of [promptsSlugFile(name), promptsLegacyFile(name)]) {
+        try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch { /* best-effort */ }
+      }
       // Linked storyboards go with the project (DB rows cascade via the FK;
       // files are removed here so the file backfill can't resurrect them).
       try {
@@ -5871,7 +5951,11 @@ const server = http.createServer(async (req, res) => {
       // New project FROM this resource: the caption becomes the Master
       // Prompt and the pixels become the pinned reference visual — then the
       // exact Project workflow takes over (AI Craft beats, Generate).
-      const newName = String(body.name || body.project || "").trim();
+      // INTERNAL KEY: the resource title (which may contain spaces) becomes
+      // the space-free scenario key; the typed title rides along as
+      // display_name for UI labels.
+      const rawName = String(body.name || body.project || "").trim();
+      const newName = spaceFreeName(rawName);
       if (!isSafe(newName)) return json(res, 400, { error: "project name required" });
       let taken = false;
       try { taken = (await dbGetScenario(newName)) !== null; }
@@ -5883,7 +5967,7 @@ const server = http.createServer(async (req, res) => {
           if (r.rowCount > 0) return json(res, 409, { error: "a project with that name already exists" });
         } catch { /* row check best-effort — the scenario check above governs */ }
       }
-      const cfg = { description: "", referencePrompt: refPrompt, duration: 3, sequence: [] };
+      const cfg = { description: "", referencePrompt: refPrompt, duration: 3, sequence: [], ...(rawName ? { display_name: rawName } : {}) };
       if (pgUp) {
         try {
           await pgEnsureProject(newName, cfg);
@@ -5893,7 +5977,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (!cfg.folder_name) cfg.folder_name = folderName(newName);
       await dbSaveScenario(newName, cfg);
-      fs.writeFileSync(path.join(PROMPTS, newName + ".json"), JSON.stringify(cfg, null, 2));
+      fs.writeFileSync(promptsSlugFile(newName), JSON.stringify(cfg, null, 2));
       let project_id = null;
       if (pgUp) {
         try {
@@ -5977,11 +6061,11 @@ const server = http.createServer(async (req, res) => {
       cfg.folder_name = folder;
       if (USE_SQLITE) {
         await dbSaveScenario(name, cfg);
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
         pgSaveScenarioMirror(name, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
       } else {
         await dbSaveScenario(name, cfg);
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
       }
       // Install every resource's pixels under the pipeline filename pattern.
       // Images convert to real PNG via ffmpeg (the keyframe scanner only
@@ -6138,7 +6222,7 @@ const server = http.createServer(async (req, res) => {
       const { base: kfBase } = splitDirSuffix(scenario);
       const kfOwner = (pgUp ? await displayNameForFolder(kfBase) : null) || cfgNameFor(scenario);
       let title = null;
-      const cfgPath = path.join(PROMPTS, kfOwner + ".json");
+      const cfgPath = promptsReadFile(kfOwner);
       try {
         if (fs.existsSync(cfgPath)) {
           const seq = JSON.parse(fs.readFileSync(cfgPath, "utf8")).sequence;
@@ -8027,11 +8111,17 @@ const server = http.createServer(async (req, res) => {
       } catch { /* validator never blocks on internal failure — approve proceeds */ }
       const config = boardToScenario(board);
       // Partial-migration flow: the first approve claims a project name (the
-      // story title verbatim, _2-suffixed on collision); every later
-      // "migrate remaining" re-approve reuses board.scenarioName so the rest
-      // of the scenes land in the SAME project (client PUTs = overwrite, and
-      // generation is resumable, so already-built scenes are kept).
-      let target = board.scenarioName || String(board.input.title || "").trim().slice(0, 120) || id;
+      // story title as a space-free KEY, _2-suffixed on collision); every
+      // later "migrate remaining" re-approve reuses board.scenarioName so the
+      // rest of the scenes land in the SAME project (client PUTs = overwrite,
+      // and generation is resumable, so already-built scenes are kept).
+      // INTERNAL KEY: the story title becomes the space-free scenario key
+      // ("Pyari billi" -> "pyari_billi") — /api/scenario/<key>/... URLs,
+      // output dirs and file names all use it; the typed title rides along
+      // as config.display_name for UI labels.
+      const approveTitle = String(board.input.title || "").trim().slice(0, 120);
+      let target = board.scenarioName || spaceFreeName(approveTitle) || id;
+      if (approveTitle) config.display_name = approveTitle;
       if (!board.scenarioName) {
         try {
           const taken = new Set((await dbListScenarios()).map((r) => r.name));
@@ -9305,7 +9395,12 @@ const server = http.createServer(async (req, res) => {
       const board = readDocBoard(id);
       if (!countBoardShots(board)) throw new Error("nothing to approve — plan the documentary first");
       const config = docBoardToScenario(board);
-      let target = board.scenarioName || String(board.brief.title || "").trim().slice(0, 120) || id;
+      // INTERNAL KEY: the brief title becomes the space-free scenario key
+      // (same rule as the Story Director approve); the typed title rides
+      // along as config.display_name for UI labels.
+      const approveTitle = String(board.brief.title || "").trim().slice(0, 120);
+      let target = board.scenarioName || spaceFreeName(approveTitle) || id;
+      if (approveTitle) config.display_name = approveTitle;
       if (!board.scenarioName) {
         try {
           const taken = new Set((await dbListScenarios()).map((r) => r.name));
@@ -10161,12 +10256,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (USE_SQLITE) {
         await dbSaveScenario(name, cfg);
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
         pgSaveScenarioMirror(name, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
       } else {
         if (!pgUp) return json(res, 503, { error: "database unavailable" });
         await dbSaveScenario(name, cfg);
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
       }
       let version = null;
       if (pgUp) {
@@ -10351,7 +10446,7 @@ if (p === "/api/database/rows" && (req.method === "POST" || req.method === "PUT"
         // Keep prompts/<name>.json in sync (CLI runners read it).
         try {
           fs.mkdirSync(PROMPTS, { recursive: true });
-          fs.writeFileSync(path.join(PROMPTS, `${values.name}.json`), String(values.config ?? "{}"));
+          fs.writeFileSync(promptsSlugFile(values.name), String(values.config ?? "{}"));
         } catch (e) { console.warn("[database] prompts mirror failed:", e.message); }
       }
       let row = null;
@@ -10391,7 +10486,7 @@ if (p === "/api/database/rows" && (req.method === "POST" || req.method === "PUT"
       if (table === "scenarios" && row) {
         try {
           fs.mkdirSync(PROMPTS, { recursive: true });
-          fs.writeFileSync(path.join(PROMPTS, `${row.name}.json`), String(row.config ?? "{}"));
+          fs.writeFileSync(promptsSlugFile(row.name), String(row.config ?? "{}"));
         } catch (e) { console.warn("[database] prompts mirror failed:", e.message); }
       }
       return json(res, 200, { ok: true, updated: info.changes, row });
@@ -10419,8 +10514,10 @@ if (p === "/api/database/rows" && (req.method === "POST" || req.method === "PUT"
     } catch (e) { return json(res, 400, { error: String(e.message || e) }); }
     if (!info.changes) return json(res, 404, { error: "row not found" });
     if (table === "scenarios" && doomed?.name) {
-      try { fs.unlinkSync(path.join(PROMPTS, `${doomed.name}.json`)); }
-      catch { /* prompt file may not exist */ }
+      // Remove the slug-named export AND any legacy raw display-name file.
+      for (const f of [promptsSlugFile(doomed.name), promptsLegacyFile(doomed.name)]) {
+        try { fs.unlinkSync(f); } catch { /* prompt file may not exist */ }
+      }
     }
     return json(res, 200, { ok: true, deleted: info.changes });
   } finally { try { h.close(); } catch { /* ignore */ } }
