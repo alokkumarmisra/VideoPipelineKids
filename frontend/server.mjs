@@ -30,6 +30,7 @@ import {
 } from "../lib/presets.mjs";
 import { applyMasterToBeats } from "../lib/master_prompt.mjs";
 import { audioDuration, dialogueWavFile } from "../lib/tts.mjs";
+import { FFMPEG, FFPROBE } from "../lib/ffmpeg.mjs";
 import { analyzePcm } from "../lib/audio_analysis.mjs";
 import { resolveImageWorkflow, DEFAULT_IMAGE_WORKFLOW, isImageWorkflowId } from "../lib/image_workflows.mjs";
 import { buildAudioTimeline, audioTimelineDuration, validateAudioTimeline, syncAudioTimelineToScenes } from "../lib/audio_timeline.mjs";
@@ -3004,8 +3005,12 @@ const resMimeExt = (mime) => ({
 }[String(mime || "").toLowerCase()] ?? null);
 const newResId = () => `res_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
 // Shell out to ffmpeg/ffprobe (same binaries the stitch path relies on).
+// The bare names are resolved through lib/ffmpeg.mjs so a machine without
+// ffmpeg on PATH uses the static build / FFMPEG_PATH override instead of
+// dying with ENOENT.
 const runCmd = (cmd, args, timeoutMs = 60000) => new Promise((res, rej) => {
-  const p = spawn(cmd, args, { windowsHide: true });
+  const bin = cmd === "ffmpeg" ? FFMPEG : cmd === "ffprobe" ? FFPROBE : cmd;
+  const p = spawn(bin, args, { windowsHide: true });
   let out = "", err = "";
   const t = setTimeout(() => { try { p.kill(); } catch { /* already dead */ } rej(new Error(`${cmd} timed out`)); }, timeoutMs);
   p.stdout.on("data", (c) => (out += c));
@@ -3030,7 +3035,7 @@ async function analyzeDirectorAudio(full) {
     if (cached && cached.version === 1) return cached.analysis;
   } catch { /* first analysis or stale/corrupt cache */ }
   const sampleRate = 11025;
-  const child = spawn("ffmpeg", ["-v", "error", "-i", full, "-vn", "-ac", "1", "-ar", String(sampleRate), "-f", "f32le", "pipe:1"], { windowsHide: true });
+  const child = spawn(FFMPEG, ["-v", "error", "-i", full, "-vn", "-ac", "1", "-ar", String(sampleRate), "-f", "f32le", "pipe:1"], { windowsHide: true });
   const chunks = [];
   let bytes = 0, stderr = "";
   const timeout = setTimeout(() => { try { child.kill(); } catch {} }, 240000);
