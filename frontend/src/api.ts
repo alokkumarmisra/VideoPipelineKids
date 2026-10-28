@@ -1314,6 +1314,10 @@ export interface DirectorLive {
   batchTo?: number | null;
   startedAt?: number;
   chars?: number;
+  /** True while a thinking model streams reasoning_content and no content token has arrived yet. */
+  thinking?: boolean;
+  /** Server-trimmed tail of the thinking buffer — shown while `thinking`. */
+  reasoning?: string;
   scenes: DirectorLiveScene[];
   tail: string;
 }

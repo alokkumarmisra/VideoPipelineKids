@@ -60,27 +60,305 @@ const ANALYZER_TYPES = {
       "Return valid JSON using the application's required schema, including story analysis, registered assets, and chronological beats."
     ]
   },
+  // Song Director: a full 16-section directive (asset-library-driven scene
+  // planning). Sections render verbatim into the Master Prompt between TASK
+  // and the VISUAL STYLE LOCK; the style lock itself stays dynamic (follows
+  // the Visual Style dropdown) and the Additional Instructions box overrides
+  // `additionalDefault` when the user types their own.
   song_director: {
     role: "Song Director — Sanskriti AI Studio",
-    task: "Convert supplied song lyrics and available audio metadata into a complete visual music-video storyboard synchronized to the existing song.",
-    instructions: [
-      "Read and understand all lyrics before planning scenes.",
-      "Identify the intro, verses, chorus, repeated sections, bridge, outro, singers, speakers, characters, actions, and emotional progression when present.",
-      "Do not rewrite lyrics, compose a new song, change the supplied duration, or generate replacement audio.",
-      "Register every character represented in the lyrics, including singers, talking animals, and personified characters when present. Assign unique IDs and reusable static visual identity prompts.",
-      "Register all relevant locations and props with unique IDs and visual identity prompts.",
-      "Divide the song into chronological visual beats based on lyric meaning and supplied timing cues. Group related lines when they describe one coherent action; split them when the visual meaning changes.",
-      "For every beat, specify the corresponding lyric or lyric range, start and end times when known, characters, location, visible props, and exactly one primary visual action.",
-      "Translate lyrics into literal or appropriately symbolic visuals that a viewer can understand. Do not create unrelated scenes just to fill the song.",
-      "Use the existing song duration as the fixed runtime. If exact timestamps are unavailable, produce an estimated scene allocation and label it clearly.",
-      "Match singing and lip-sync to the correct character. Do not assign a vocal line to an unrelated character.",
-      "Repeated choruses should retain character identity while allowing purposeful visual variation.",
-      "Use instrumental passages for relevant visual actions, establishing shots, or transitions without inventing lyrics.",
-      "Specify image composition, video action, camera movement, lighting, and transitions for each beat.",
-      "Maintain character anatomy, visual identity, location continuity, and prop consistency throughout the video.",
-      "Ensure all beats together cover the complete supplied duration without unexplained gaps or overlaps.",
-      "Return valid JSON using the required schema, including registered characters, locations, props, and chronological beats."
-    ]
+    task: "Convert supplied song lyrics and available audio metadata into a complete visual music-video storyboard synchronized to the existing song. Use the complete Storyboard asset library to select appropriate characters, locations, and objects for every scene according to the lyrics, music, action, and narrative context.",
+    instructions: [], // unused — `sections` renders instead
+    sections: [
+      {
+        title: "Song Understanding and Structure",
+        body: [
+          "1. Read and understand all lyrics before planning scenes.",
+          "2. Identify the intro, verses, chorus, repeated sections, bridge, outro, singers, speakers, characters, actions, and emotional progression when present.",
+          "3. Do not rewrite lyrics, compose a new song, change the supplied duration, or generate replacement audio.",
+          "4. Analyze available audio metadata, lyric timestamps, vocal segments, instrumental passages, tempo, mood, and transitions when provided.",
+          "5. Treat the supplied audio duration as the fixed runtime.",
+          "6. Never invent exact audio timestamps when they are unavailable. Estimate scene timings only when necessary and label them as estimated.",
+        ].join("\n"),
+      },
+      {
+        title: "Complete Storyboard Asset Registration",
+        body: [
+          "1. Register every relevant character represented in the lyrics, including singers, talking animals, personified objects, and other characters when present.",
+          "2. Assign unique, stable IDs to characters and provide reusable static visual identity prompts.",
+          "3. Register all relevant locations, environments, objects, and props identified through the lyrics, story, or supplied Storyboard analysis.",
+          "4. Assign unique, stable IDs to locations and objects and provide reusable visual identity prompts.",
+          "5. Preserve existing asset IDs, names, descriptions, reference images, and mappings supplied by Storyboard Analysis.",
+          "6. Do not duplicate assets that already exist in the asset library.",
+          "7. Do not invent replacement assets when suitable registered assets already exist.",
+          "8. Do not assume that the first character, location, or object is the default asset.",
+          "9. Do not assume a fixed number of assets.",
+          "10. Treat the complete supplied asset library as the candidate pool for every scene, not merely the first entry or a small initial subset.",
+        ].join("\n"),
+      },
+      {
+        title: "Mandatory Full Asset Evaluation for Every Scene",
+        body: [
+          "Before generating EACH scene, evaluate the complete available list of registered characters, locations, and objects.",
+          "",
+          "This requirement applies independently to every scene and every batch of scenes.",
+          "",
+          "For each scene, determine:",
+          "",
+          "- Which registered characters are necessary for the current lyric or musical event?",
+          "- Which registered location best matches the scene's action and narrative context?",
+          "- Which registered objects or props are necessary for the action?",
+          "- Which assets from previous scenes must remain present for continuity?",
+          "- Which assets should be introduced, reused, moved, or removed?",
+          "- Does the scene require a new location or a continuation of the existing location?",
+          "- Does the scene require one character or an interaction between multiple characters?",
+          "",
+          "Do not select assets based on their array position, registration order, popularity, or convenience.",
+          "",
+          "**CRITICAL RULE:** The first registered location, character, or object must never automatically become the default for all scenes. Select assets according to scene relevance.",
+        ].join("\n"),
+      },
+      {
+        title: "Intelligent Location Selection and Distribution",
+        body: [
+          "1. Evaluate ALL registered locations before selecting the location for each scene.",
+          "2. Choose the location that best matches the lyric meaning, action, story progression, and visual requirements.",
+          "3. Use different locations when the lyrics or narrative indicate a change in setting.",
+          "4. Maintain the current location when the story continues in the same environment.",
+          "5. Introduce appropriate location transitions when characters travel, move, explore, or enter another environment.",
+          "6. Use location-specific visual details from the registered asset description.",
+          "7. Do not repeatedly use the first location merely because it was registered first.",
+          "8. Do not randomly rotate locations simply to increase variety.",
+          "9. Do not force every registered location into the song if it has no narrative relevance.",
+          "10. Across the complete video, ensure that every relevant location is considered and used when the song provides a suitable opportunity.",
+          "11. If the lyrics explicitly identify a location, prioritize that location when it matches the available asset library.",
+          "12. If several locations are plausible, choose the one that best supports the current action and continuity.",
+        ].join("\n"),
+      },
+      {
+        title: "Intelligent Character Selection",
+        body: [
+          "1. Evaluate all registered characters for each scene.",
+          "2. Include every character required by the current action, lyric, dialogue, or interaction.",
+          "3. Include multiple characters when the action requires them to interact.",
+          "4. Do not automatically reuse the first registered character.",
+          "5. Do not force every character into every scene.",
+          "6. Preserve character identity, appearance, clothing, proportions, colors, and distinguishing features.",
+          "7. Keep singers and vocal performers consistent with the corresponding lyric or vocal segment.",
+          "8. Do not assign lip-sync or singing actions to an unrelated character.",
+          "9. For instrumental passages, use appropriate character actions when narratively relevant, without inventing sung dialogue.",
+          "10. Ensure that all relevant characters receive appropriate appearances across the complete video.",
+        ].join("\n"),
+      },
+      {
+        title: "Intelligent Object and Prop Selection",
+        body: [
+          "1. Evaluate all registered objects and props for every scene.",
+          "2. Select objects required by the lyrics, scene action, environment, or narrative.",
+          "3. Include relevant props explicitly in the scene plan and final generation prompt.",
+          "4. Do not ignore a relevant registered object because it appears later in the asset list.",
+          "5. Do not insert irrelevant objects merely to increase asset utilization.",
+          "6. Maintain object identity, color, shape, size, and appearance across scenes.",
+          "7. Preserve object continuity when a character carries, uses, drops, collects, exchanges, or puts down an object.",
+          "8. Introduce objects at the appropriate point in the song.",
+          "9. If an object is mentioned in the lyrics, evaluate whether it should be visibly represented.",
+          "10. When an object is not available in the registered library, use an existing suitable asset if appropriate; otherwise, identify the missing asset rather than falsely claiming that a registered asset was selected.",
+        ].join("\n"),
+      },
+      {
+        title: "Scene Segmentation and Lyric Synchronization",
+        body: [
+          "1. Divide the song into chronological visual beats based on lyric meaning and supplied timing cues.",
+          "2. Group related lines when they describe one coherent action; split them when the visual meaning changes.",
+          "3. For every beat, specify the corresponding lyric or lyric range, start and end times when known, characters, location, visible props, and exactly one primary visual action.",
+          "4. Translate lyrics into literal or appropriately symbolic visuals that a viewer can understand.",
+          "5. Do not create unrelated scenes just to fill the song.",
+          "6. Use the existing song duration as the fixed runtime.",
+          "7. Ensure all beats together cover the complete supplied duration without unexplained gaps or overlaps.",
+          "8. Preserve the existing scene-duration constraints and clip segmentation rules.",
+          "9. Align scene changes with lyric changes, vocal phrases, musical transitions, and instrumental breaks when the supplied metadata supports them.",
+          "10. Avoid changing a scene's primary action midway unless the beat is deliberately split into separate scenes.",
+        ].join("\n"),
+      },
+      {
+        title: "Scene-Level Asset Mapping",
+        body: [
+          "Every scene MUST explicitly map its selected assets to the registered asset library.",
+          "",
+          "For each scene, include the fields supported by the existing output schema:",
+          "",
+          "- Scene ID.",
+          "- Lyric segment or musical segment.",
+          "- Start and end timestamps.",
+          "- Selected character IDs and names.",
+          "- Selected location ID and name.",
+          "- Selected object/prop IDs and names.",
+          "- Primary visual action.",
+          "- Character interactions and positions.",
+          "- Scene-specific environment details.",
+          "- Camera framing and movement.",
+          "- Lighting, mood, and visual style.",
+          "- Transition to the next scene.",
+          "- Final image or text-to-video prompt.",
+          "",
+          "Use existing registered IDs wherever available.",
+          "",
+          "Do not rely on vague instructions such as \"use storyboard assets\" or \"use the appropriate background.\"",
+          "",
+          "The final scene prompt must explicitly describe the selected location, characters, and relevant props so the video-generation model can produce the intended composition.",
+          "",
+          "Do not include all registered assets indiscriminately in every scene. Include the assets that are appropriate for that specific scene.",
+        ].join("\n"),
+      },
+      {
+        title: "Scene Prompt Construction",
+        body: [
+          "Construct every image or video generation prompt using the following order:",
+          "",
+          "1. **Location:** Identify the selected registered location and describe its relevant visual features.",
+          "2. **Characters:** Identify the selected characters and preserve their registered visual identities.",
+          "3. **Objects and props:** Identify the selected objects, their appearance, and how they are used.",
+          "4. **Primary action:** Describe exactly one main visible action for the scene.",
+          "5. **Composition:** Specify character positions, foreground, background, and important visual elements.",
+          "6. **Camera:** Specify shot type, angle, framing, and movement.",
+          "7. **Lighting and mood:** Match the musical mood and lyric context.",
+          "8. **Continuity:** Preserve relevant details from previous scenes.",
+          "9. **Style:** Apply the global visual style lock.",
+          "10. **Transition:** Describe the visual transition when supported by the existing schema.",
+          "",
+          "The generated prompt must reflect the selected assets, not merely repeat the same generic scene description with different lyrics.",
+        ].join("\n"),
+      },
+      {
+        title: "Character, Location, and Prop Continuity",
+        body: [
+          "1. Maintain consistent character identity and appearance throughout the video.",
+          "2. Maintain location continuity when consecutive scenes represent the same place.",
+          "3. Preserve relevant props across scenes until the story indicates that they are removed, transferred, or no longer visible.",
+          "4. Ensure that a character's actions in one scene make sense in the following scene.",
+          "5. Allow location changes when justified by the lyrics or narrative.",
+          "6. Avoid contradictory character positions, object ownership, and environmental details.",
+          "7. Repeated choruses must preserve character identity while allowing purposeful variation in actions, camera angles, composition, and relevant locations.",
+          "8. Reuse registered asset descriptions instead of creating inconsistent new descriptions for the same assets.",
+        ].join("\n"),
+      },
+      {
+        title: "Cinematic Direction",
+        body: [
+          "For each beat, specify:",
+          "",
+          "- One primary visual action.",
+          "- Character expression and body language.",
+          "- Shot type and camera angle.",
+          "- Camera movement when appropriate.",
+          "- Foreground and background composition.",
+          "- Lighting and color mood.",
+          "- Relevant environmental motion.",
+          "- A suitable transition.",
+          "",
+          "Keep the scene visually understandable and appropriate for the song's audience.",
+          "",
+          "For children's songs, prefer clear actions, readable expressions, colorful environments, and simple compositions. For other songs, adapt the direction to the song's genre, mood, and narrative.",
+          "",
+          "Do not sacrifice lyric synchronization or asset relevance for unnecessary cinematic complexity.",
+        ].join("\n"),
+      },
+      {
+        title: "Instrumental Sections and Repeated Lyrics",
+        body: [
+          "1. Use instrumental passages for relevant visual actions, establishing shots, reactions, environmental movement, or transitions.",
+          "2. Do not invent lyrics or assign lip-sync during instrumental-only segments.",
+          "3. Repeated choruses should retain character identity and important story details.",
+          "4. Use purposeful visual variation when appropriate, including different actions, framing, or relevant registered locations.",
+          "5. Do not change the location or introduce new objects solely because a lyric section repeats.",
+          "6. Make visual variation consistent with the actual song and narrative.",
+        ].join("\n"),
+      },
+      {
+        title: "Mandatory Asset Selection Validation",
+        body: [
+          "Before finalizing EACH scene, validate all of the following:",
+          "",
+          "- Was the complete available character list evaluated?",
+          "- Was the complete available location list evaluated?",
+          "- Was the complete available object and prop list evaluated?",
+          "- Does the selected location match the current scene?",
+          "- Are all characters necessary for the action included?",
+          "- Are all relevant props included?",
+          "- Are the selected asset IDs valid and mapped to registered assets?",
+          "- Does the final prompt explicitly describe the selected assets?",
+          "- Is the scene consistent with the lyrics and music?",
+          "- Is continuity preserved from the previous scene?",
+          "- Has an appropriate location change been made when required?",
+          "- Has any suitable asset been overlooked simply because it was not the first entry?",
+          "- Is the scene free of irrelevant assets added solely for coverage?",
+          "",
+          "If the first location or first asset keeps being selected despite more appropriate registered alternatives, reconsider the selection before finalizing the scene.",
+        ].join("\n"),
+      },
+      {
+        title: "Complete-Video Asset Coverage",
+        body: [
+          "After planning all scenes, review the complete storyboard as a whole.",
+          "",
+          "1. Check which registered characters, locations, and objects are used.",
+          "2. Check which relevant assets were not used.",
+          "3. Determine whether unused assets are genuinely irrelevant or have been overlooked.",
+          "4. Add or revise scenes only when the song's lyrics, musical structure, and narrative support the change.",
+          "5. Do not force irrelevant assets into the video to achieve 100% asset usage.",
+          "6. Preserve the song duration, chronology, and established scene boundaries.",
+          "7. Ensure that all relevant assets receive appropriate consideration across the complete video.",
+          "",
+          "Where supported by the existing schema, include a compact asset-coverage summary showing each registered asset's ID, type, scene IDs where it is used, and its reason for being unused when applicable.",
+          "",
+          "This summary must not replace scene-level asset mapping.",
+        ].join("\n"),
+      },
+      {
+        title: "Batch Processing and Context Preservation",
+        body: [
+          "If scene generation is performed in multiple batches:",
+          "",
+          "1. Apply the same full-asset-evaluation rules to every batch.",
+          "2. Preserve the complete registered asset library across batches.",
+          "3. Preserve character, location, prop, and continuity information from preceding batches.",
+          "4. Do not reset the default location or character when a new batch begins.",
+          "5. Do not assume that the assets used in the previous batch are the only available assets.",
+          "6. Use global story context and local scene context together.",
+          "7. Ensure that scene numbering and timestamps remain chronological across all batches.",
+          "",
+          "If the model receives only a partial asset list or insufficient context, do not pretend that all assets were evaluated. Use only the assets actually available and flag the missing context in a supported diagnostic field or validation report.",
+        ].join("\n"),
+      },
+      {
+        title: "Output and Schema Compliance",
+        body: [
+          "1. Return valid JSON using the existing required schema.",
+          "2. Include registered characters, locations, props, and chronological beats.",
+          "3. Preserve existing field names, data types, required properties, and downstream compatibility.",
+          "4. Do not introduce new top-level fields or change the schema unless explicitly permitted.",
+          "5. Include selected asset IDs in every scene using the existing supported field structure.",
+          "6. Ensure every referenced asset ID exists in the registered asset list.",
+          "7. Ensure timestamps are valid, chronological, and consistent with the supplied duration.",
+          "8. Do not include explanatory prose outside the JSON when machine-readable JSON is required.",
+          "9. Do not use comments, trailing commas, or Markdown code fences around the JSON.",
+          "10. If the existing schema supports asset-coverage metadata, populate it. Otherwise, keep the coverage validation internal without changing the schema.",
+        ].join("\n"),
+      },
+    ],
+    additionalDefault: [
+      "- The complete registered Storyboard asset library is the candidate pool for every scene.",
+      "- Evaluate every available location, character, and object before selecting assets for each scene.",
+      "- Asset selection must be based on narrative relevance, lyrics, action, and continuity—not registration order.",
+      "- Never automatically use the first location as the setting for every scene.",
+      "- Never automatically use the first character or object as the default.",
+      "- Use all relevant assets appropriately across the complete video, but never force irrelevant assets into a scene.",
+      "- Every scene's final generation prompt must explicitly describe its selected assets and primary action.",
+      "- Preserve existing audio synchronization, visual style, JSON schema, scene segmentation, and downstream workflow.",
+      "- If the asset library is incomplete in the model's input context, identify the limitation rather than inventing selections.",
+      "- Prioritize correct storytelling, scene-specific asset selection, and continuity over arbitrary visual variety.",
+    ].join("\n"),
+    objective: "Produce a complete, synchronized music-video storyboard in which every scene independently selects the most suitable registered characters, location, and objects from the entire available Storyboard asset library. The complete video must reflect the song's narrative progression and use relevant assets naturally, while maintaining consistent identities, meaningful location changes, coherent actions, and strict output-schema compatibility.",
   },
   story_from_song_director: {
     role: "Story-from-Song Director — Sanskriti AI Studio",
@@ -647,6 +925,31 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   const buildMasterPrompt = (analyzer: AnalyzerType, style: string, styleCustomVal: string, additionalInstructions: string) => {
     const a = ANALYZER_TYPES[analyzer];
     const stylePreset = style === "Custom" ? (styleCustomVal.trim() || "Custom style — describe the look in full.") : (STYLE_MASTER_PROMPTS[style] ?? "");
+    // Sectioned analyzers (Song Director) render a full structured directive;
+    // the Additional Instructions box overrides the analyzer's own default
+    // bullet list when the user has typed something.
+    const additional = additionalInstructions.trim()
+      || ("additionalDefault" in a && a.additionalDefault ? a.additionalDefault : "")
+      || "(none)";
+    if ("sections" in a && a.sections) {
+      // The directive's style-lock line is a full sentence (ends with a
+      // period); the shared presets are comma lists, so normalize here.
+      const styleLock = /[.!?]$/.test(stylePreset) ? stylePreset : `${stylePreset}.`;
+      const lines: string[] = [
+        `ROLE: ${a.role}`,
+        "",
+        `TASK: ${a.task}`,
+        "",
+        "## INSTRUCTIONS",
+        "",
+      ];
+      a.sections.forEach((sec, i) => lines.push(`### ${i + 1}. ${sec.title}`, "", sec.body, ""));
+      lines.push("## VISUAL STYLE LOCK", "", styleLock, "");
+      lines.push("Apply this style consistently to all scenes while preserving the registered identity of each character, location, and object.", "");
+      lines.push("## ADDITIONAL DIRECTOR INSTRUCTIONS", "", additional, "");
+      if ("objective" in a && a.objective) lines.push("FINAL DIRECTOR OBJECTIVE:", "", a.objective);
+      return lines.join("\n");
+    }
     const lines = [
       `ROLE: ${a.role}`,
       `TASK: ${a.task}`,
@@ -657,7 +960,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       stylePreset,
       "",
       "ADDITIONAL DIRECTOR INSTRUCTIONS:",
-      additionalInstructions.trim() || "(none)"
+      additional
     ];
     return lines.join("\n");
   };
@@ -1442,7 +1745,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
           genreCustom: inputDraft.genreCustom.trim().slice(0, 40),
           visualStyle: inputDraft.visualStyle,
           styleCustom: inputDraft.styleCustom.trim().slice(0, 120),
-          masterPrompt: inputDraft.masterPrompt.trim().slice(0, 2000),
+          masterPrompt: inputDraft.masterPrompt.trim().slice(0, 20000),
           targetSeconds: Math.max(15, Math.min(3600, Math.round(Number(inputDraft.targetSeconds) || 60))),
           sceneSeconds: Math.min(30, Math.max(1, Math.round(Number(inputDraft.sceneSeconds) || 3))),
           aspectRatio: inputDraft.aspectRatio,
@@ -3519,7 +3822,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                       <div className="dir-scene-row-head">
                         <span className="pill live-pill" aria-hidden="true">🔴 LIVE</span>
                         <span className="dir-scene-row-title">
-                          Scenes {live.batchFrom ?? "…"}–{live.batchTo ?? "…"} writing…
+                          Scenes {live.batchFrom ?? "…"}–{live.batchTo ?? "…"}{" "}
+                          {live.thinking && !live.tail ? "thinking…" : "writing…"}
                           {live.scenes.length > 0 && ` · ${live.scenes.length} scene${live.scenes.length === 1 ? "" : "s"} complete in stream`}
                         </span>
                         <span className="muted" style={{ fontSize: 11 }}>read-only · planning unaffected</span>
@@ -3539,6 +3843,16 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                           </span>
                         </div>
                       ))}
+                      {/* Thinking phase of a reasoning model (qwen3.5…): the
+                          content stream is still empty, so show the model's
+                          own reasoning tail — visible typing while it thinks. */}
+                      {!!live.thinking && !live.tail && !!live.reasoning && (
+                        <p className="hint live-tail" style={{ margin: "6px 0 0", opacity: 0.8 }}>
+                          <span style={{ color: "var(--accent)" }}>Thinking… </span>
+                          {live.reasoning.slice(-600)}
+                          <span className="typing-caret" aria-hidden="true" />
+                        </p>
+                      )}
                       {!!live.tail && (
                         <p className="hint live-tail" style={{ margin: "6px 0 0" }}>
                           {live.tail}

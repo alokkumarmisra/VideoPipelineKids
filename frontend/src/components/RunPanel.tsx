@@ -785,10 +785,18 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
     bankedForRun.current = runId;
     if ((runQueue?.length ?? 0) > 0) {
       const b = bankRef.current ?? { done: 0, images: 0, videos: 0 };
+      // progress.* are CUMULATIVE — the memo above already folded this bank
+      // into them (completed += bank.done, imagesDone += bank.images, …).
+      // Banking the cumulative number back would compound it every drained
+      // run (bank = bank + bank + own → doubles each run), so a long queued
+      // regen batch explodes to quadrillions (real: 30 real regens then 32
+      // skip-runs showed "4287426840961745000/4287426840961745000" — exactly
+      // earlier completions × 2^32). Bank only the run's OWN completions:
+      // cumulative − what this bank already contributed.
       bankRef.current = {
-        done: b.done + progress.completed,
-        images: b.images + progress.imagesDone,
-        videos: b.videos + progress.videosDone,
+        done: b.done + Math.max(0, progress.completed - b.done),
+        images: b.images + Math.max(0, progress.imagesDone - b.images),
+        videos: b.videos + Math.max(0, progress.videosDone - b.videos),
       };
     } else {
       bankRef.current = null;

@@ -2898,6 +2898,13 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
         if (n >= attempts) break; // exhausted — fall through to the annotated throw below
       } else {
         let text = "";
+        // Thinking-model bookkeeping (see the delta loop below): when the
+        // stream ends with an EMPTY content but a non-empty reasoning buffer,
+        // the model spent its whole output budget thinking (LM Studio does
+        // not honor enable_thinking:false / reasoning_budget:0 for qwen3.5)
+        // and the error should say THAT, not the generic "empty response".
+        let reasoningBuf = "";
+        let finishReason = "";
         const ct = String(r.headers.get("content-type") || "");
         if (ct.includes("text/event-stream") && r.body) {
           // OpenAI-compatible SSE: "data: {...}" per token-batch, "data: [DONE]" at the end.
@@ -2923,7 +2930,12 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
               // live view shows activity during thinking; `text` (what gets
               // parsed) keeps ONLY the content.
               const think = String(payload?.choices?.[0]?.delta?.reasoning_content || "");
-              if (think && liveId) liveAppendReasoning(liveId, think);
+              if (think) {
+                reasoningBuf += think;
+                if (liveId) liveAppendReasoning(liveId, think);
+              }
+              const fr = payload?.choices?.[0]?.finish_reason;
+              if (fr) finishReason = String(fr);
             }
           }
         } else {
@@ -2931,6 +2943,11 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
           const d = await r.json();
           text = String(d.choices?.[0]?.message?.content ?? "");
           if (liveId && text) { liveReset(liveId); liveAppend(liveId, text); }
+        }
+        if (!String(text).trim() && reasoningBuf.trim()) {
+          throw new Error(
+            `LLM returned an empty response — the model streamed ONLY reasoning (finish_reason: ${finishReason || "unknown"}) and produced no JSON content. The output limit is spent inside the thinking phase: turn OFF "Thinking" for this model in LM Studio (or raise its output limit), then retry.`,
+          );
         }
         try {
           return stripJson(text);
@@ -6414,10 +6431,12 @@ const server = http.createServer(async (req, res) => {
         genreCustom: genre === "Custom" ? String(b.genreCustom || "").trim() : "",
         visualStyle,
         styleCustom: visualStyle === "Custom" ? String(b.styleCustom || "").trim() : "",
-        // Master Prompt: the UI auto-fills it from the visual-style preset and
-        // the user may edit it — a non-empty value becomes THE style lock
-        // (styleLockFor prefers it over the preset/custom text).
-        masterPrompt: String(b.masterPrompt || "").trim().slice(0, 2000),
+        // Master Prompt: the UI auto-fills it from the analyzer directive +
+        // visual-style preset and the user may edit it — a non-empty value
+        // becomes THE style lock (styleLockFor prefers it over the
+        // preset/custom text). 20000 chars: the sectioned Song Director
+        // directive is ~12k and must reach the model complete.
+        masterPrompt: String(b.masterPrompt || "").trim().slice(0, 20000),
         targetSeconds,
         sceneSeconds,
         aspectRatio,
@@ -6827,7 +6846,7 @@ const server = http.createServer(async (req, res) => {
               try { board.styleLock = styleLockFor(board.input.visualStyle, board.input.styleCustom, board.input.masterPrompt); } catch { /* keep old lock */ }
             }
             if (typeof patch.input.masterPrompt === "string") {
-              board.input.masterPrompt = patch.input.masterPrompt.trim().slice(0, 2000);
+              board.input.masterPrompt = patch.input.masterPrompt.trim().slice(0, 20000);
               // The Master Prompt is THE style lock when set — refresh so
               // future batches ground on the edited text.
               try { board.styleLock = styleLockFor(board.input.visualStyle, board.input.styleCustom, board.input.masterPrompt); } catch { /* keep old lock */ }
@@ -6944,6 +6963,12 @@ const server = http.createServer(async (req, res) => {
           line: String((d && d.line) || "").slice(0, 160),
         })) : [],
       }));
+      // Thinking models (qwen3.5 on LM Studio — enable_thinking:false and
+      // reasoning_budget:0 are both ignored) stream delta.reasoning_content
+      // for the WHOLE thinking phase before the first content token, so
+      // st.text stays empty and the LIVE row would show nothing while the
+      // model is visibly generating. Surface the reasoning buffer too.
+      const reasoning = String(st.reasoning || "");
       return json(res, 200, {
         active: true,
         phase: st.phase || "scenes",
@@ -6951,6 +6976,8 @@ const server = http.createServer(async (req, res) => {
         batchTo: st.batchTo ?? null,
         startedAt: st.startedAt,
         chars: st.text.length,
+        thinking: !st.text && !!reasoning,
+        reasoning: reasoning.slice(-4000),
         scenes,
         tail: st.text.slice(-900),
       });
