@@ -48,7 +48,27 @@ import {
   alignSemanticsToTiming,
   buildLyricActionPlan,
   detectLanguage,
+  buildLyricTimeline,
+  applyLyricCorrections,
+  validateLyricTimeline,
+  buildLyricActionTimeline,
+  assignLyricLinesToScenes,
 } from "../lib/semantics.mjs";
+import {
+  MASTER_SEGMENT_TYPES,
+  MASTER_CLIP_MIN,
+  MASTER_CLIP_MAX,
+  buildMasterTimeline,
+  planTimelineClips,
+  timelineClipsToStoryboard,
+  detectRepeatedLyrics,
+  applyMasterCorrections,
+  approveMasterTimeline,
+  unlockMasterTimeline,
+  validateMasterTimeline,
+  applyApprovedTimelineToScenes,
+} from "../lib/master_timeline.mjs";
+import { splitWhisperTranscript, directorSegmentsToSrt } from "../lib/director_segments.mjs";
 import {
   beatDialogueStatus,
   lineWavFile,
@@ -742,6 +762,12 @@ const pgPool = new Pool({
   connectionTimeoutMillis: 3000,
 });
 let pgUp = false;
+// NOTE: the old `/api/story/*` audio-analysis scaffolding (an Express-style
+// handler — `req.body` / `res.status().json()` / `require()` — inside this
+// zero-dependency ESM server) crashed with "Unexpected end of JSON input" on
+// the client. Story audio analysis now rides the REAL WhisperX board flow:
+// POST /api/director/boards/:id/audio-upload → POST .../whisperx/analyze →
+// GET .../master-timeline (review + approve). No parallel store.
 // ---------------------------------------------------------------- kids studio store
 // The Sanskriti Kids Studio is a PROJECT LAYER on top of the existing
 // Director pipeline — it never renders on its own. Its own tables live in a
@@ -3000,6 +3026,10 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
 // there AI Craft + Generate behave like any other project.
 const RESOURCES = path.join(ROOT, "resources");
 const RES_META = path.join(RESOURCES, "meta.json");
+const WHISPERX_UPLOADS = path.join(DATA_DIR, "whisperx-uploads");
+const WHISPERX_JOBS = path.join(DATA_DIR, "whisperx-jobs");
+fs.mkdirSync(WHISPERX_UPLOADS, { recursive: true });
+fs.mkdirSync(WHISPERX_JOBS, { recursive: true });
 // AI Story Director boards (file-persisted JSON, one per story — resumable,
 // debuggable, works with or without Postgres like prompts/*.json).
 const DIRECTOR = path.join(ROOT, "director");
@@ -3035,6 +3065,47 @@ const runCmd = (cmd, args, timeoutMs = 60000) => new Promise((res, rej) => {
   p.on("error", (e) => { clearTimeout(t); rej(e); });
   p.on("close", (code) => { clearTimeout(t); code === 0 ? res(out || err) : rej(new Error(`${cmd} exited ${code}: ${err.slice(0, 300)}`)); });
 });
+
+const runCmdStream = (cmd, args, { timeoutMs = 600000, onStderr } = {}) => new Promise((res, rej) => {
+  const p = spawn(cmd, args, { windowsHide: true });
+  let out = "", err = "";
+  const t = timeoutMs > 0 ? setTimeout(() => { try { p.kill(); } catch { /* already dead */ } rej(new Error(`${cmd} timed out`)); }, timeoutMs) : null;
+  p.stdout.on("data", (c) => { out += c.toString(); });
+  p.stderr.on("data", (c) => { const s = c.toString(); err += s; if (typeof onStderr === "function") try { onStderr(s); } catch {} });
+  p.on("error", (e) => { if (t) clearTimeout(t); rej(e); });
+  p.on("close", (code) => { if (t) clearTimeout(t); code === 0 ? res({ out, err, code }) : rej(new Error(`${cmd} exited ${code}: ${err.slice(0, 500)}`)); });
+});
+
+const whisperxJobs = new Map(); // jobId -> { proc, boardId, cancelled, ... }
+
+const whisperxPreflightCheck = async () => {
+  const checks = {};
+  const python = process.env.WHISPERX_PYTHON || process.env.PYTHON || "python";
+  const whisperxCmd = process.env.WHISPERX_CMD || "whisperx";
+  try {
+    const r = await runCmd(python, ["--version"], 10000).catch(() => null);
+    checks.python = { ok: !!r, message: r ? String(r).trim() : "not found" };
+  } catch (e) {
+    checks.python = { ok: false, message: e.message };
+  }
+  try {
+    // try to import whisperx
+    const r = await runCmd(python, ["-c", "import whisperx; print('ok')"], 15000).catch((e) => null);
+    checks.whisperx = { ok: !!r, message: r ? "available" : "not importable" };
+  } catch (e) {
+    checks.whisperx = { ok: false, message: e.message };
+  }
+  try {
+    const r = await runCmd("ffmpeg", ["-version"], 10000).catch(() => null);
+    checks.ffmpeg = { ok: !!r, message: r ? "ok" : "not found" };
+  } catch (e) {
+    checks.ffmpeg = { ok: false, message: e.message };
+  }
+  checks.writable = { ok: fs.existsSync(WHISPERX_UPLOADS) && fs.existsSync(WHISPERX_JOBS), message: "ok" };
+  const ok = checks.python?.ok && checks.whisperx?.ok && checks.ffmpeg?.ok && checks.writable?.ok;
+  return { ok, checks };
+};
+
 async function videoDurationSec(full) {
   try {
     const out = await runCmd("ffprobe",
@@ -3046,10 +3117,12 @@ async function videoDurationSec(full) {
 async function analyzeDirectorAudio(full) {
   // Decode to low-rate mono float PCM so the analysis remains bounded even
   // for longer songs. The upload itself is never modified.
-  const cacheFile = `${full}.features-v1.json`;
+  const cacheFile = `${full}.features-v2.json`;
   try {
     const cached = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
-    if (cached && cached.version === 1) return cached.analysis;
+    // v2 carries the audio-activity estimate (v1 was shapeless vocalActivity) —
+    // an old v1 cache is treated as stale, never served.
+    if (cached && cached.version === 2) return cached.analysis;
   } catch { /* first analysis or stale/corrupt cache */ }
   const sampleRate = 11025;
   const child = spawn(FFMPEG, ["-v", "error", "-i", full, "-vn", "-ac", "1", "-ar", String(sampleRate), "-f", "f32le", "pipe:1"], { windowsHide: true });
@@ -3067,7 +3140,7 @@ async function analyzeDirectorAudio(full) {
   const pcm = new Float32Array(aligned / 4);
   for (let i = 0; i < pcm.length; i++) pcm[i] = pcmBuffer.readFloatLE(i * 4);
   const analysis = analyzePcm(pcm, sampleRate);
-  try { fs.writeFileSync(cacheFile, JSON.stringify({ version: 1, analysis }), "utf8"); } catch { /* cache is best-effort */ }
+  try { fs.writeFileSync(cacheFile, JSON.stringify({ version: 2, analysis }), "utf8"); } catch { /* cache is best-effort */ }
   return analysis;
 }
 // One song / narration analysis for BOTH the Director and the Sanskriti Kids
@@ -6298,6 +6371,80 @@ const server = http.createServer(async (req, res) => {
       pgUpsertDirectorBoard(board).catch((e) => console.warn("[pg] director board mirror failed:", e.message));
       return board;
     };
+    // The audio length a lyric timeline is measured against: the uploaded song
+    // wins (that IS the audio), then the Story/Song workspace's own WAV upload
+    // (`whisperxAudio` — its duration is measured at upload time), then the
+    // planned story duration, else unknown.
+    const lyricTimelineDuration = (board) => {
+      const song = board && board.input && board.input.song;
+      const wx = board && board.input && board.input.whisperxAudio;
+      const d = Number(song && song.durationSeconds) || Number(wx && wx.durationSeconds)
+        || Number(board && board.input && board.input.targetSeconds) || 0;
+      return d > 0 ? d : 0;
+    };
+    // The lyric lines the CURRENT board would align against: the bible's own
+    // lyric lines when analyzed, else the pasted story. The import, the stale
+    // check and the scene planner all read this ONE list so they can never
+    // disagree about which lines the timeline is supposed to cover.
+    const lyricTimelineSourceLines = (board) => {
+      const lines = boardLyricLines(board);
+      return lines.length ? lines : parseLyricLines((board.input && board.input.story) || "");
+    };
+    // A stored lyric timeline is STALE when the board's current lines no longer
+    // match it (the story was edited/rewritten after the import): the measured
+    // windows no longer belong to these lines, so the planner falls back to the
+    // honest estimate and the Lyric panel asks for a re-import instead of
+    // silently timing new scenes with old audio.
+    const lyricTimelineStale = (board, timeline) => {
+      const stored = arr(timeline && timeline.lines).map((l) => Number(l.line_id)).filter((n) => Number.isFinite(n));
+      if (!stored.length) return false;
+      const current = lyricTimelineSourceLines(board)
+        .map((l) => Number(l.lyric_line_id)).filter((n) => Number.isFinite(n));
+      if (!current.length) return false;
+      const have = new Set(stored);
+      return current.some((id) => !have.has(id));
+    };
+    // ---- Master timeline (audio-aligned chronological segments) -----------
+    // DERIVED from the stored lyric timeline + the board's current cast and
+    // meaning layer, so it can never drift from them; the stored `master`
+    // object only carries the manual corrections and the approval state.
+    const mstr = (v) => String(v ?? "").trim();
+    const boardVisualStyles = (board) => {
+      const input = (board && board.input) || {};
+      return [input.visualStyle, input.artStyle, input.style].filter((v) => typeof v === "string" && v.trim());
+    };
+    const castForBoard = (board) => arr(board && board.blueprint && board.blueprint.characters);
+    const characterIdentityOf = (board) => {
+      const cast = castForBoard(board);
+      const map = new Map(cast.map((c) => {
+        const id = mstr(c.character_id ?? c.name ?? c.id);
+        const identity = mstr(c.visual_identity_prompt || c.identity || c.description).slice(0, 300)
+          || mstr(c.name || id);
+        return [id, identity];
+      }));
+      return (id) => (id && map.get(mstr(id))) || "";
+    };
+    const masterViewForBoard = (board, timeline = (board && board.lyric_timeline) || null) => {
+      if (!timeline || !Array.isArray(timeline.lines) || !timeline.lines.length) return null;
+      const duration = lyricTimelineDuration(board);
+      const view = buildMasterTimeline({
+        lyricTimeline: timeline,
+        vocalActivity: timeline.vocal_activity || (board.input && board.input.whisperxAudio && board.input.whisperxAudio.activity) || null,
+        duration,
+        characters: castForBoard(board),
+        style: boardVisualStyles(board),
+        semantics: (board.semantics && board.semantics.lines) || [],
+        previous: timeline.master || null,
+      });
+      return view;
+    };
+    const persistMaster = (board, view) => {
+      // The corrections list lives on the stored object so every later rebuild
+      // (GET) re-applies it — the derivation itself stays pure.
+      board.lyric_timeline.master = view;
+      writeDirectorBoard(board);
+      return view;
+    };
     // Connected-OFF scrub: a normalized scene (or shot) on a board with
     // chainContinuity !== true must carry no handoff state — clear the
     // continuity fields and strip any stored handoff sentences from the
@@ -6491,7 +6638,7 @@ const server = http.createServer(async (req, res) => {
       if (!ext) return json(res, 400, { error: `unsupported audio type ${mime} — upload mp3 or wav` });
       const buf = Buffer.from(m[2], "base64");
       if (!buf.length) return json(res, 400, { error: "empty file" });
-      if (buf.length > 30 * 1024 * 1024) return json(res, 400, { error: "song over 30MB — trim it and re-upload" });
+      if (buf.length > 100 * 1024 * 1024) return json(res, 400, { error: "song over 100MB — trim it and re-upload" });
       const file = `song_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}${ext}`;
       fs.mkdirSync(DIRECTOR, { recursive: true });
       fs.writeFileSync(path.join(DIRECTOR, file), buf);
@@ -6549,6 +6696,16 @@ const server = http.createServer(async (req, res) => {
       const finalDur = await videoDurationSec(path.join(full, from));
       return json(res, 200, { file: out, from, songDuration: songDur, finalDuration: finalDur });
     }
+    // WhisperX preflight
+    if (p === "/api/whisperx/preflight" && req.method === "GET") {
+      try {
+        const resPre = await whisperxPreflightCheck();
+        return json(res, 200, resPre);
+      } catch (e) {
+        return json(res, 200, { ok: false, checks: { error: { ok: false, message: e.message } } });
+      }
+    }
+
     if (p === "/api/director/boards" && req.method === "GET") {
       fs.mkdirSync(DIRECTOR, { recursive: true });
       // DB-first: every board write is mirrored into director_boards.
@@ -6642,6 +6799,12 @@ const server = http.createServer(async (req, res) => {
           : null,
       });
     }
+    // Story audio analysis rides the REAL WhisperX board flow:
+    // POST /api/director/boards/:id/audio-upload → .../whisperx/analyze →
+    // .../master-timeline (see AGENTS.md). The old /api/story/* stub routes
+    // were removed — they were Express-style handlers inside this zero-dep
+    // server and returned an empty body (client: "Unexpected end of JSON
+    // input").
     if (p === "/api/director/analyze" && req.method === "POST") {
       const bodyRaw = await readJson(req);
       const input = directorValidateInput(bodyRaw);
@@ -7079,12 +7242,95 @@ const server = http.createServer(async (req, res) => {
       // batch receives only the lines overlapping its time window.
       let lyricTiming = [];
       let lineRange = [];
+      // The approved-master slice for this batch (null without an approved
+      // timeline) — declared out here so the return below sees it even when
+      // the timing derivation above throws (it is best-effort).
+      let masterTiming = null;
+      let approvedApplied = false;
       try {
         const song = board.input && board.input.song;
         const transcriptSegments = Array.isArray(board.input?.songAnalysis?.transcript?.segments)
           ? board.input.songAnalysis.transcript.segments : [];
         const withWhisperTimes = (lines) => timeLinesFromTranscript(lines, transcriptSegments, planTarget);
-        if (song && song.hasLyrics !== false) {
+        // A reviewed WhisperX import wins: it is the ONLY word-accurate,
+        // user-approved timing on the board (a manual correction is marked
+        // `manual` and must never be replaced by the plain estimate). It is
+        // used ONLY while it still covers every line of the CURRENT story —
+        // an edited story would otherwise be timed by stale windows, so it
+        // falls back to the honest estimate instead (the Lyric panel flags
+        // the stale timeline and asks for a re-import).
+        const storedTimeline = Array.isArray(board.lyric_timeline && board.lyric_timeline.lines)
+          ? board.lyric_timeline.lines : [];
+        const storedTiming = storedTimeline
+          .filter((l) => Number.isFinite(Number(l.start_seconds)) && Number.isFinite(Number(l.end_seconds)))
+          .map((l) => ({
+            lyric_line_id: Number(l.line_id) || 0,
+            lyric_text: String(l.lyric_text || ""),
+            song_start_time: Number(l.start_seconds),
+            song_end_time: Number(l.end_seconds),
+            timing: String(l.timing || "estimated"),
+          }))
+          .filter((l) => l.song_end_time > l.song_start_time);
+        const currentLineIds = lyricTimelineSourceLines(board)
+          .map((l) => Number(l.lyric_line_id)).filter((n) => Number.isFinite(n));
+        const storedCoversCurrent = storedTiming.length > 0 && currentLineIds.length > 0
+          && currentLineIds.every((id) => storedTiming.some((l) => l.lyric_line_id === id));
+        // An APPROVED master timeline outranks even the raw stored windows:
+        // the user reviewed and locked those segments (manual corrections
+        // included), so they are the authoritative timing reference for scene
+        // planning (priority: user-approved > validated alignment > estimate).
+        // Its lyric-carrying segments become the timed line list, and the
+        // batch prompt receives the approved slice (segments + clips) for
+        // this batch's time window so the scenes are planned ON the timeline.
+        const masterStored = board.lyric_timeline && board.lyric_timeline.master;
+        const approvedMaster = masterStored && masterStored.approved
+          && Array.isArray(masterStored.segments) && masterStored.segments.length
+          ? masterStored : null;
+        if (approvedMaster) {
+          const approvedTiming = approvedMaster.segments
+            .filter((s) => Number(s.lyric_line_id) > 0 && Number.isFinite(Number(s.start_seconds)) && Number(s.end_seconds) > Number(s.start_seconds))
+            .map((s) => ({
+              lyric_line_id: Number(s.lyric_line_id),
+              lyric_text: String(s.lyric_text || ""),
+              song_start_time: Number(s.start_seconds),
+              song_end_time: Number(s.end_seconds),
+              timing: s.timing_source === "manual" ? "manual" : "whisperx",
+            }));
+          const approvedIds = new Set(approvedTiming.map((l) => l.lyric_line_id));
+          const approvedCoversCurrent = currentLineIds.length > 0
+            && currentLineIds.every((id) => approvedIds.has(id));
+          if (approvedCoversCurrent && approvedTiming.length) {
+            lyricTiming = approvedTiming;
+            approvedApplied = true;
+          }
+          const winFrom = prog.plannedSeconds;
+          const winTo = prog.plannedSeconds + budget;
+          const inWin = (t) => Number(t.end_seconds ?? t.end) > winFrom - 0.001
+            && Number(t.start_seconds ?? t.start) < winTo + 0.001;
+          const slimSegs = approvedMaster.segments.filter(inWin).map((s) => ({
+            segment_id: s.segment_id, type: s.type,
+            start_seconds: Number(s.start_seconds), end_seconds: Number(s.end_seconds),
+            lyric_text: s.lyric_text, character_id: s.character_id, action: s.action,
+            repeat_group: s.repeat_group || null,
+          }));
+          if (slimSegs.length) {
+            masterTiming = {
+              approved_at: approvedMaster.approved || null,
+              duration_seconds: Number(approvedMaster.duration_seconds) || null,
+              from: winFrom, to: winTo,
+              segments: slimSegs,
+              clips: arr(approvedMaster.clips).filter(inWin).map((c) => ({
+                clip_id: c.clip_id, kind: c.kind,
+                start_seconds: Number(c.start_seconds), end_seconds: Number(c.end_seconds),
+              })),
+            };
+          }
+        }
+        if (storedCoversCurrent) {
+          // The approved slice above already replaced this when it covers the
+          // current lines; the raw stored windows are the next-best source.
+          if (!approvedApplied) lyricTiming = storedTiming;
+        } else if (song && song.hasLyrics !== false) {
           const parsed = parseLyricLines(board.input.story);
           if (parsed.length) {
             // Prefer the bible's own line analysis when present; fall back
@@ -7110,7 +7356,7 @@ const server = http.createServer(async (req, res) => {
           if (!lineRange.length) lineRange = lyricTiming.slice();
         }
       } catch { /* line timing is best-effort; the batch runs without it */ }
-      return { ready: false, done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange };
+      return { ready: false, done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, masterTiming };
     };
     // Prompt preview (dry run): the EXACT system + user messages the next
     // Continue would send to the LLM — built by the same planner above, but
@@ -7202,6 +7448,672 @@ const server = http.createServer(async (req, res) => {
         repaired: attached.repaired,
         issues: attached.issues,
       });
+    }
+    // ---- WhisperX lyric timeline (Story / Song) -------------------------
+    // The transcript is ANNOTATIVE: it supplies MEASURED timing for the audio,
+    // while the user's own lyric text stays authoritative and is never
+    // replaced by what the model heard. Stored on the board JSON (no schema
+    // migration), exactly like `semantics`, so it survives reloads and rides
+    // the normal board mirror.
+    //
+    // GET  -> the stored timeline (+ the board's own parsed lyric lines)
+    // POST -> import a WhisperX export { segments:[{start,end,text,words}] }
+    // PUT  -> apply the review panel's manual corrections
+    if ((p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline$/) || p.match(/^\/api\/director\/boards\/[^/]+\/lyric-timeline$/)) && req.method === "GET") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      // Scene ownership (and the action link) is DERIVED from the CURRENT
+      // scene plan + semantics, so it is recomputed on read — a board that was
+      // re-planned after the import must not show a stale scene map.
+      const timeline = board.lyric_timeline && Array.isArray(board.lyric_timeline.lines)
+        ? {
+          ...board.lyric_timeline,
+          actions: buildLyricActionTimeline(
+            board.lyric_timeline.lines,
+            (board.semantics && board.semantics.lines) || [],
+            { scenes: board.scenes || [] },
+          ),
+          scene_map: assignLyricLinesToScenes(board.lyric_timeline.lines, board.scenes || []),
+        }
+        : null;
+      const duration = lyricTimelineDuration(board);
+      const lyricLines = lyricTimelineSourceLines(board);
+      const master = masterViewForBoard(board, board.lyric_timeline);
+      if (master) master.clips = planTimelineClips(master);
+      let directorSegments = null;
+      let directorSegmentsError = null;
+      if (timeline?.whisper?.segments?.length) {
+        try { directorSegments = splitWhisperTranscript({ segments: timeline.whisper.segments }); }
+        catch (e) { directorSegmentsError = String(e?.message || e); }
+      }
+      return json(res, 200, {
+        board_id: id,
+        timeline,
+        lyric_lines: lyricLines,
+        // The master timeline: chronological segments + clips covering the WHOLE
+        // audio (null until the board has an analyzed lyric timeline).
+        master,
+        segment_types: MASTER_SEGMENT_TYPES,
+        clip_bounds: { min: MASTER_CLIP_MIN, max: MASTER_CLIP_MAX },
+        characters: castForBoard(board).map((c) => ({
+          character_id: mstr(c.character_id ?? c.id ?? c.name),
+          name: mstr(c.name),
+          visual_identity_prompt: mstr(c.visual_identity_prompt),
+        })),
+        // The panel must say so honestly when the stored windows no longer
+        // belong to the current story (the planner ignores them too).
+        stale: lyricTimelineStale(board, timeline),
+        duration_seconds: duration,
+        whisperx_audio_url: board.input?.whisperxAudio?.file
+          ? `/api/director/boards/${encodeURIComponent(id)}/audio-file`
+          : null,
+        validation: timeline
+          ? validateLyricTimeline(timeline, { duration })
+          : { ok: true, errors: [], warnings: [], stats: {} },
+        director_segments: directorSegments,
+        director_segments_error: directorSegmentsError,
+      });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/whisperx\/director-segments$/) && req.method === "GET") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const source = board.lyric_timeline?.whisper;
+      if (!source || !Array.isArray(source.segments) || !source.segments.length) {
+        return json(res, 409, { error: "complete WhisperX analysis before exporting director segments" });
+      }
+      const plan = splitWhisperTranscript(source);
+      if (!plan.validation.ok || !plan.text_preserved) {
+        return json(res, 422, { error: "segment validation failed", validation: plan.validation });
+      }
+      const format = new URL(req.url, `http://${req.headers.host || "localhost"}`).searchParams.get("format") || "json";
+      if (format === "srt") {
+        res.writeHead(200, {
+          "Content-Type": "application/x-subrip; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${id}_director_segments.srt"`,
+          "Cache-Control": "no-store",
+        });
+        res.end(directorSegmentsToSrt(plan.segments));
+        return;
+      }
+      if (format !== "json") return json(res, 400, { error: "format must be json or srt" });
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${id}_director_segments.json"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(JSON.stringify(plan, null, 2));
+      return;
+    }
+    if ((p.match(/^\/api\/director\/boards\/[^/]+\/whisper-import$/) || p.match(/^\/api\/director\/boards\/[^/]+\/import-whisper$/) || p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline\/import$/)) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const body = await readJson(req).catch(() => ({}));
+      const payload = body && (body.whisper || body.data || body);
+      if (!payload || typeof payload !== "object") {
+        return json(res, 400, { error: "expected a WhisperX JSON object ({ segments: [...] })" });
+      }
+      // Lyrics come from the board (bible analysis, else the pasted story) —
+      // the import NEVER writes lyric text.
+      const lines = lyricTimelineSourceLines(board);
+      if (!lines.length) {
+        return json(res, 400, { error: "this board has no lyrics/story lines to align — paste them and analyze the story first" });
+      }
+      const duration = lyricTimelineDuration(board);
+      const language = String(body.language || (board.input && board.input.semanticsLanguage) || "auto");
+      const timeline = buildLyricTimeline({
+        lyrics: lines,
+        whisper: payload,
+        duration,
+        language,
+        semantics: (board.semantics && board.semantics.lines) || [],
+        scenes: board.scenes || [],
+        // Manual corrections already on the board outrank the fresh import.
+        previous: board.lyric_timeline || null,
+      });
+      if (!timeline.whisper.stats.segments) {
+        return json(res, 400, { error: "the WhisperX payload has no usable segments", warnings: timeline.warnings });
+      }
+      board.lyric_timeline = timeline;
+      // The master timeline: derived rows + the vocal-activity source it used.
+      try {
+        const master = masterViewForBoard(board, timeline);
+        if (master) board.lyric_timeline.master = master;
+      } catch (e) { console.warn("[master-timeline] derive failed:", e.message); }
+      const saved = writeDirectorBoard(board);
+      return json(res, 200, {
+        board_id: id,
+        timeline: saved.lyric_timeline,
+        master: saved.lyric_timeline.master || null,
+        stale: lyricTimelineStale(saved, saved.lyric_timeline),
+        validation: saved.lyric_timeline.validation,
+        warnings: saved.lyric_timeline.warnings,
+      });
+    }
+    if ((p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline$/) || p.match(/^\/api\/director\/boards\/[^/]+\/lyric-timeline$/)) && req.method === "PUT") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const current = board.lyric_timeline;
+      if (!current || !Array.isArray(current.lines)) {
+        return json(res, 409, { error: "import a WhisperX timeline first" });
+      }
+      const body = await readJson(req).catch(() => ({}));
+      const corrections = Array.isArray(body.corrections) ? body.corrections : [];
+      const segCorrections = Array.isArray(body.segment_corrections)
+        ? body.segment_corrections
+        : corrections.filter((c) => c && typeof c === "object" && mstr(c.segment_id));
+      const lineCorrections = corrections.filter((c) => !(c && typeof c === "object" && c.segment_id));
+      const unlock = body.unlock === true;
+      const existing = current.master || null;
+      const approved = existing && existing.approved;
+      if (!corrections.length && !segCorrections.length) {
+        return json(res, 400, { error: "no corrections supplied" });
+      }
+      // An approved timeline refuses corrections until an explicit unlock —
+      // approved timings are never silently modified.
+      if (approved && segCorrections.length && !unlock) {
+        return json(res, 409, {
+          error: "this master timeline is approved — unlock it before correcting it",
+          approved: approved,
+        });
+      }
+      const duration = lyricTimelineDuration(board);
+      const timeline = lineCorrections.length
+        ? applyLyricCorrections(current, lineCorrections)
+        : current;
+      timeline.validation = validateLyricTimeline(timeline, { duration });
+      // Manual timing changes scene ownership — recompute the Director link.
+      timeline.actions = buildLyricActionTimeline(timeline.lines, (board.semantics && board.semantics.lines) || [], { scenes: board.scenes || [] });
+      timeline.scene_map = assignLyricLinesToScenes(timeline.lines, board.scenes || []);
+      // Master: rebuild from the corrected lyric timeline, re-apply ALL stored
+      // segment corrections, then apply the fresh ones on top.
+      let master = masterViewForBoard({ ...board, lyric_timeline: timeline }, timeline) || null;
+      if (segCorrections.length && master) {
+        // `approved + unlock` releases the approval inside the same call —
+        // correcting an unlocked approved timeline is an explicit re-open.
+        const applied = applyMasterCorrections(
+          master,
+          [...arr(existing && existing.corrections).filter(Boolean), ...segCorrections],
+          { approved: Boolean(approved), unlock: true },
+        );
+        // Rebuild carries the corrections forward: the stored list re-applies
+        // on every later GET.
+        master = applied.timeline;
+        master.corrections = [...arr(existing && existing.corrections).filter(Boolean), ...segCorrections];
+      } else if (master && existing) {
+        master.corrections = arr(existing.corrections).filter(Boolean);
+      }
+      if (master) {
+        if (approved && !unlock) {
+          master.approved = approved;
+        }
+        master.validation = validateMasterTimeline(master, { duration });
+        master.clips = planTimelineClips(master);
+        board.lyric_timeline = { ...timeline, master };
+      } else {
+        board.lyric_timeline = timeline;
+      }
+      const saved = writeDirectorBoard(board);
+      return json(res, 200, {
+        board_id: id,
+        timeline: saved.lyric_timeline,
+        master: saved.lyric_timeline.master,
+        clips: saved.lyric_timeline.master ? saved.lyric_timeline.master.clips : null,
+        stale: lyricTimelineStale(saved, saved.lyric_timeline),
+        validation: saved.lyric_timeline.validation,
+      });
+    }
+
+    // ---- Master timeline: approval gate ------------------------------------
+    // Explicit approve BEFORE any clip generation; explicit unlock to edit.
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline\/approve$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const view = masterViewForBoard(board);
+      if (!view) return json(res, 409, { error: "no master timeline to approve — analyze the audio first" });
+      const gate = approveMasterTimeline(view);
+      if (!gate.approved) {
+        return json(res, 400, { error: gate.error || "timeline validation failed", errors: gate.errors });
+      }
+      gate.timeline.clips = planTimelineClips(gate.timeline);
+      persistMaster(board, gate.timeline);
+      return json(res, 200, { board_id: id, approved: true, approved_at: gate.timeline.approved, master: gate.timeline, clips: gate.timeline.clips });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline\/unlock$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const current = board.lyric_timeline && board.lyric_timeline.master;
+      if (!current || !current.approved) return json(res, 409, { error: "the timeline is not approved" });
+      const opened = unlockMasterTimeline(current);
+      persistMaster(board, opened.timeline);
+      return json(res, 200, { board_id: id, approved: false, master: opened.timeline });
+    }
+
+    // ---- Master timeline: scene-clip generation ----------------------------
+    // From the APPROVED timeline only: 3–5 s clips with clip-relative action
+    // times → the canonical scenario config → the user saves + starts the
+    // standard pipeline run (resumable, per-beat). Timing arrives pre-filled.
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline\/generate$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const view = masterViewForBoard(board);
+      if (!view) return json(res, 409, { error: "no master timeline — analyze the audio first" });
+      if (!view.approved) return json(res, 409, { error: "approve the master timeline before generating clips", approved: false });
+      const clips = planTimelineClips(view);
+      if (!clips.length) return json(res, 400, { error: "the timeline produced no clips (empty or sub-min length)" });
+      const identityOf = characterIdentityOf(board);
+      const styles = view.segments.map((s) => arr(s.style_refs)).flat();
+      const styleRefs = [...new Set(styles)].filter(Boolean);
+      const firstIdentity = clips.map((c) => identityOf(c.character_id)).filter(Boolean)[0] || "";
+      const raw = timelineClipsToStoryboard(clips, {
+        title: mstr(board.input && board.input.title).slice(0, 100) || "Song Timeline",
+        description: mstr(board.input && board.input.story).slice(0, 600),
+        referencePrompt: firstIdentity
+          ? `${firstIdentity}. main character of "${mstr(board.input && board.input.title) || "the song"}"`
+          : "main character of the song timeline",
+        characterIdentity: identityOf,
+        styleRefs,
+      });
+      // The canonical config via the SAME import path the board approve uses.
+      const config = storyboardToScenario(raw);
+      const approveTitle = mstr(board.input && board.input.title).slice(0, 120);
+      let target = board.scenarioName || spaceFreeName(approveTitle) || id;
+      if (approveTitle) config.display_name = approveTitle;
+      if (!board.scenarioName) {
+        try {
+          const taken = new Set((await dbListScenarios()).map((r) => r.name));
+          if (taken.has(target)) {
+            for (let i = 2; ; i++) {
+              if (!taken.has(`${target}_${i}`)) { target = `${target}_${i}`; break; }
+            }
+          }
+        } catch { /* name check is best-effort; save enforces uniqueness */ }
+      }
+      try {
+        const pid = await pgProjectId(target);
+        board.project_id = pid;
+      } catch { /* link is best-effort */ }
+      board.error = null;
+      board.scenarioName = target;
+      board.timelineScenario = target;
+      writeDirectorBoard(board);
+      return json(res, 200, {
+        name: target,
+        config,
+        clips,
+        clip_count: clips.length,
+        note: "the client saves this config via the standard scenario PUT and starts the run — no timestamps to enter by hand",
+      });
+    }
+
+    // ---- Master timeline: the uploaded audio, served back for the player ---
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/audio-file$/) && req.method === "GET") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const file = board.input && board.input.whisperxAudio && board.input.whisperxAudio.file;
+      if (!file || !/\.wav$|\.mp3$|\.m4a$/i.test(file)) return json(res, 404, { error: "no uploaded audio" });
+      const full = path.join(WHISPERX_UPLOADS, file);
+      if (!fs.existsSync(full)) return json(res, 404, { error: "audio file missing" });
+      res.writeHead(200, {
+        "Content-Type": file.toLowerCase().endsWith(".wav") ? "audio/wav" : "audio/mpeg",
+        "Cache-Control": "no-store",
+      });
+      fs.createReadStream(full).pipe(res);
+      return;
+    }
+
+    // WhisperX audio upload for a board
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/audio-upload$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const body = await readJson(req);
+      if (typeof body.data !== "string") return json(res, 400, { error: "data (base64) required" });
+      const m = body.data.match(/^data:(audio\/[\w.+-]+);base64,(.+)$/s);
+      if (!m) return json(res, 400, { error: "expected a data:audio/* base64 payload (mp3 or wav)" });
+      const mime = m[1].toLowerCase();
+      const ext = mime.includes("wav") ? ".wav" : mime.includes("mp4") || mime.includes("m4a") ? ".m4a"
+        : mime.includes("mpeg") || mime.includes("mp3") ? ".mp3" : null;
+      if (!ext) return json(res, 400, { error: `unsupported audio type ${mime} — upload mp3 or wav` });
+      const buf = Buffer.from(m[2], "base64");
+      if (!buf.length) return json(res, 400, { error: "empty file" });
+      if (buf.length > 100 * 1024 * 1024) return json(res, 400, { error: "audio over 100MB — trim it and re-upload" });
+      // validate WAV if wav
+      if (ext === ".wav") {
+        // basic RIFF/WAVE check
+        if (buf.length < 12 || buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
+          return json(res, 400, { error: "invalid WAV file" });
+        }
+      }
+      fs.mkdirSync(WHISPERX_UPLOADS, { recursive: true });
+      const file = `wx_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}${ext}`;
+      const full = path.join(WHISPERX_UPLOADS, file);
+      fs.writeFileSync(full, buf);
+      const durationSeconds = await videoDurationSec(full);
+      if (durationSeconds == null) {
+        try { fs.unlinkSync(full); } catch {}
+        return json(res, 400, { error: "could not read audio duration — is it a valid audio file?" });
+      }
+      // attach to board
+      board.input = board.input || {};
+      board.input.whisperxAudio = {
+        file,
+        fileName: String(body.fileName || "audio").slice(0, 120),
+        durationSeconds: Math.round(durationSeconds * 1000) / 1000,
+        uploadedAt: new Date().toISOString(),
+      };
+      writeDirectorBoard(board);
+      return json(res, 200, {
+        file,
+        fileName: String(body.fileName || "audio").slice(0, 120),
+        durationSeconds: Math.round(durationSeconds * 1000) / 1000,
+        sizeBytes: buf.length,
+        valid: true,
+      });
+    }
+
+    // Start WhisperX analysis
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/whisperx\/analyze$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const body = await readJson(req).catch(() => ({}));
+      const audio = board.input?.whisperxAudio;
+      if (!audio || !audio.file) return json(res, 400, { error: "upload audio first" });
+      const audioPath = path.join(WHISPERX_UPLOADS, audio.file);
+      if (!fs.existsSync(audioPath)) return json(res, 400, { error: "audio file missing" });
+      const jobId = `wx_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
+      const jobDir = path.join(WHISPERX_JOBS, jobId);
+      fs.mkdirSync(jobDir, { recursive: true });
+      const job = {
+        id: jobId,
+        boardId: id,
+        status: "pending",
+        progress: 0,
+        stage: "queued",
+        message: "queued",
+        createdAt: Date.now(),
+        cancelled: false,
+        proc: null,
+      };
+      whisperxJobs.set(jobId, job);
+      fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+
+      // Start async job
+      setImmediate(async () => {
+        try {
+          job.status = "running";
+          job.stage = "preflight";
+          job.progress = 5;
+          const pf = await whisperxPreflightCheck();
+          if (!pf.ok) {
+            job.status = "failed";
+            job.error = "WhisperX preflight failed";
+            job.message = JSON.stringify(pf.checks);
+            fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+            return;
+          }
+          job.stage = "transcribing";
+          job.progress = 20;
+          fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+          const python = process.env.WHISPERX_PYTHON || process.env.PYTHON || "python";
+          const model = process.env.WHISPERX_MODEL || "large-v2";
+          const device = process.env.WHISPERX_DEVICE || "cuda";
+          const batchSize = process.env.WHISPERX_BATCH_SIZE || "16";
+          const computeType = process.env.WHISPERX_COMPUTE_TYPE || "float16";
+          const language = body.language || board.input?.semanticsLanguage || "auto";
+          const outJson = path.join(jobDir, "result.json");
+          // Try to call whisperx CLI if configured, else use python module via
+          // ONE embedded script. The script also runs a separate VOICE-ACTIVITY
+          // pass (whisperx's own VAD when importable) so the master timeline
+          // never derives instrumental-versus-vocal from the transcript words.
+          const whisperxCmd = process.env.WHISPERX_CMD;
+          let args = [];
+          let script = null;
+          if (whisperxCmd) {
+            args = [audioPath, "--model", model, "--device", device, "--batch_size", batchSize, "--compute_type", computeType, "--output_dir", jobDir, "--output_format", "json"];
+            if (language && language !== "auto") args.push("--language", language);
+          }
+          if (!whisperxCmd) {
+            script = `
+import json,sys,os
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Windows 'charmap' stdout cannot encode Devanagari transcript lines
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")  # our own [wx] lines replace hf's bar spam
+import warnings
+warnings.filterwarnings("ignore", message="torchcodec is not installed correctly")   # pyannote's optional decoder — whisperx decodes via av
+warnings.filterwarnings("ignore", message="TensorFloat-32")
+warnings.filterwarnings("ignore", message="Xet Storage is enabled")
+warnings.filterwarnings("ignore", message=".*cache-system uses symlinks")
+def say(msg):
+  # flushed immediately so the node-side job log streams it live to the UI
+  print(msg, flush=True)
+def prefetch_progress(model_name, say):
+  # Best-effort PRE-DOWNLOAD of the model with live progress lines: hf_hub's
+  # own tqdm bars are disabled on non-TTY pipes, so a first-run download
+  # otherwise looks like a silent hang. On ANY failure we fall back silently —
+  # load_model below downloads/loads exactly as before.
+  try:
+    import threading, time, glob
+    import huggingface_hub as hfhub
+    repo = "Systran/faster-whisper-" + model_name
+    info = hfhub.HfApi().repo_info(repo, files_metadata=True)
+    total = sum((s.size or 0) for s in (info.siblings or []))
+    if not total:
+      return
+    state = {"err": None}
+    def dl():
+      try:
+        hfhub.snapshot_download(repo_id=repo)
+      except Exception as e:
+        state["err"] = str(e)
+    t = threading.Thread(target=dl, daemon=True)
+    t.start()
+    blobs = os.path.join(hfhub.constants.HF_HUB_CACHE, "models--" + repo.replace("/", "--"), "blobs")
+    def got_bytes():
+      got = 0
+      for fn in os.listdir(blobs):
+        try:
+          got += os.path.getsize(os.path.join(blobs, fn))
+        except OSError:
+          pass
+      return got
+    time.sleep(1)
+    if not t.is_alive() and not state["err"]:
+      say("[wx] model %s already cached" % model_name)
+      return
+    lastp = -5
+    while t.is_alive():
+      time.sleep(3)
+      pct = int(100 * got_bytes() / total)
+      if pct >= lastp + 2:
+        lastp = pct
+        say("[wx] downloading model %s: %d%% (%.1f / %.1f GB)" % (model_name, min(99, pct), got_bytes()/1e9, total/1e9))
+    if state["err"]:
+      say("[wx] model prefetch failed, load_model will retry: " + state["err"][:200])
+    else:
+      say("[wx] model download complete")
+  except Exception as e:
+    say("[wx] download progress unavailable: " + str(e)[:200])
+try:
+  import whisperx
+  audio=sys.argv[1]; model_name=sys.argv[2]; device=sys.argv[3]; batch_size=int(sys.argv[4]); compute_type=sys.argv[5]; outdir=sys.argv[6]; lang=sys.argv[7]
+  say("[wx] loading model "+model_name+" on "+device+" ...")
+  prefetch_progress(model_name, say)
+  model=whisperx.load_model(model_name,device=device,compute_type=compute_type)
+  say("[wx] decoding audio ...")
+  audio_loaded=whisperx.load_audio(audio)
+  say("[wx] transcribing (batch "+str(batch_size)+") ...")
+  res=model.transcribe(audio_loaded,batch_size=batch_size,language=None if lang=='auto' else lang)
+  segs=list(res.get("segments") or [])
+  say("[wx] transcript: "+str(len(segs))+" segments")
+  for s in segs:
+    txt=" ".join(str(s.get("text","")).split())
+    if txt:
+      say("[wx] %s - %ss  %s" % (round(float(s.get("start",0)),1), round(float(s.get("end",0)),1), txt))
+  say("[wx] aligning words ...")
+  model_a,metadata=whisperx.load_align_model(language_code=res["language"],device=device)
+  res=whisperx.align(res["segments"],model_a,metadata,audio_loaded,device,return_char_alignments=False)
+  # Voice-activity pass, SEPARATE from the transcript: whisperx's VAD model
+  # (silero/pyannote) when importable. Served feedback on failure — the
+  # node-side energy fallback covers the rest, so "vocal vs instrumental"
+  # evidence is never faked here.
+  va={"status":"unavailable","method":"none","segments":[],"note":""}
+  try:
+    from whisperx import vad as wx_vad
+    import torch
+    vad_model = wx_vad.load_vad_model(torch.device(device), use_auth_token=None)
+    wav16 = whisperx.load_audio(audio, sr=16000)
+    chunks = vad_model({"waveform": wav16, "sample_rate": 16000}).get("chunks", [])
+    va={"status":"ok","method":"whisperx-vad","segments":[
+      {"start":float(c.get("start",0)),"end":float(c.get("end",0)),"activity":"vocal"} for c in chunks if "start" in c and "end" in c
+    ]}
+  except Exception as _ve:
+    va["note"]=str(_ve)[:300]
+  res["vocal_activity"]=va
+  os.makedirs(outdir,exist_ok=True)
+  say("[wx] writing result ...")
+  with open(os.path.join(outdir,'result.json'),'w',encoding='utf-8') as f:
+    json.dump(res,f,ensure_ascii=False)
+  say("done")
+except Exception as e:
+  print('ERR',e)
+  sys.exit(1)
+`;
+          }
+          job.progress = 40;
+          fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+          const spawnArgs = whisperxCmd
+            ? args
+            : ["-c", script, audioPath, model, device, batchSize, computeType, jobDir, language];
+          const proc = spawn(whisperxCmd || python, spawnArgs, { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+          job.proc = proc;
+          let out = "", err = "";
+          // Rolling process log (stdout + stderr) streamed live to the status
+          // poll — the UI renders it under the analyzing progress bar.
+          job.log = "";
+          const appendLog = (d) => { job.log = ((job.log || "") + d.toString()).slice(-8000); };
+          proc.stdout.on("data", (d) => { out += d.toString(); appendLog(d); job.message = out.slice(-200);
+            // A model download line maps its percent onto the 10–40% band so
+            // the bar moves during a first-run download instead of sitting still.
+            const m = out.match(/downloading model \S+: (\d+)%/g);
+            if (m) {
+              const pct = parseInt(m[m.length - 1].match(/(\d+)%/)[1], 10);
+              job.progress = Math.max(job.progress, 10 + Math.round(pct * 0.3));
+            } else {
+              job.progress = Math.min(90, job.progress + 5);
+            }
+          });
+          proc.stderr.on("data", (d) => { err += d.toString(); appendLog(d); job.message = err.slice(-200); });
+          proc.on("close", async (code) => {
+            job.proc = null;
+            if (job.cancelled) {
+              job.status = "cancelled";
+              fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+              return;
+            }
+            if (code !== 0) {
+              job.status = "failed";
+              // Prefer the script's own "ERR <reason>" line — the stderr tail is
+              // usually just warnings (TF32 / torchcodec noise), not the failure.
+              const errLine = (out + "\n" + err).split(/\r?\n/).filter((l) => l.startsWith("ERR ")).pop();
+              job.error = (errLine || err.slice(-500) || "WhisperX failed").slice(0, 500);
+              fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+              return;
+            }
+            try {
+              job.stage = "importing";
+              job.progress = 95;
+              const result = JSON.parse(fs.readFileSync(outJson, "utf8"));
+              // import into board
+              const lines = lyricTimelineSourceLines(board);
+              if (!lines.length) throw new Error("no lyrics/story lines on board");
+              const duration = lyricTimelineDuration(board);
+              const timeline = buildLyricTimeline({
+                lyrics: lines,
+                whisper: result,
+                duration,
+                language,
+                semantics: (board.semantics && board.semantics.lines) || [],
+                scenes: board.scenes || [],
+                previous: board.lyric_timeline || null,
+              });
+              // Vocal activity: the WhisperX VAD pass when the script emitted
+              // it, else the honest node-side energy/silence estimate decoded
+              // locally (never derived from the transcript words).
+              let activity = result && result.vocal_activity
+                && Array.isArray(result.vocal_activity.segments)
+                && result.vocal_activity.segments.length ? result.vocal_activity : null;
+              if (!activity) {
+                try {
+                  const measured = await analyzeDirectorAudio(audioPath);
+                  activity = measured && measured.vocalActivity && measured.vocalActivity.segments
+                    && measured.vocalActivity.segments.length ? measured.vocalActivity : null;
+                } catch (e) { console.warn("[whisperx] audio activity fallback failed:", e.message); }
+              }
+              timeline.vocal_activity = activity || null;
+              board.lyric_timeline = timeline;
+              try {
+                const master = masterViewForBoard(board, timeline);
+                if (master) board.lyric_timeline.master = master;
+              } catch (e) { console.warn("[master-timeline] derive failed:", e.message); }
+              writeDirectorBoard(board);
+              job.status = "succeeded";
+              job.progress = 100;
+              job.timeline = timeline;
+              job.message = "done";
+            } catch (e) {
+              job.status = "failed";
+              job.error = e.message;
+            }
+            fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+          });
+        } catch (e) {
+          job.status = "failed";
+          job.error = e.message;
+          fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+        }
+      });
+
+      return json(res, 200, { jobId, status: "pending" });
+    }
+
+    // Get job status
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/whisperx\/jobs\/[^/]+$/) && req.method === "GET") {
+      const parts = p.split("/");
+      const jobId = decodeURIComponent(parts[7]);
+      const job = whisperxJobs.get(jobId);
+      if (!job) {
+        // try to read from disk
+        try {
+          const jobDir = path.join(WHISPERX_JOBS, jobId);
+          if (fs.existsSync(path.join(jobDir, "job.json"))) {
+            const j = JSON.parse(fs.readFileSync(path.join(jobDir, "job.json"), "utf8"));
+            return json(res, 200, { jobId, ...j });
+          }
+        } catch {}
+        return json(res, 404, { error: "job not found" });
+      }
+      return json(res, 200, {
+        jobId: job.id,
+        status: job.status,
+        progress: job.progress,
+        stage: job.stage,
+        message: job.message,
+        log: job.log || null,
+        error: job.error,
+        timeline: job.timeline,
+      });
+    }
+
+    // Cancel job
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/whisperx\/jobs\/[^/]+\/cancel$/) && req.method === "POST") {
+      const parts = p.split("/");
+      const jobId = decodeURIComponent(parts[7]);
+      const job = whisperxJobs.get(jobId);
+      if (job) {
+        job.cancelled = true;
+        try { if (job.proc) job.proc.kill(); } catch {}
+        job.status = "cancelled";
+      }
+      return json(res, 200, { ok: true });
     }
     if (p.match(/^\/api\/director\/boards\/[^/]+\/validate$/) && req.method === "GET") {
       const id = decodeURIComponent(p.split("/")[4] || "");
@@ -7443,6 +8355,9 @@ const server = http.createServer(async (req, res) => {
         lineRange: spec.lineRange, budgetSeconds: spec.budget,
         plannedSeconds: spec.prog.plannedSeconds, targetSeconds: spec.planTarget || null,
         totalLines: spec.lyricTiming.length || null,
+        // The approved master timeline rides the dry-run popup EXACTLY like
+        // the real batch — Show prompt must show the timing contract too.
+        masterTimeline: spec.masterTiming || null,
       });
       return json(res, 200, {
         ready: false,
@@ -7472,7 +8387,7 @@ const server = http.createServer(async (req, res) => {
         const body = await readJson(req).catch(() => ({}));
         const spec = nextSceneBatchSpec(board, body.count, id);
         if (spec.ready) return json(res, 200, spec.write ? writeDirectorBoard(spec.board) : spec.board);
-        const { done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange } = spec;
+        const { done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, masterTiming } = spec;
         const scenesRawTag = `_raw_${id}_scenes_${done + 1}.log`;
         // The MEANING pass for THIS batch: the configured model enriches the
         // deterministic reading of the lines this batch covers (the meaning
@@ -7553,6 +8468,10 @@ const server = http.createServer(async (req, res) => {
               // The meaning of the lines this batch covers (the scenes are
               // planned FROM the meaning, not from the raw line).
               semantics: semanticRows,
+              // The APPROVED master timeline slice for this batch's window:
+              // the timing contract the LLM must plan against (absolute
+              // windows, instrumental/unknown rules, repeat occurrences).
+              masterTimeline: masterTiming || null,
             }),
             maxTokens: 16000,
             temperature: 0.5,
@@ -8141,6 +9060,26 @@ const server = http.createServer(async (req, res) => {
           return json(res, 400, { error: `story QA failed: ${gate.errors[0]}`, errors: gate.errors.slice(0, 20), warnings: (gate.warnings || []).slice(0, 20), score: gate.score });
         }
       } catch { /* validator never blocks on internal failure — approve proceeds */ }
+      // The APPROVED master timeline is the authority on timing: scenes that
+      // drifted from the approved windows are snapped back BEFORE the config
+      // is built (priority: user-approved > validated alignment > estimate).
+      // Story boards and boards without an approved timeline pass through
+      // untouched; a snap beyond tolerance is reported, never moved.
+      let timingCorrections = [];
+      try {
+        const approvedMaster = board.lyric_timeline && board.lyric_timeline.master;
+        if (approvedMaster && approvedMaster.approved) {
+          const applied = applyApprovedTimelineToScenes(board.scenes, approvedMaster);
+          board.scenes = applied.scenes;
+          timingCorrections = applied.corrections;
+          for (const n of applied.notes.slice(0, 4)) console.warn(`[director:${id}] approve timing: ${n}`);
+          if (timingCorrections.length) {
+            console.warn(`[director:${id}] approve: ${timingCorrections.length} scene window(s) snapped to the approved master timeline`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[director:${id}] approve timing snap failed: ${e && e.message ? e.message : e}`);
+      }
       const config = boardToScenario(board);
       // Partial-migration flow: the first approve claims a project name (the
       // story title as a space-free KEY, _2-suffixed on collision); every
@@ -8181,7 +9120,7 @@ const server = http.createServer(async (req, res) => {
       // The CLIENT persists via the existing saveScenario (PUT
       // /api/scenario/:name) — identical semantics to the Scenario Editor
       // Save — then opens the workspace for standard generation.
-      return json(res, 200, { name: target, config, partial, migrated: board.scenes.length, sceneCount: board.sceneCount });
+      return json(res, 200, { name: target, config, partial, migrated: board.scenes.length, sceneCount: board.sceneCount, timing_corrections: timingCorrections });
     }
     // ------------------------------------------------- Sanskriti Kids Studio
     // A PROJECT LAYER on top of the EXISTING pipeline (never a parallel

@@ -62,7 +62,7 @@ const field = (label: string, input: React.ReactNode, hint?: string) => (
   <div style={{ marginBottom: 12 }}>
     <label style={{ display: "block", marginBottom: 6, fontWeight: 600, fontSize: 13 }}>{label}</label>
     {input}
-    {hint && <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>{hint}</div>}
+    {hint && <div style={{ fontSize: 11, color: "#6b7280", marginTop: "4px" }}>{hint}</div>}
   </div>
 );
 
@@ -517,7 +517,7 @@ export default function SanskritiKidsPage({ onOpenProject, imageMode, onImageMod
               ) : dashError && !metrics ? (
                 <div style={{ padding: 12, background: "#fee2e2", color: "#991b1b", borderRadius: 6, fontSize: 13 }}>
                   {dashError}
-                  <div style={{ marginTop: 8 }}>
+                  <div style={{ marginTop: "8px" }}>
                     <button className="btn sm" onClick={() => { void loadDashboard(); }}>Retry</button>
                   </div>
                 </div>
@@ -722,7 +722,7 @@ export default function SanskritiKidsPage({ onOpenProject, imageMode, onImageMod
                     />
                     {uploadingAudio && <span style={{ fontSize: 12, color: "#6b7280" }}>uploading…</span>}
                     {audioInfo && (
-                      <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>
+                      <div style={{ fontSize: 12, color: "#475569", marginTop: "4px" }}>
                         {audioInfo.fileName} · ~{Math.round(audioInfo.durationSeconds)}s
                       </div>
                     )}
@@ -737,7 +737,7 @@ export default function SanskritiKidsPage({ onOpenProject, imageMode, onImageMod
                     />
                     {uploadingRef && <span style={{ fontSize: 12, color: "#6b7280" }}>uploading…</span>}
                     {refIds.length > 0 && (
-                      <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>
+                      <div style={{ fontSize: 12, color: "#475569", marginTop: "4px" }}>
                         {refIds.length} reference image{refIds.length === 1 ? "" : "s"} attached
                       </div>
                     )}
@@ -1010,14 +1010,14 @@ function ProjectDetail({ detail, busy, onGeneratePlan, onSavePlan, onApprovePlan
         </div>
         <div style={{ fontSize: 12.5, color: "#475569", lineHeight: 1.6 }}>
           <div><b>{project.title}</b> · {project.category || "Uncategorised"} · {project.age_group || "any age"} · {project.language} · {project.duration_seconds}s · {project.aspect_ratio} · {project.resolution}</div>
-          {project.description && <div style={{ marginTop: 4 }}>{project.description}</div>}
+          {project.description && <div style={{ marginTop: "4px" }}>{project.description}</div>}
           {(project.narration_preferences || project.music_preferences) && (
-            <div style={{ marginTop: 4, color: "#6b7280" }}>
+            <div style={{ marginTop: "4px", color: "#6b7280" }}>
               {project.narration_preferences && <>Narration: {project.narration_preferences} · </>}
               {project.music_preferences && <>Sound: {project.music_preferences}</>}
             </div>
           )}
-          {project.board_id && <div style={{ marginTop: 4, color: "#6b7280" }}>Storyboard: <code>{project.board_id}</code></div>}
+          {project.board_id && <div style={{ marginTop: "4px", color: "#6b7280" }}>Storyboard: <code>{project.board_id}</code></div>}
         </div>
       </div>
 
@@ -1110,7 +1110,7 @@ function ProjectDetail({ detail, busy, onGeneratePlan, onSavePlan, onApprovePlan
       </div>
 
       {jobs.length > 0 && (
-        <div style={{ marginTop: 14 }}>
+        <div style={{ marginTop: "14px" }}>
           <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Jobs</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {jobs.slice(0, 6).map((j) => (
@@ -1166,7 +1166,7 @@ function PlanView({ plan }: { plan: KidsDirectorPlan }) {
         plan.age_appropriateness.pacing_notes,
       ].filter(Boolean).join(" "))}
       {plan.warnings.length > 0 && (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: "8px" }}>
           {plan.warnings.map((w, i) => (
             <div key={i} style={{ fontSize: 11.5, color: "#92400e" }}>⚠ {w}</div>
           ))}
@@ -1265,16 +1265,16 @@ function StoryPanel({ detail, onSync, busy }: {
                 <span style={{ flex: 1 }} />
                 <span style={{ fontSize: 11.5, color: "#6b7280" }}>{s.duration_seconds}s · {s.status}</span>
               </div>
-              {s.synopsis && <div style={{ fontSize: 12.5, marginTop: 4, color: "#334155" }}>{s.synopsis}</div>}
+              {s.synopsis && <div style={{ fontSize: 12.5, marginTop: "4px", color: "#334155" }}>{s.synopsis}</div>}
               {(s.camera || s.transition) && (
-                <div style={{ fontSize: 11.5, marginTop: 4, color: "#6b7280" }}>
+                <div style={{ fontSize: 11.5, marginTop: "4px", color: "#6b7280" }}>
                   {s.camera}{s.transition ? ` · transition: ${s.transition}` : ""}
                 </div>
               )}
               {s.prompt && (
-                <details style={{ marginTop: 6 }}>
+                <details style={{ marginTop: "6px" }}>
                   <summary style={{ cursor: "pointer", fontSize: 11.5, color: "#475569" }}>Image prompt</summary>
-                  <div style={{ fontSize: 11.5, color: "#334155", marginTop: 4 }}>{s.prompt}</div>
+                  <div style={{ fontSize: 11.5, color: "#334155", marginTop: "4px" }}>{s.prompt}</div>
                 </details>
               )}
             </div>

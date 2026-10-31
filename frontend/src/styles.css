@@ -252,6 +252,9 @@ body {
 .shell.is-devotional-studio { grid-template-columns: minmax(0, 1fr); }
 /* Sanskriti Kids studio: the module fills the content — no right column. */
 .shell.is-sanskriti-kids { grid-template-columns: minmax(0, 1fr); }
+/* Story/Song view: the studio fills the content — its own Saved Storyboards
+   rail lives INSIDE the page (dir-layout), so the shell keeps one column. */
+.shell.is-story { grid-template-columns: minmax(0, 1fr); }
 /* Right-column rails dock to the RIGHT edge of the window (the Projects rail
    docks left). Rails-only column stays narrow so the middle keeps the space. */
 .col.right-col.rails-only { gap: 12px; }
@@ -1314,6 +1317,9 @@ button.pill-btn:disabled { cursor: default; opacity: 0.6; }
 /* The director card yields its width to the rail: opening the rail
    narrows the director automatically via flex. */
 .dir-layout .dir-main { flex: 1 1 auto; min-width: 0; margin: 0; }
+/* The Story/Song page keeps its whole studio (hero + brief + workflow) in the
+   dir-main column, so the column itself stacks cards with the page's gap. */
+.story-main { display: flex; flex-direction: column; gap: 14px; }
 .dir-rail {
   width: 564px; flex: none;
   position: sticky; top: 76px;
@@ -1323,14 +1329,25 @@ button.pill-btn:disabled { cursor: default; opacity: 0.6; }
 }
 .dir-rail .card-head { flex: none; }
 .dir-rail .card-head .muted { font-variant-numeric: tabular-nums; }
-/* Rail grid: exactly 2 boards per row, independently scrollable. */
+/* Rail grid: exactly 2 boards per row, independently scrollable. Fills the
+   rail's remaining height (flex) so a stretched rail scrolls its list. */
 .dir-rail .dir-board-grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   overflow-y: auto; min-height: 0;
+  flex: 1 1 auto;
   padding: 2px;
 }
 .dir-rail .dir-board-foot { flex-wrap: wrap; row-gap: 6px; }
 .dir-rail .dir-board-foot .pill { max-width: 100%; }
+/* Board open: the rail yields room to the board's wide scene tables —
+   it narrows to a one-card-per-row list so the studio column grows. */
+.dir-rail.rail-narrow { width: 340px; }
+.dir-rail.rail-narrow .dir-board-grid-2 { grid-template-columns: minmax(0, 1fr); }
+/* Story/Song rail: stretches to the SAME height as the Story Studio column
+   it sits beside (no viewport cap, no sticky float) — the board list scrolls
+   inside the panel instead of the panel ending early. */
+.story-page .dir-layout { align-items: stretch; }
+.story-page .dir-rail { position: static; top: auto; max-height: none; }
 /* The board open in the main pane gets the active tint in the rail. */
 .dir-board-card.current {
   border-color: var(--accent-line);
@@ -4396,7 +4413,7 @@ button.rm-chip:disabled:hover { background: transparent; border-color: var(--lin
    rails, dialogue speech bubbles and a timeline cue rail.
    Theme-aware via the design tokens above (dark + light).
    ============================================================ */
-.story-page { display: flex; flex-direction: column; gap: 14px; }
+.story-page { display: flex; flex-direction: column; gap: 14px; width: 95%; margin: 0 auto; }
 .story-page .card { position: relative; overflow: hidden; }
 /* Hero: gradient banner + step flow. */
 .story-hero {
@@ -4442,6 +4459,28 @@ button.rm-chip:disabled:hover { background: transparent; border-color: var(--lin
   border: 1px solid rgba(248, 113, 113, 0.35); background: var(--err-soft); color: var(--err);
   border-radius: var(--radius-m); padding: 10px 14px; font-size: 12.5px; line-height: 1.5;
 }
+/* Audio Timeline Studio — the 5 numbered step blocks (Story audio analysis). */
+.audio-step {
+  border: 1px solid var(--line); border-radius: var(--radius-m);
+  background: var(--inset); padding: 12px 14px; margin-top: 10px;
+}
+.audio-step-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.audio-step-head b { font-size: 13px; font-weight: 750; }
+.audio-step-head .muted { font-size: 11.5px; }
+.audio-table {
+  display: flex; flex-direction: column; gap: 5px;
+  max-height: 320px; overflow: auto; padding-right: 2px;
+}
+.audio-row {
+  display: flex; gap: 10px; align-items: center;
+  font-size: 12.5px; line-height: 1.45;
+  border: 1px solid var(--line); border-radius: var(--radius-s);
+  background: var(--surface); padding: 7px 10px; min-width: 0;
+}
+.audio-row-missing { border-color: rgba(248, 113, 113, 0.4); background: var(--err-soft); }
+.audio-row .pill { flex: none; }
+.audio-row-edit { padding: 6px 8px; }
+.audio-row-edit input[type="number"], .audio-row-edit select { padding: 3px 6px; font-size: 12px; }
 /* Section titles inside the story flow. */
 .story-sec-tag {
   font-size: 10.5px; font-weight: 750; letter-spacing: 0.09em; text-transform: uppercase;

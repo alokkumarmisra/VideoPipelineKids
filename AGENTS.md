@@ -179,6 +179,35 @@ action extraction, camera planning, beat tiling, feasibility, validation,
 repair, timing alignment, lyric action plan, voice map, model-merge source
 preservation).
 
+### Sanskriti Story/Song — the approved master timeline is the timing authority
+The WhisperX + master-timeline feature is wired into the REAL Director workflow,
+not a side path (pinned by `tests/master_timeline_integration.test.mjs`, live
+E2E `frontend/tests/master_timeline_smoke.mjs`):
+- `nextSceneBatchSpec` prefers the APPROVED master timeline
+  (`board.lyric_timeline.master.approved`) over the raw stored windows: its
+  lyric-carrying segments become the batch's timed line list, and the batch
+  prompt receives the APPROVED SLICE (segments + clips overlapping the batch's
+  time window) via `buildScenesPrompt({ masterTimeline })` — which renders the
+  "APPROVED AUDIO TIMELINE" contract (never move approved windows, no
+  lyric-driven action before its lyric starts, instrumental windows get no
+  invented vocals, `unknown` stays for review, repeats are separate
+  occurrences, actions crossing a cut continue). Boards without an approved
+  timeline get a byte-identical prompt.
+- The approve route snaps drifted scene/shot windows back onto the approved
+  segments (`applyApprovedTimelineToScenes` — pure, in `lib/master_timeline.mjs`)
+  BEFORE `boardToScenario`: matched by the scene's own lyric line ids + max
+  overlap (a repeated chorus never collapses into another occurrence), only
+  within a 2 s tolerance (gross mismatches are REPORTED in the response's
+  `timing_corrections` + server log, never silently moved), shots re-tile the
+  snapped scene (lyric shots snap to their own segment), and every snapped
+  scene is stamped `timing_source: "approved-master-timeline"`. Story boards
+  and unapproved timelines pass through untouched.
+- The UI surfaces it: the Plan header shows "🎼 Approved timeline drives
+  timing" when approved, and the approve dialog reports how many scene
+  windows were snapped. The WhisperX analyze job still fails HONESTLY when
+  the module is not installed (preflight) — never a fabricated timeline; the
+  manual WhisperX-JSON import persists at the exact seam the job feeds.
+
 ## Devotional Studio (canonical asset library)
 Devotional nav (`frontend/src/components/DevotionalPage.tsx`, client in
 `frontend/src/devotionalApi.ts`, pure helpers + `DEVOTIONAL_SCHEMA` in

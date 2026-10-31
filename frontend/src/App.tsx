@@ -351,7 +351,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
   const boxBgFallback = theme === "dark" ? DEFAULT_BG_DARK : DEFAULT_BG_LIGHT;
   const boxBtnFallback = theme === "dark" ? DEFAULT_BTN_DARK : DEFAULT_BTN_LIGHT;
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
-  const [view, setView] = useState<"home" | "workspace" | "resource" | "director" | "kids_director" | "sanskriti_kids" | "story" | "song" | "documentary" | "database" | "components">("home");
+  const [view, setView] = useState<"home" | "workspace" | "resource" | "director" | "kids_director" | "sanskriti_kids" | "story_song" | "song" | "documentary" | "database" | "components">("home");
   const [name, setName] = useState("");
   const [cfg, setCfg] = useState<Scenario | null>(null);
   const [cfgLoading, setCfgLoading] = useState(false);
@@ -1457,10 +1457,10 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                 { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
                 { key: "cur", label: "Sanskriti Kids", icon: <IconSparkles size={13} aria-hidden="true" />, tone: "ci-director", current: true },
               ];
-            } else if (view === "story") {
+            } else if (view === "story_song") {
               crumbs = [
                 { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
-                { key: "cur", label: "Story", icon: <IconLayers size={13} aria-hidden="true" />, tone: "ci-story", current: true },
+                { key: "cur", label: "Story/Song", icon: <IconLayers size={13} aria-hidden="true" />, tone: "ci-story", current: true },
               ];
             } else if (view === "song") {
               crumbs = [
@@ -1742,13 +1742,13 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
               <span className="sidenav-label">Sanskriti Kids</span>
             </button>
             <button
-              className={`sidenav-btn nav-story ${view === "story" ? "on" : ""}`}
-              onClick={() => setView("story")}
-              aria-current={view === "story" ? "page" : undefined}
-              title="Open the Story view"
+              className={`sidenav-btn nav-story ${view === "story_song" ? "on" : ""}`}
+              onClick={() => setView("story_song")}
+              aria-current={view === "story_song" ? "page" : undefined}
+              title="Open the Story/Song view"
             >
               <span className="sidenav-icon"><IconLayers size={16} aria-hidden="true" /></span>
-              <span className="sidenav-label">Story</span>
+              <span className="sidenav-label">Story/Song</span>
             </button>
             <button
               className={`sidenav-btn nav-song ${view === "song" ? "on" : ""}`}
@@ -1805,7 +1805,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
           (and Craft keeps its spinner) when flipping between Home and the
           workspace. Workspace content renders from the last loaded project,
           so switching projects never unmounts/remounts the page. */}
-        <div className={`shell${rightCollapsed ? " no-right" : ""}${view === "resource" ? " is-resource" : ""}${view === "director" ? " is-director" : ""}${view === "kids_director" ? " is-kids-director" : ""}${view === "sanskriti_kids" ? " is-sanskriti-kids" : ""}${view === "story" ? " is-story" : ""}${view === "song" ? " is-song" : ""}${view === "documentary" ? " is-documentary" : ""}${view === "database" ? " is-database" : ""}${view === "components" ? " is-components" : ""}`}>
+        <div className={`shell${rightCollapsed ? " no-right" : ""}${view === "resource" ? " is-resource" : ""}${view === "director" ? " is-director" : ""}${view === "kids_director" ? " is-kids-director" : ""}${view === "sanskriti_kids" ? " is-sanskriti-kids" : ""}${view === "story_song" ? " is-story" : ""}${view === "song" ? " is-song" : ""}${view === "documentary" ? " is-documentary" : ""}${view === "database" ? " is-database" : ""}${view === "components" ? " is-components" : ""}`}>
         {/* Projects rail tab — always visible (except Home): clicking slides
             only the container out over the content, clicking again collapses
             it. Nothing ever shrinks (same pattern as the Scene Tools dock). */}
@@ -1868,7 +1868,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
             />
           </ViewBoundary>
         </div>
-        <div className="col" style={view !== "story" ? { display: "none" } : undefined}>
+        <div className="col" style={view !== "story_song" ? { display: "none" } : undefined}>
           <ViewBoundary name="Story">
             <StoryPage
               onOpenProject={openProject}

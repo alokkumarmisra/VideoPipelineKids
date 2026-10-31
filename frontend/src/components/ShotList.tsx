@@ -703,7 +703,7 @@ export default function ShotList({
         onChange={(e) => setDialogueText(e.target.value)}
       />
       {saveError && <p className="hint err-text">{saveError}</p>}
-      <div className="row" style={{ marginTop: 8 }}>
+      <div className="row" style={{ marginTop: "8px" }}>
         <button
           className="primary"
           onClick={() => void updateShot()}
@@ -1253,7 +1253,7 @@ export default function ShotList({
       )}
 
       {/* Beat tools: add + LLM-generate (moved here from the editor) */}
-      <div className="row" style={{ marginTop: 4 }}>
+      <div className="row" style={{ marginTop: "4px" }}>
         <button
           className="ghost"
           onClick={addShot}

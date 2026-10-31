@@ -249,7 +249,7 @@ export default function SceneTools({ open, onToggle, beats, onApplySequence, onG
               maxLength={500}
               onChange={(e) => setRepWith(e.target.value)}
               aria-label="Replacement text"
-              style={{ marginTop: 6 }}
+              style={{ marginTop: "6px" }}
             />
             <ScopeChecks value={repScope} onChange={setRepScope} withDialogue />
             <div className="tools-row">
@@ -280,7 +280,7 @@ export default function SceneTools({ open, onToggle, beats, onApplySequence, onG
               onChange={(e) => setAddText(e.target.value)}
               aria-label="Text to add to all scenes"
             />
-            <div className="tools-row" style={{ marginTop: 6 }}>
+            <div className="tools-row" style={{ marginTop: "6px" }}>
               <select
                 value={addTarget}
                 onChange={(e) => setAddTarget(e.target.value as AddTarget)}
@@ -301,7 +301,7 @@ export default function SceneTools({ open, onToggle, beats, onApplySequence, onG
                 </button>
               </span>
             </div>
-            <div className="tools-row" style={{ marginTop: 6 }}>
+            <div className="tools-row" style={{ marginTop: "6px" }}>
               <label className="tools-check" title="Fields already carrying the text are left untouched">
                 <input type="checkbox" checked={addSkip} onChange={() => setAddSkip((v) => !v)} />
                 Skip scenes that already have it

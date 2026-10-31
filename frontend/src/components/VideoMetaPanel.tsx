@@ -229,7 +229,7 @@ export default function VideoMetaPanel({ name, config }: Props) {
                       </button>
                     ))}
                   </div>
-                  <div className="row" style={{ marginTop: 8, justifyContent: "flex-end" }}>
+                  <div className="row" style={{ marginTop: "8px", justifyContent: "flex-end" }}>
                     {copyBtn("tags", tagLine, "Copy all hashtags")}
                   </div>
                 </>
@@ -238,7 +238,7 @@ export default function VideoMetaPanel({ name, config }: Props) {
               )}
             </>
           )}
-          <div className="row" style={{ marginTop: 12 }}>
+          <div className="row" style={{ marginTop: "12px" }}>
             <button
               className="primary"
               onClick={() => void generate()}

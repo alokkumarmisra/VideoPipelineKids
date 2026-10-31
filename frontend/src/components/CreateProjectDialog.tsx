@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Dispatch, SetStateAction } from "react";
 import { saveScenario, craftMasterPrompt, slugFolder, DEFAULT_PRESET_ID } from "../api";
 import type { Scenario } from "../types";
+import type { ImageMode } from "../api";
 import { IconSparkles, IconX, Spinner } from "./Icons";
 import PresetSelect from "./PresetSelect";
 
@@ -11,10 +12,14 @@ export default function CreateProjectDialog({
   open,
   onClose,
   onCreated,
+  imageMode,
+  onImageMode,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (name: string) => void;
+  imageMode?: ImageMode;
+  onImageMode?: Dispatch<SetStateAction<ImageMode>>;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");

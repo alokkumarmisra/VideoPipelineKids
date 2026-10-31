@@ -828,7 +828,7 @@ export default function ScenarioEditor({ name, config, isDraft, onSave, override
           </div>
           );
         })}
-        <div className="row" style={{ marginTop: 8 }}>
+        <div className="row" style={{ marginTop: "8px" }}>
           <button className="btn-green" onClick={addBeat} disabled={saving || genBusy} title="Append a scene — fill in its prompts, then Save Scenario">
             <IconPlus size={13} />
             Add beat
