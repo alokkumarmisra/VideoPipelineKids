@@ -58,3 +58,24 @@ test("merges overlapping adjacent words so exported segments never overlap", () 
   assert.equal(plan.segments.length, 1);
   assert.equal(validateDirectorSegments(plan.segments).ok, true);
 });
+
+test("cuts at the last safe word boundary when a later aligned word overshoots the target", () => {
+  const raw = {
+    text: "One calm prayer honors the Lord today.",
+    segments: [{ start: 0, end: 8, text: "One calm prayer honors the Lord today.", words: [
+      { word: "One", start: 0, end: 1.2 },
+      { word: " calm", start: 1.25, end: 1.8 },
+      { word: " prayer", start: 1.85, end: 2.4 },
+      { word: " honors", start: 2.45, end: 6.6 },
+      { word: " the", start: 6.65, end: 7 },
+      { word: " Lord", start: 7.05, end: 7.4 },
+      { word: " today.", start: 7.45, end: 8 },
+    ] }],
+  };
+  const plan = splitWhisperTranscript(raw);
+  assert.equal(plan.text_preserved, true);
+  assert.equal(plan.segments.map((s) => s.text).join(""), raw.text);
+  assert.ok(plan.segments.length > 1);
+  assert.ok(plan.segments.every((s) => s.duration_seconds <= 5), JSON.stringify(plan.segments.map(({ text, duration_seconds }) => ({ text, duration_seconds }))));
+  assert.equal(validateDirectorSegments(plan.segments).ok, true);
+});

@@ -150,7 +150,7 @@ async function genSilentClip({ b, n, wavDuration }) {
       length: wanFrames(beatTargetDuration({ outDir, prefix, n, beat: b, fallback: target })),
       steps: cfg.steps ?? 8,
       negative: cfg.negative,
-      prefix: `${storageName}/wan_clip${n}_${b.title}`,
+      prefix: `${storageName}/wan_clip${n}_${fileSlug(b.title)}`,
     })
     : buildLtxGraph({
       prompt: motion,
@@ -159,7 +159,7 @@ async function genSilentClip({ b, n, wavDuration }) {
       ratio: vertical ? VERTICAL_LTX_RATIO : "16:9 (Widescreen)",
       megapixels: vertical ? VERTICAL_LTX_MEGAPIXELS : 0.5,
       negative: cfg.negative, // explicit override; undefined -> cartoon-aware auto default
-      prefix: `${storageName}/clip${n}_${b.title}`,
+      prefix: `${storageName}/clip${n}_${fileSlug(b.title)}`,
     });
   const entry = await run(graph, `clip${n}`);
   const v = nextVersion(outDir, prefix, "clip", n, ".mp4", b.title);
@@ -223,7 +223,7 @@ for (const { b, n } of dlgBeats) {
 if (synced > 0 && !skipLip && !noStitch) {
   try {
     // stitchSequence emits the [asset] final line itself (with the real file).
-    stitchSequence({ scenario, outDir, prefix, tag, cfg });
+    await stitchSequence({ scenario, outDir, prefix, tag, cfg });
   } catch (e) {
     console.error(`${tag} re-stitch failed: ${e.message}`);
     process.exit(1);

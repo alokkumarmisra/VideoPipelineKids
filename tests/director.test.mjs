@@ -331,6 +331,13 @@ describe("boardToScenario", () => {
     assert.ok(cfg.referencePrompt.includes("grey mouse"));
     assert.ok(cfg.referencePrompt.toLowerCase().includes("anime"));
   });
+  it("carries uploaded narration audio through to the shared scenario config", () => {
+    const cfg = boardToScenario({
+      ...board,
+      input: { ...board.input, sourceAudio: { file: "wx_master_abc.wav", fileName: "voice.wav", durationSeconds: 42.25 } },
+    });
+    assert.deepEqual(cfg.sourceAudio, { file: "wx_master_abc.wav", fileName: "voice.wav", durationSeconds: 42.25 });
+  });
   it("enforces missing cast identities and strips (id) artifacts", () => {
     const b = {
       input: { title: "M", visualStyle: "Anime", sceneSeconds: 5 },

@@ -843,7 +843,7 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
             <input type="checkbox" checked={chain} onChange={toggleChain} disabled={status === "running"} aria-label="Chain scenes for a connected movie" />
             <span className="vt-label">🔗 Chain</span>
           </label>
-          <button className="primary run-head-btn" onClick={() => begin(false, null, 1, "run", engine, idleFormat, undefined, undefined, undefined, imageMode)} disabled={status === "running" || starting !== null || !scenario} title={!scenario ? "Select or save a scenario first" : videoType === "INSTAGRAM" ? "Start a full vertical (9:16 Reel) generation — dialogue beats are voiced + lip-synced automatically, clips sized to the voice" : "Start a full generation — dialogue beats are voiced (per-character Hindi TTS) + lip-synced automatically, each clip sized to its dialogue"}>
+          <button className="primary run-head-btn" onClick={() => begin(false, null, 1, "run", engine, idleFormat, undefined, undefined, undefined, imageMode)} disabled={status === "running" || starting !== null || !scenario} title={!scenario ? "Select or save a scenario first" : engine === "ltx" ? "Generate scenes with LTX native audio; dialogue cues are sent with each scene prompt. No Edge-TTS or separate lip-sync pass is used." : "Generate scenes with Wan video; dialogue is voiced and lip-synced with the existing audio tools."}>
             {starting === "run" ? <Spinner size={12} /> : <IconPlay size={12} />}
             {starting === "run" ? "Starting…" : "Generate"}
           </button>
@@ -851,10 +851,10 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
             {starting === "stitch" ? <Spinner size={12} /> : <IconScissors size={12} />}
             {starting === "stitch" ? "Starting…" : "Stitch only"}
           </button>
-          <button className="run-head-btn" onClick={() => begin(false, null, 1, "dialogue", engine, idleFormat, "dialogue", undefined, undefined, imageMode)} disabled={status === "running" || starting !== null || !scenario || !dlgBeats} title={!scenario ? "Select or save a scenario first" : !dlgBeats ? "No dialogue lines in this project — add speaker: line dialogue in the Director or editor first" : `Re-voice ${dlgBeats} dialogue beat${dlgBeats === 1 ? "" : "s"} + re-lip-sync (Generate already does this automatically — use this only to retry voice/sync without rebuilding images)`}>
+          {engine !== "ltx" && <button className="run-head-btn" onClick={() => begin(false, null, 1, "dialogue", engine, idleFormat, "dialogue", undefined, undefined, imageMode)} disabled={status === "running" || starting !== null || !scenario || !dlgBeats} title={!scenario ? "Select or save a scenario first" : !dlgBeats ? "No dialogue lines in this project — add speaker: line dialogue in the Director or editor first" : `Re-voice ${dlgBeats} dialogue beat${dlgBeats === 1 ? "" : "s"} + re-lip-sync for Wan output` }>
             {starting === "dialogue" ? <Spinner size={12} /> : <span aria-hidden="true">🎙</span>}
             {starting === "dialogue" ? "Starting…" : `Dialogue${dlgBeats ? ` (${dlgBeats})` : ""}`}
-          </button>
+          </button>}
           <button
             className="danger run-head-btn"
             disabled={status !== "running" || !runId || stopping}

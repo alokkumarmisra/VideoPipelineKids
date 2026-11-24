@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { run, firstVideoUrl, download, buildMergedGraph } from "../lib/comfy.mjs";
 import { resolvePromptsJson } from "../lib/config_load.mjs";
-import { configSlug } from "../lib/variant.mjs";
+import { configSlug, fileSlug } from "../lib/variant.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,7 +23,7 @@ const scenario = args.find((a) => !a.startsWith("--")) || "wildlife_doc";
 
 const cfgPath = resolvePromptsJson(path.join(here, "../prompts"), scenario);
 if (!fs.existsSync(cfgPath)) {
-  console.error(`[director] no prompts/${storageName}.json — available:`);
+  console.error(`[director] no prompts/${configSlug(scenario)}.json — available:`);
   console.error("  " + fs.readdirSync(path.join(here, "../prompts")).filter((f) => f.endsWith(".json")).join("\n  "));
   process.exit(1);
 }
@@ -36,10 +36,11 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const scenes = cfg.scenes;
 const finalPath = path.join(outDir, `${storageName}_final.mp4`);
+const sceneFile = (i) => `scene${i + 1}_${fileSlug(scenes[i].title)}.mp4`;
 
 function stitch() {
   const list = path.join(outDir, "concat_list.txt");
-  fs.writeFileSync(list, scenes.map((s, i) => `file 'scene${i + 1}_${s.title}.mp4'`).join("\n") + "\n");
+  fs.writeFileSync(list, scenes.map((_, i) => `file '${sceneFile(i)}'`).join("\n") + "\n");
   execFileSync("ffmpeg", ["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", finalPath], { stdio: "inherit" });
   console.log(`[director:${storageName}] final cut -> ${finalPath}`);
 }
@@ -51,13 +52,13 @@ if (process.argv.includes("--stitch")) {
 
 for (let i = 0; i < scenes.length; i++) {
   const s = scenes[i];
-  const dest = path.join(outDir, `scene${i + 1}_${s.title}.mp4`);
+  const dest = path.join(outDir, sceneFile(i));
   if (fs.existsSync(dest)) { console.log(`[director:${storageName}] scene ${i + 1}/${scenes.length} — exists, skipping`); continue; }
   const graph = buildMergedGraph({
     fluxPrompt: s.fluxPrompt,
     ltxPrompt: s.ltxPrompt,
     duration: cfg.duration ?? 3,
-    prefix: `video_test/${storageName}_scene${i + 1}_${s.title}`,
+    prefix: `video_test/${storageName}_scene${i + 1}_${fileSlug(s.title)}`,
   });
   const entry = await run(graph, `${storageName} scene ${i + 1}/${scenes.length} (${s.title})`);
   await download(firstVideoUrl(entry), dest);

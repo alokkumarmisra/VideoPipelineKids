@@ -53,6 +53,7 @@ import {
   validateLyricTimeline,
   buildLyricActionTimeline,
   assignLyricLinesToScenes,
+  findCJKViolations,
 } from "../lib/semantics.mjs";
 import {
   MASTER_SEGMENT_TYPES,
@@ -219,6 +220,16 @@ import {
   kidsListExports,
   kidsInsertFeedback,
   kidsListFeedback,
+  kidsInsertAudioAsset,
+  kidsListAudioAssets,
+  kidsSaveTimeline as kidsSaveUnifiedTimeline,
+  kidsListTimelines,
+  kidsApproveTimeline,
+  kidsSaveBlueprint,
+  kidsListBlueprints,
+  kidsApproveBlueprint,
+  kidsSaveSnapshot,
+  kidsListSnapshots,
 } from "../lib/kids_store.mjs";
 import {
   KIDS_PIPELINE_STAGES,
@@ -243,6 +254,14 @@ import {
   KIDS_LIBRARY_CATEGORIES,
   buildKidsVoiceMap,
 } from "../lib/kids_pipeline.mjs";
+import { buildUnifiedTimeline, validateUnifiedTimeline } from "../lib/studio_engines.mjs";
+import { buildDurationPacingBlueprint } from "../lib/durationPacing.mjs";
+import {
+  resolveProductionMode,
+  canRunDirector,
+  buildDirectorInputSnapshot,
+  isSnapshotStale,
+} from "../lib/production_modes.mjs";
 import {
   DOC_STATUSES,  validateDocBrief,
   normalizeDocCharacter,
@@ -845,6 +864,28 @@ try {
       try { kidsDb.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`); }
       catch (e) { console.warn(`[kids] sqlite migration ${table}.${name} failed:`, e.message); }
     }
+  }
+  // Seed the configurable option lists (age groups, categories, languages,
+  // platforms, resolutions, visual styles) at startup so the UI always has
+  // defaults even when the Postgres Sanskriti_kids database is unreachable.
+  // This mirrors what kidsInit() does for the PG branch, but uses SQLite
+  // prepared statements so it works independently of the PG connection.
+  try {
+    for (const key of KIDS_OPTION_KEYS) {
+      const defaults = KIDS_DEFAULT_OPTIONS[key] || [];
+      // Check if options already exist (idempotent on restart).
+      const existingRows = kidsDb.prepare(
+        "SELECT option_key, option_value FROM kids_options WHERE option_key = ?").all(key);
+      if (existingRows.length > 0) continue; // already seeded
+      let order = 0;
+      for (const value of defaults) {
+        kidsDb.prepare(
+          "INSERT INTO kids_options (option_key, option_value, sort_order) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
+          .run(key, String(value).trim(), order++);
+      }
+    }
+  } catch (e) {
+    console.warn("[kids] option seeding failed:", e.message);
   }
 } catch (e) {
   console.warn("[kids] sqlite fallback unavailable:", e.message);
@@ -2894,6 +2935,22 @@ async function llmChatJson({ system, user, maxTokens = 8000, temperature = 0.7, 
   }
 }
 
+// The studio is Hindi / English / Hinglish ONLY. Some chat models default to
+// Chinese when the prompt does not pin the language, so every director JSON
+// payload is scanned for CJK / kana / hangul before it is saved. A leak
+// fails honestly (with the offending field paths) instead of persisting
+// Chinese text into the board — retrying usually returns the correct language
+// now that every prompt carries an explicit OUTPUT LANGUAGE rule.
+function assertNoCJK(value, what = "the model response") {
+  const hits = findCJKViolations(value, "", 5);
+  if (hits.length) {
+    throw new Error(
+      `${what} came back in Chinese/Japanese/Korean (fields: ${hits.join(", ")}) — ` +
+      `the studio supports Hindi, English and Hinglish only. Try again; the prompt now pins the output language explicitly.`
+    );
+  }
+}
+
 async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 0.5, timeoutMs = REQUEST_TIMEOUT_MS, rawTag = null, liveId = null, tag = "director" }) {
   const base = (process.env.LLM_BASE || "").replace(/\/+$/, "");
   if (!base) throw new Error("LLM_BASE not set — the director needs the local LLM (LM Studio / llama-server).");
@@ -3028,6 +3085,7 @@ const RESOURCES = path.join(ROOT, "resources");
 const RES_META = path.join(RESOURCES, "meta.json");
 const WHISPERX_UPLOADS = path.join(DATA_DIR, "whisperx-uploads");
 const WHISPERX_JOBS = path.join(DATA_DIR, "whisperx-jobs");
+const WAV_ANALYSIS_DIR = path.join(ROOT, "WavAnalysis");
 fs.mkdirSync(WHISPERX_UPLOADS, { recursive: true });
 fs.mkdirSync(WHISPERX_JOBS, { recursive: true });
 // AI Story Director boards (file-persisted JSON, one per story — resumable,
@@ -3078,6 +3136,39 @@ const runCmdStream = (cmd, args, { timeoutMs = 600000, onStderr } = {}) => new P
 
 const whisperxJobs = new Map(); // jobId -> { proc, boardId, cancelled, ... }
 
+// WhisperX owns the same GPU the render queue uses. Two large-v2 jobs at once
+// starve VRAM and look like "analysis failed" to the user, so only ONE may run.
+// In-memory jobs are the authority here: a job is active from creation until
+// its close/error handler clears it (the brief window before `proc` is set is
+// still active — checking `proc` used to let a second click through).
+const whisperxActiveJob = () => [...whisperxJobs.values()].find((j) =>
+  (j.status === "pending" || j.status === "running") && !j.cancelled);
+
+// A server restart kills the spawned python but leaves job.json saying
+// "running". Recover those honestly instead of polling a dead job forever.
+for (const name of fs.readdirSync(WHISPERX_JOBS)) {
+  const file = path.join(WHISPERX_JOBS, name, "job.json");
+  if (!fs.existsSync(file)) continue;
+  try {
+    const j = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (j.status === "pending" || j.status === "running") {
+      j.status = "failed";
+      j.error = "server restarted while this WhisperX job was running — run the analysis again";
+      j.proc = undefined;
+      fs.writeFileSync(file, JSON.stringify(j, null, 2));
+    }
+  } catch { /* a corrupt job.json is never a reason to fail boot */ }
+}
+
+const whisperxConfig = () => ({
+  python: process.env.WHISPERX_PYTHON || process.env.PYTHON || "python",
+  whisperxCmd: process.env.WHISPERX_CMD || null,
+  model: process.env.WHISPERX_MODEL || "large-v2",
+  device: process.env.WHISPERX_DEVICE || "cuda",
+  batchSize: process.env.WHISPERX_BATCH_SIZE || "16",
+  computeType: process.env.WHISPERX_COMPUTE_TYPE || "float16",
+});
+
 const whisperxPreflightCheck = async () => {
   const checks = {};
   const python = process.env.WHISPERX_PYTHON || process.env.PYTHON || "python";
@@ -3103,7 +3194,9 @@ const whisperxPreflightCheck = async () => {
   }
   checks.writable = { ok: fs.existsSync(WHISPERX_UPLOADS) && fs.existsSync(WHISPERX_JOBS), message: "ok" };
   const ok = checks.python?.ok && checks.whisperx?.ok && checks.ffmpeg?.ok && checks.writable?.ok;
-  return { ok, checks };
+  // Report WHICH interpreter is used — the dedicated venv (C:\WhisperX-env by
+  // default via .env) is the common source of confusion when a job misbehaves.
+  return { ok, checks, config: whisperxConfig() };
 };
 
 async function videoDurationSec(full) {
@@ -3255,8 +3348,8 @@ async function analyzeSongAudio(body = {}) {
   try {
     const raw = await llmChatJson({
       system: audioMode === "story"
-        ? `Analyze uploaded spoken narration/dialogue for a children's story video. Reply JSON only. Use transcript and measured facts provided: infer narration delivery, emotional tone, pauses and broad story-audio sections; do not invent words or measurements and do not impose music/beat-cut rules. Return mood, structure, narrationStyle, visualStyle, educationalFocus and 2-6 segments (start/end seconds, label, mood, action) covering 0-${durationSeconds}s.`
-        : `You analyze children's songs for AI video generation. Reply with JSON only. Given title, lyrics, duration, genre/language and measured audio features, infer mood, likely narrative/song style and visual recommendations. Do not claim audio measurements. When measured beat times exist, use them as anchors and return 2-6 broad musical sections with approximate boundaries; do not claim verse/chorus as certain without lyric evidence. Return mood, structure, narrationStyle, visualStyle, educationalFocus and segments (start/end seconds, label, mood, action). Segment times must cover 0-${durationSeconds}s.`,
+        ? `Analyze uploaded spoken narration/dialogue for a children's story video. Reply JSON only. Use transcript and measured facts provided: infer narration delivery, emotional tone, pauses and broad story-audio sections; do not invent words or measurements and do not impose music/beat-cut rules. Return mood, structure, narrationStyle, visualStyle, educationalFocus and 2-6 segments (start/end seconds, label, mood, action) covering 0-${durationSeconds}s. Write everything in English. NEVER write Chinese, Japanese or Korean.`
+        : `You analyze children's songs for AI video generation. Reply with JSON only. Given title, lyrics, duration, genre/language and measured audio features, infer mood, likely narrative/song style and visual recommendations. Do not claim audio measurements. When measured beat times exist, use them as anchors and return 2-6 broad musical sections with approximate boundaries; do not claim verse/chorus as certain without lyric evidence. Return mood, structure, narrationStyle, visualStyle, educationalFocus and segments (start/end seconds, label, mood, action). Segment times must cover 0-${durationSeconds}s. Write everything in English. NEVER write Chinese, Japanese or Korean.`,
       user: JSON.stringify({
         title,
         lyrics: hasLyrics ? lyrics.slice(0, 4000) : "(no lyrics — instrumental)",
@@ -3370,6 +3463,11 @@ async function enrichSemanticsWithModel(lines, { language = "auto", bible = null
       liveId: null,
       tag: "semantics",
     });
+    try {
+      assertNoCJK(raw, "the semantic analysis");
+    } catch (e) {
+      return { rows: [], source: "offline", warning: `${e.message} — the deterministic analysis is used` };
+    }
     const merged = mergeModelSemantics(raw, src, { language, genre });
     if (!Array.isArray(merged) || merged.length !== src.length) {
       return { rows: [], source: "malformed", warning: "the model returned an unexpected number of lines — the deterministic analysis is used" };
@@ -3664,6 +3762,7 @@ async function syncLibraryFromStory(store, db, project, story) {
       liveId: null,
       tag: "kids_story",
     });
+    assertNoCJK(raw, "the kids story");
     story = normalizeKidsStory(raw);
   } catch (e) {
     throw kidsFail(`the story could not be written: ${String(e.message || e).slice(0, 300)}`, 502);
@@ -6390,6 +6489,81 @@ const server = http.createServer(async (req, res) => {
       const lines = boardLyricLines(board);
       return lines.length ? lines : parseLyricLines((board.input && board.input.story) || "");
     };
+    const wavAnalysisSlug = (board) => configSlug(
+      board.wav_analysis_project_slug || board.scenarioName || board.input?.title || board.id || "project",
+    ) || "project";
+    const srtTime = (seconds) => {
+      const ms = Math.max(0, Math.round((Number(seconds) || 0) * 1000));
+      const hh = String(Math.floor(ms / 3600000)).padStart(2, "0");
+      const mm = String(Math.floor(ms / 60000) % 60).padStart(2, "0");
+      const ss = String(Math.floor(ms / 1000) % 60).padStart(2, "0");
+      return `${hh}:${mm}:${ss},${String(ms % 1000).padStart(3, "0")}`;
+    };
+    const vttTime = (seconds) => srtTime(seconds).replace(",", ".");
+    const timelineSrt = (rows, textOf) => arr(rows).filter((r) => Number.isFinite(Number(r.start_seconds)) && Number.isFinite(Number(r.end_seconds)) && Number(r.end_seconds) > Number(r.start_seconds))
+      .map((r, i) => `${i + 1}\n${srtTime(r.start_seconds)} --> ${srtTime(r.end_seconds)}\n${textOf(r) || ""}`).join("\n\n") + "\n";
+    const persistWavAnalysis = (board, rawWhisper = null) => {
+      const timeline = board.lyric_timeline;
+      if (!timeline?.whisper?.segments?.length) return null;
+      const slug = wavAnalysisSlug(board);
+      board.wav_analysis_project_slug ||= slug;
+      timeline.analysis_id ||= `analysis_${String(timeline.imported_at || Date.now()).replace(/[^a-zA-Z0-9]/g, "")}`;
+      const root = path.join(WAV_ANALYSIS_DIR, slug);
+      const run = path.join(root, "runs", configSlug(timeline.analysis_id) || "analysis");
+      fs.mkdirSync(run, { recursive: true });
+      const whisperData = rawWhisper && typeof rawWhisper === "object" ? rawWhisper : timeline.whisper;
+      const transcriptSegments = arr(whisperData?.segments).filter((s) => typeof (s.text || "") === "string").map((s) => ({
+        start_seconds: Number(s.start_seconds ?? s.start), end_seconds: Number(s.end_seconds ?? s.end), text: String(s.text || "").trim(),
+      })).filter((s) => Number.isFinite(s.start_seconds) && Number.isFinite(s.end_seconds) && s.end_seconds > s.start_seconds);
+      const whisperSrt = timelineSrt(transcriptSegments, (s) => s.text);
+      const whisperVtt = "WEBVTT\n\n" + transcriptSegments.map((s, i) => `${i + 1}\n${vttTime(s.start_seconds)} --> ${vttTime(s.end_seconds)}\n${s.text}`).join("\n\n") + "\n";
+      const whisperTsv = ["start\tend\ttext", ...transcriptSegments.map((s) => `${Math.round(s.start_seconds * 1000)}\t${Math.round(s.end_seconds * 1000)}\t${s.text.replace(/[\r\n\t]+/g, " ")}`)].join("\n") + "\n";
+      let directorSegments = null;
+      try { directorSegments = splitWhisperTranscript({ segments: timeline.whisper.segments }); } catch { /* transcript artifact remains available */ }
+      const lyricJson = { board_id: board.id, project_slug: slug, analysis_id: timeline.analysis_id, timeline, master: timeline.master || null };
+      const masterRows = arr(timeline.master?.segments);
+      const artifacts = {
+        "whisperx.json": JSON.stringify(whisperData, null, 2),
+        "whisperx_raw.json": JSON.stringify(whisperData, null, 2),
+        "whisperx.srt": whisperSrt,
+        "whisperx.tsv": whisperTsv,
+        "whisperx.txt": transcriptSegments.map((s) => s.text).join("\n") + "\n",
+        "whisperx.vtt": whisperVtt,
+        "original_lyrics_alignment.json": JSON.stringify(lyricJson, null, 2),
+        "original_lyrics_alignment.srt": timelineSrt(timeline.lines, (l) => l.lyric_text),
+        "master_timeline.json": JSON.stringify({ board_id: board.id, project_slug: slug, analysis_id: timeline.analysis_id, master: timeline.master || null }, null, 2),
+        "master_timeline.srt": timelineSrt(masterRows, (s) => s.lyric_text || `[${s.type || "instrumental"}]`),
+      };
+      if (directorSegments) {
+        artifacts["director_segments.json"] = JSON.stringify(directorSegments, null, 2);
+        artifacts["director_segments.srt"] = directorSegmentsToSrt(directorSegments.segments);
+      }
+      const manifest = {
+        board_id: board.id, project_slug: slug, project_name: board.scenarioName || board.input?.title || board.id,
+        analysis_id: timeline.analysis_id, exported_at: new Date().toISOString(), duration_seconds: timeline.duration_seconds,
+        audio_file: board.input?.whisperxAudio?.fileName || board.input?.sourceAudio?.fileName || null,
+        artifacts: [...Object.keys(artifacts), "analysis_manifest.json"],
+      };
+      artifacts["analysis_manifest.json"] = JSON.stringify(manifest, null, 2);
+      for (const [name, content] of Object.entries(artifacts)) {
+        for (const folder of [root, run]) {
+          const target = path.join(folder, name);
+          const temp = `${target}.${process.pid}.tmp`;
+          fs.writeFileSync(temp, content, "utf8");
+          fs.renameSync(temp, target);
+        }
+      }
+      const audio = board.input?.whisperxAudio;
+      if (audio?.file) {
+        const source = path.join(WHISPERX_UPLOADS, path.basename(audio.file));
+        if (fs.existsSync(source)) {
+          const ext = path.extname(source) || ".wav";
+          const target = path.join(run, `source_audio${ext}`);
+          if (!fs.existsSync(target)) fs.copyFileSync(source, target);
+        }
+      }
+      return { folder: path.relative(ROOT, root).replace(/\\/g, "/"), run_folder: path.relative(ROOT, run).replace(/\\/g, "/"), artifacts: manifest.artifacts };
+    };
     // A stored lyric timeline is STALE when the board's current lines no longer
     // match it (the story was edited/rewritten after the import): the measured
     // windows no longer belong to these lines, so the planner falls back to the
@@ -6404,6 +6578,94 @@ const server = http.createServer(async (req, res) => {
       const have = new Set(stored);
       return current.some((id) => !have.has(id));
     };
+    // Ask the configured local model to match uncertain lyric lines to spans
+    // in measured WhisperX words. It can cite word indices only; the server
+    // derives timestamps and never accepts replacement lyric text.
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/lyric-timeline\/ai-correct$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const timeline = board.lyric_timeline;
+      if (!timeline?.lines?.length || !timeline?.whisper?.segments?.length) return json(res, 409, { error: "analyze audio with WhisperX before running AI correction" });
+      if (lyricTimelineStale(board, timeline)) return json(res, 409, { error: "the board lyrics changed after this audio analysis — re-import WhisperX before auto-correcting" });
+      if (timeline.master?.approved) return json(res, 409, { error: "unlock the approved master timeline before AI correction" });
+      const words = arr(timeline.whisper.segments).flatMap((s) => arr(s.words)).sort((a, b) => Number(a.start_seconds) - Number(b.start_seconds))
+        .map((w, word_index) => ({ word_index, word: String(w.word || ""), start_seconds: Number(w.start_seconds), end_seconds: Number(w.end_seconds), confidence: Number.isFinite(Number(w.confidence)) ? Number(w.confidence) : null }));
+      if (!words.length) return json(res, 409, { error: "WhisperX has no word-level timings; AI correction needs word timings" });
+      const targets = arr(timeline.lines).filter((l) => !l.manual && l.timing !== "manual" && (l.start_seconds == null || l.timing !== "measured" || l.low_confidence || Number(l.match_score) < 0.62));
+      if (!targets.length) return json(res, 200, { board_id: id, corrected: 0, needs_review: [], message: "all lyric lines already have confident measured timing", timeline });
+      const proposals = await llmChatJson({
+        system: "Align user-provided lyric lines to the existing WhisperX transcript. Return JSON only: {\"matches\":[{\"line_id\":number,\"start_word\":number,\"end_word\":number,\"confidence\":number}]}. Indices refer to the supplied words array. Select only a contiguous span in audio order that corresponds to the complete lyric line. Omit uncertain lines. Never invent indices, timestamps, words, or modify lyrics. Repeated lines use distinct occurrences in chronological order.",
+        user: JSON.stringify({ lyrics: targets.map((l) => ({ line_id: l.line_id, occurrence: l.occurrence, lyric_text: l.lyric_text })), words }),
+        maxTokens: Math.min(8000, Math.max(1200, targets.length * 100)), temperature: 0, rawTag: id + "_lyric_ai_correct_raw.log",
+      });
+      const matches = arr(proposals?.matches);
+      const targetById = new Map(targets.map((l) => [Number(l.line_id), l]));
+      const targetIds = new Set(targets.map((l) => Number(l.line_id)));
+      const token = (v) => String(v || "").normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+      const lyricTokens = (v) => String(v || "").split(/\s+/).map(token).filter(Boolean);
+      const equivalent = (a, b) => a === b || (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)));
+      const lockedWords = new Set();
+      for (const line of arr(timeline.lines)) if (!targetIds.has(Number(line.line_id)) && (line.timing === "measured" || line.timing === "manual")) {
+        for (const w of arr(line.words)) if (Number.isInteger(Number(w.word_index))) lockedWords.add(Number(w.word_index));
+      }
+      const accepted = [], needsReview = [], seen = new Set();
+      const matchById = new Map(matches.map((m) => [Number(m?.line_id), m]));
+      let priorAcceptedEnd = -1;
+      for (const line of targets) {
+        const m = matchById.get(Number(line.line_id));
+        if (!m) { needsReview.push({ line_id: line.line_id, occurrence: line.occurrence, reason: "AI found no safe transcript match" }); continue; }
+        const lineId = Number(m?.line_id), startWord = Number(m?.start_word), endWord = Number(m?.end_word);
+        if (seen.has(lineId)) continue;
+        seen.add(lineId);
+        const confidence = Number(m.confidence);
+        if (!Number.isInteger(startWord) || !Number.isInteger(endWord) || startWord < 0 || endWord < startWord || endWord >= words.length || !Number.isFinite(confidence) || confidence < 0.82) {
+          needsReview.push({ line_id: lineId, occurrence: line.occurrence, reason: "AI confidence or word span was not strong enough" }); continue;
+        }
+        const span = words.slice(startWord, endWord + 1), source = lyricTokens(line.lyric_text), heard = span.map((w) => token(w.word)).filter(Boolean);
+        const coverage = source.length ? source.filter((t) => heard.some((h) => equivalent(t, h))).length / source.length : 0;
+        const spanDuration = span.at(-1).end_seconds - span[0].start_seconds;
+        if (coverage < 0.75 || !(spanDuration > 0 && spanDuration <= 30) || span.some((w) => !Number.isFinite(w.start_seconds) || !Number.isFinite(w.end_seconds))) {
+          needsReview.push({ line_id: lineId, occurrence: line.occurrence, reason: "transcript words do not sufficiently cover the original lyric" }); continue;
+        }
+        const indexes = Array.from({ length: endWord - startWord + 1 }, (_, i) => startWord + i);
+        if (startWord <= priorAcceptedEnd || indexes.some((n) => lockedWords.has(n)) || accepted.some((a) => indexes.some((n) => n >= a.start_word && n <= a.end_word))) {
+          needsReview.push({ line_id: lineId, occurrence: line.occurrence, reason: "proposed words overlap another line's measured match" }); continue;
+        }
+        accepted.push({ line_id: lineId, start_seconds: span[0].start_seconds, end_seconds: span.at(-1).end_seconds, start_word: startWord, end_word: endWord, confidence, coverage });
+        priorAcceptedEnd = endWord;
+      }
+      if (accepted.length) {
+        const corrected = applyLyricCorrections(timeline, accepted);
+        const acceptedIds = new Set(accepted.map((a) => a.line_id));
+        corrected.lines = corrected.lines.map((l) => {
+          const match = accepted.find((a) => a.line_id === Number(l.line_id));
+          if (!match || !acceptedIds.has(Number(l.line_id))) return l;
+          const span = words.slice(match.start_word, match.end_word + 1);
+          return { ...l, words: span.map((w) => ({ word_index: w.word_index, word: w.word, start_seconds: w.start_seconds, end_seconds: w.end_seconds, confidence: w.confidence, timing: "measured" })), heard_text: span.map((w) => w.word).join(" "), match_score: match.coverage, timing: "measured", match: "whisperx", manual: false, ai_corrected: true, ai_match_confidence: match.confidence };
+        });
+        corrected.stats = { ...corrected.stats, measured: corrected.lines.filter((l) => l.timing === "measured").length, manual: corrected.lines.filter((l) => l.timing === "manual" || l.manual === true).length, estimated: corrected.lines.filter((l) => l.timing === "estimated").length };
+        corrected.validation = validateLyricTimeline(corrected, { duration: lyricTimelineDuration(board) });
+        corrected.actions = buildLyricActionTimeline(corrected.lines, (board.semantics && board.semantics.lines) || [], { scenes: board.scenes || [] });
+        corrected.scene_map = assignLyricLinesToScenes(corrected.lines, board.scenes || []);
+        const input = board.input || {};
+        const master = buildMasterTimeline({
+          lyricTimeline: corrected,
+          vocalActivity: corrected.vocal_activity || input.whisperxAudio?.activity || null,
+          duration: lyricTimelineDuration(board),
+          characters: arr(board.blueprint?.characters),
+          style: [input.visualStyle, input.artStyle, input.style].filter((v) => typeof v === "string" && v.trim()),
+          semantics: (board.semantics && board.semantics.lines) || [],
+          previous: corrected.master || null,
+        });
+        if (master) { master.approved = false; master.corrections = arr(timeline.master?.corrections); corrected.master = master; }
+        board.lyric_timeline = corrected;
+        const exportInfo = persistWavAnalysis(board);
+        writeDirectorBoard(board);
+        return json(res, 200, { board_id: id, corrected: accepted.length, auto_corrected: accepted, needs_review: needsReview, timeline: board.lyric_timeline, export: exportInfo });
+      }
+      return json(res, 200, { board_id: id, corrected: 0, auto_corrected: [], needs_review: needsReview, timeline, message: "no suggestions passed the evidence checks" });
+    }
+
     // ---- Master timeline (audio-aligned chronological segments) -----------
     // DERIVED from the stored lyric timeline + the board's current cast and
     // meaning layer, so it can never drift from them; the stored `master`
@@ -6442,6 +6704,7 @@ const server = http.createServer(async (req, res) => {
       // The corrections list lives on the stored object so every later rebuild
       // (GET) re-applies it — the derivation itself stays pure.
       board.lyric_timeline.master = view;
+      persistWavAnalysis(board);
       writeDirectorBoard(board);
       return view;
     };
@@ -6584,6 +6847,7 @@ const server = http.createServer(async (req, res) => {
         // preset/custom text). 20000 chars: the sectioned Song Director
         // directive is ~12k and must reach the model complete.
         masterPrompt: String(b.masterPrompt || "").trim().slice(0, 20000),
+        directorTemplate: b.directorTemplate === "mahadev_devotional" ? "mahadev_devotional" : "standard",
         targetSeconds,
         sceneSeconds,
         aspectRatio,
@@ -6638,7 +6902,6 @@ const server = http.createServer(async (req, res) => {
       if (!ext) return json(res, 400, { error: `unsupported audio type ${mime} — upload mp3 or wav` });
       const buf = Buffer.from(m[2], "base64");
       if (!buf.length) return json(res, 400, { error: "empty file" });
-      if (buf.length > 100 * 1024 * 1024) return json(res, 400, { error: "song over 100MB — trim it and re-upload" });
       const file = `song_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}${ext}`;
       fs.mkdirSync(DIRECTOR, { recursive: true });
       fs.writeFileSync(path.join(DIRECTOR, file), buf);
@@ -6835,6 +7098,7 @@ const server = http.createServer(async (req, res) => {
       } finally {
         if (liveId) liveEnd(liveId);
       }
+      assertNoCJK(raw, "the director bible");
       const blueprint = normalizeBlueprint(raw);
       if (!blueprint.characters.length && !blueprint.beats.length)
         throw new Error("director returned an empty blueprint — try again");
@@ -7573,12 +7837,14 @@ const server = http.createServer(async (req, res) => {
       if (!timeline.whisper.stats.segments) {
         return json(res, 400, { error: "the WhisperX payload has no usable segments", warnings: timeline.warnings });
       }
+      timeline.analysis_id = "import_" + Date.now().toString(36) + "_" + crypto.randomUUID().slice(0, 8);
       board.lyric_timeline = timeline;
       // The master timeline: derived rows + the vocal-activity source it used.
       try {
         const master = masterViewForBoard(board, timeline);
         if (master) board.lyric_timeline.master = master;
       } catch (e) { console.warn("[master-timeline] derive failed:", e.message); }
+      const exportInfo = persistWavAnalysis(board, payload);
       const saved = writeDirectorBoard(board);
       return json(res, 200, {
         board_id: id,
@@ -7587,6 +7853,7 @@ const server = http.createServer(async (req, res) => {
         stale: lyricTimelineStale(saved, saved.lyric_timeline),
         validation: saved.lyric_timeline.validation,
         warnings: saved.lyric_timeline.warnings,
+        export: exportInfo,
       });
     }
     if ((p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline$/) || p.match(/^\/api\/director\/boards\/[^/]+\/lyric-timeline$/)) && req.method === "PUT") {
@@ -7652,6 +7919,7 @@ const server = http.createServer(async (req, res) => {
       } else {
         board.lyric_timeline = timeline;
       }
+      persistWavAnalysis(board);
       const saved = writeDirectorBoard(board);
       return json(res, 200, {
         board_id: id,
@@ -7775,7 +8043,6 @@ const server = http.createServer(async (req, res) => {
       if (!ext) return json(res, 400, { error: `unsupported audio type ${mime} — upload mp3 or wav` });
       const buf = Buffer.from(m[2], "base64");
       if (!buf.length) return json(res, 400, { error: "empty file" });
-      if (buf.length > 100 * 1024 * 1024) return json(res, 400, { error: "audio over 100MB — trim it and re-upload" });
       // validate WAV if wav
       if (ext === ".wav") {
         // basic RIFF/WAVE check
@@ -7800,6 +8067,22 @@ const server = http.createServer(async (req, res) => {
         durationSeconds: Math.round(durationSeconds * 1000) / 1000,
         uploadedAt: new Date().toISOString(),
       };
+      // The same source audio is also the final soundtrack for Story/Song.
+      // Keep the WhisperX working copy in its own directory and a safe handle
+      // in director/ so the shared scenario renderer can mux it at final stitch.
+      fs.mkdirSync(DIRECTOR, { recursive: true });
+      const soundtrackFile = `wx_master_${crypto.randomUUID().replace(/-/g, "")}${ext}`;
+      fs.copyFileSync(full, path.join(DIRECTOR, soundtrackFile));
+      board.input.sourceAudio = {
+        file: soundtrackFile,
+        fileName: String(body.fileName || "audio").slice(0, 120),
+        durationSeconds: Math.round(durationSeconds * 1000) / 1000,
+      };
+      // A new recording invalidates any previous alignment and becomes the
+      // timing target for the storyboard that will be planned from it.
+      delete board.lyric_timeline;
+      board.input.targetSeconds = Math.max(0.001, Math.min(3600, durationSeconds));
+      board.sceneCount = Math.max(board.scenes?.length || 0, sceneCountFor(board.input.targetSeconds, board.input.sceneSeconds));
       writeDirectorBoard(board);
       return json(res, 200, {
         file,
@@ -7807,6 +8090,7 @@ const server = http.createServer(async (req, res) => {
         durationSeconds: Math.round(durationSeconds * 1000) / 1000,
         sizeBytes: buf.length,
         valid: true,
+        soundtrackAttached: true,
       });
     }
 
@@ -7819,6 +8103,22 @@ const server = http.createServer(async (req, res) => {
       if (!audio || !audio.file) return json(res, 400, { error: "upload audio first" });
       const audioPath = path.join(WHISPERX_UPLOADS, audio.file);
       if (!fs.existsSync(audioPath)) return json(res, 400, { error: "audio file missing" });
+      const active = whisperxActiveJob();
+      if (active && active.boardId === id) {
+        // Idempotent: a second Analyze click ATTACHES to the job already
+        // transcribing this board instead of spawning a competing process
+        // (which used to surface as a bare HTTP 409 in the browser console).
+        return json(res, 200, {
+          jobId: active.id,
+          status: active.status,
+          alreadyRunning: true,
+          stage: active.stage || "queued",
+        });
+      }
+      if (active) return json(res, 409, {
+        error: `WhisperX analysis already running on another board (job ${active.id}, ${active.stage || "queued"}) — wait for it to finish or cancel it first.`,
+        jobId: active.id,
+      });
       const jobId = `wx_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
       const jobDir = path.join(WHISPERX_JOBS, jobId);
       fs.mkdirSync(jobDir, { recursive: true });
@@ -7878,13 +8178,31 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Windows 'charmap'
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")  # our own [wx] lines replace hf's bar spam
 import warnings
-warnings.filterwarnings("ignore", message="torchcodec is not installed correctly")   # pyannote's optional decoder — whisperx decodes via av
+# pyannote's optional torchcodec decoder is NOT used here: WhisperX decodes via
+# ffmpeg and VAD gets a preloaded waveform. Its missing native DLLs are noise.
+warnings.filterwarnings("ignore", category=UserWarning, module="pyannote.audio.core.io")
+warnings.filterwarnings("ignore", category=UserWarning, module="lightning")
 warnings.filterwarnings("ignore", message="TensorFloat-32")
 warnings.filterwarnings("ignore", message="Xet Storage is enabled")
 warnings.filterwarnings("ignore", message=".*cache-system uses symlinks")
 def say(msg):
   # flushed immediately so the node-side job log streams it live to the UI
   print(msg, flush=True)
+def transcribe_batched(model, audio, batch_size, lang):
+  # A big batch can exhaust VRAM on the shared GPU. Halve it on an OOM instead
+  # of failing the whole analysis — the audio clock/timings stay identical.
+  bs = max(1, int(batch_size))
+  while True:
+    try:
+      return model.transcribe(audio, batch_size=bs, language=None if lang == 'auto' else lang)
+    except Exception as e:
+      msg = str(e).lower()
+      retryable = ('out of memory' in msg or 'alloc_failed' in msg
+                   or 'cuda error' in msg or 'bad_alloc' in msg)
+      if not retryable or bs <= 1:
+        raise
+      say('[wx] batch %d hit a memory error — retrying at batch %d' % (bs, max(1, bs // 2)))
+      bs = max(1, bs // 2)
 def prefetch_progress(model_name, say):
   # Best-effort PRE-DOWNLOAD of the model with live progress lines: hf_hub's
   # own tqdm bars are disabled on non-TTY pipes, so a first-run download
@@ -7941,7 +8259,7 @@ try:
   say("[wx] decoding audio ...")
   audio_loaded=whisperx.load_audio(audio)
   say("[wx] transcribing (batch "+str(batch_size)+") ...")
-  res=model.transcribe(audio_loaded,batch_size=batch_size,language=None if lang=='auto' else lang)
+  res=transcribe_batched(model,audio_loaded,batch_size,lang)
   segs=list(res.get("segments") or [])
   say("[wx] transcript: "+str(len(segs))+" segments")
   for s in segs:
@@ -7974,7 +8292,10 @@ try:
     json.dump(res,f,ensure_ascii=False)
   say("done")
 except Exception as e:
-  print('ERR',e)
+  import traceback
+  lines = traceback.format_exc().strip().splitlines()
+  reason = lines[-1] if lines else str(e)
+  print('ERR %s: %s' % (type(e).__name__, reason[:400]), flush=True)
   sys.exit(1)
 `;
           }
@@ -7985,6 +8306,15 @@ except Exception as e:
             : ["-c", script, audioPath, model, device, batchSize, computeType, jobDir, language];
           const proc = spawn(whisperxCmd || python, spawnArgs, { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
           job.proc = proc;
+          // A wrong WHISPERX_PYTHON path emits 'error' (ENOENT). Without this
+          // listener Node treats it as unhandled and the whole API dies — the
+          // HTTP 500 the UI showed. Fail the JOB honestly instead.
+          proc.on("error", (e) => {
+            job.status = "failed";
+            job.error = `WhisperX could not start: ${e.message} (interpreter: ${whisperxCmd || python})`;
+            job.proc = null;
+            try { fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2)); } catch {}
+          });
           let out = "", err = "";
           // Rolling process log (stdout + stderr) streamed live to the status
           // poll — the UI renders it under the analyzing progress bar.
@@ -8004,6 +8334,7 @@ except Exception as e:
           proc.stderr.on("data", (d) => { err += d.toString(); appendLog(d); job.message = err.slice(-200); });
           proc.on("close", async (code) => {
             job.proc = null;
+            if (job.status === "failed") return; // spawn 'error' already reported it
             if (job.cancelled) {
               job.status = "cancelled";
               fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
@@ -8011,16 +8342,23 @@ except Exception as e:
             }
             if (code !== 0) {
               job.status = "failed";
-              // Prefer the script's own "ERR <reason>" line — the stderr tail is
-              // usually just warnings (TF32 / torchcodec noise), not the failure.
-              const errLine = (out + "\n" + err).split(/\r?\n/).filter((l) => l.startsWith("ERR ")).pop();
-              job.error = (errLine || err.slice(-500) || "WhisperX failed").slice(0, 500);
+              // Prefer the script's own "ERR <reason>" line; otherwise the last
+              // real exception line. A stderr tail of warnings is NOT a reason.
+              const lines = (out + "\n" + err).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+              const errLine = lines.filter((l) => l.startsWith("ERR ")).pop()
+                || lines.filter((l) => /^(RuntimeError|OutOfMemoryError|AssertionError|CUDA|ValueError|KeyError|TypeError|ModuleNotFoundError|OSError|subprocess\.CalledProcessError|torch\.)/.test(l)).pop();
+              job.error = (errLine || err.slice(-500) || `WhisperX exited ${code}`).slice(0, 500);
               fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
               return;
             }
             try {
               job.stage = "importing";
               job.progress = 95;
+              if (!fs.existsSync(outJson)) {
+                const cliJson = fs.readdirSync(jobDir).filter((name) => name.toLowerCase().endsWith(".json") && name !== "job.json").sort()[0];
+                if (cliJson) fs.copyFileSync(path.join(jobDir, cliJson), outJson);
+              }
+              if (!fs.existsSync(outJson)) throw new Error("WhisperX completed but did not produce a JSON transcript");
               const result = JSON.parse(fs.readFileSync(outJson, "utf8"));
               // import into board
               const lines = lyricTimelineSourceLines(board);
@@ -8035,6 +8373,7 @@ except Exception as e:
                 scenes: board.scenes || [],
                 previous: board.lyric_timeline || null,
               });
+              timeline.analysis_id = jobId;
               // Vocal activity: the WhisperX VAD pass when the script emitted
               // it, else the honest node-side energy/silence estimate decoded
               // locally (never derived from the transcript words).
@@ -8054,6 +8393,7 @@ except Exception as e:
                 const master = masterViewForBoard(board, timeline);
                 if (master) board.lyric_timeline.master = master;
               } catch (e) { console.warn("[master-timeline] derive failed:", e.message); }
+              job.export = persistWavAnalysis(board, result);
               writeDirectorBoard(board);
               job.status = "succeeded";
               job.progress = 100;
@@ -8100,6 +8440,7 @@ except Exception as e:
         log: job.log || null,
         error: job.error,
         timeline: job.timeline,
+        export: job.export || null,
       });
     }
 
@@ -8294,6 +8635,7 @@ except Exception as e:
         system: DIRECTOR_SYSTEM, user, maxTokens: 6000, temperature: 0.5,
         rawTag: `_raw_${id}_repair.log`,
       });
+      assertNoCJK(raw, "the repaired scenes");
       const fixed = (Array.isArray(raw.scenes) ? raw.scenes : []).map((s, i) => {
         const num = Number(s && s.scene_number) || targets[i] || 0;
         const normed = normalizeScene(s, num || 1, board.input && board.input.sceneSeconds);
@@ -8481,6 +8823,7 @@ except Exception as e:
             tag: `story_scenes_${done + 1}`,
           });
           batchComplete = raw && raw.complete === true;
+          assertNoCJK(raw, "the scene plan");
           break;
         } catch (e) {
           const msg = String((e && e.message) || "");
@@ -8535,6 +8878,7 @@ except Exception as e:
         }
         const got = Array.isArray(raw.scenes) ? raw.scenes : (Array.isArray(raw) ? raw : []);
         if (!got.length) throw new Error("director returned no scenes — try again");
+        assertNoCJK(got, "the scene plan");
       // Dedupe guard: the LLM sometimes repeats an earlier line verbatim
       // across batches. A repeated line carries no story value and is exactly
       // the "scene 1 copied to scene 45" report — drop the repeat so every
@@ -9395,6 +9739,7 @@ except Exception as e:
             timeoutMs: REQUEST_TIMEOUT_MS,
             rawTag: `_raw_${id}_kids_plan.log`,
           });
+          assertNoCJK(raw, "the kids Director Plan");
           plan = normalizeKidsDirectorPlan(raw);
         } catch (e) {
           await kidsUpsertJob(store, db, {
@@ -9853,6 +10198,138 @@ except Exception as e:
         });
       }
       // ============================================================
+      // Unified production (audio-driven + story-only) — additive routes.
+      // Original WAV metadata is the timing authority; timelines, blueprints
+      // and snapshots store references + versions, never a second audio clock.
+      // ============================================================
+      if (rest === "production-mode" && req.method === "GET") {
+        const audios = await kidsListAudioAssets(store, db, id);
+        const mode = resolveProductionMode({ audioAsset: audios[0] ? { durationSec: audios[0].duration_sec } : null });
+        return json(res, 200, { productionMode: mode, audioAsset: audios[0] || null });
+      }
+      if (rest === "audio-asset" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const durationSec = Number(body.duration_sec ?? body.durationSec ?? 0);
+        if (!(durationSec > 0)) return json(res, 400, { error: "audio-asset requires a positive duration_sec (original WAV authority)" });
+        const row = await kidsInsertAudioAsset(store, db, {
+          id: String(body.id || `audio-${id}-${Date.now().toString(36)}`),
+          project_id: id,
+          original_filename: String(body.original_filename || body.originalFilename || "original.wav"),
+          file_path: String(body.file_path || body.filePath || ""),
+          duration_sec: durationSec,
+          sample_rate_hz: Number(body.sample_rate_hz || 48000),
+          channels: Number(body.channels || 2),
+          metadata: { lyrics_version: body.lyrics_version || null, language: body.language || project.language || "" },
+        });
+        return json(res, 200, { audioAsset: row, productionMode: "audio_driven" });
+      }
+      if (rest === "audio-asset" && req.method === "GET") {
+        return json(res, 200, { assets: await kidsListAudioAssets(store, db, id) });
+      }
+      if (rest === "unified-timeline" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        let timeline;
+        try {
+          timeline = buildUnifiedTimeline({
+            productionId: id,
+            audioAsset: body.audioAsset || { durationSec: Number(project.duration_seconds || 60) },
+            frameRate: Number(body.frame_rate || 30),
+            musicSections: body.musicSections || [],
+            lyricLines: body.lyricLines || [],
+            speakerEvents: body.speakerEvents || [],
+            narrativeEvents: body.narrativeEvents || [],
+            characterAppearances: body.characterAppearances || [],
+            characterActions: body.characterActions || [],
+            emotions: body.emotions || [],
+            choreography: body.choreography || [],
+            cameraDirections: body.cameraDirections || [],
+            soundEffects: body.soundEffects || [],
+            transitions: body.transitions || [],
+            subtitles: body.subtitles || [],
+          });
+        } catch (e) { return json(res, 400, { error: String(e.message || e) }); }
+        const check = validateUnifiedTimeline(timeline);
+        if (check.errors.length) return json(res, 400, { error: check.errors[0], errors: check.errors, warnings: check.warnings });
+        const saved = await kidsSaveUnifiedTimeline(store, db, id, timeline);
+        return json(res, 200, { timeline: saved.timeline || timeline, record: saved, warnings: check.warnings });
+      }
+      if (rest === "unified-timeline" && req.method === "GET") {
+        return json(res, 200, { timelines: await kidsListTimelines(store, db, id) });
+      }
+      if (rest === "unified-timeline/approve" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const version = Number(body.version || 0);
+        if (!(version > 0)) return json(res, 400, { error: "version is required" });
+        const approved = await kidsApproveTimeline(store, db, id, version);
+        if (!approved) return json(res, 404, { error: "no such timeline version" });
+        return json(res, 200, { timeline: approved });
+      }
+      if (rest === "pacing-blueprint" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const timelines = await kidsListTimelines(store, db, id);
+        const latest = timelines.find((t) => t.status === "approved") || timelines[0] || null;
+        let blueprint;
+        try {
+          blueprint = buildDurationPacingBlueprint({
+            productionId: id,
+            productionMode: body.productionMode || (latest ? "audio_driven" : "story_only"),
+            audioDurationMs: body.audioDurationMs ?? (latest ? latest.master_duration_ms : undefined),
+            frameRate: Number(body.frame_rate || latest?.frame_rate || 30),
+            timeline: latest?.timeline || body.timeline || { tracks: {} },
+            narrativeEvents: body.narrativeEvents || [],
+            lyricLines: body.lyricLines || [],
+            userOverrideMs: body.userOverrideMs,
+          });
+        } catch (e) { return json(res, 400, { error: String(e.message || e) }); }
+        if (blueprint.validation.errors.length) {
+          return json(res, 400, { error: blueprint.validation.errors[0], errors: blueprint.validation.errors, blueprint });
+        }
+        const saved = await kidsSaveBlueprint(store, db, id, blueprint);
+        return json(res, 200, { blueprint, record: saved });
+      }
+      if (rest === "pacing-blueprint" && req.method === "GET") {
+        return json(res, 200, { blueprints: await kidsListBlueprints(store, db, id) });
+      }
+      if (rest === "pacing-blueprint/approve" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const version = Number(body.version || 0);
+        if (!(version > 0)) return json(res, 400, { error: "version is required" });
+        const approved = await kidsApproveBlueprint(store, db, id, version);
+        if (!approved) return json(res, 404, { error: "no such blueprint version" });
+        return json(res, 200, { blueprint: approved });
+      }
+      if (rest === "director-snapshot" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const snapshot = buildDirectorInputSnapshot({ productionId: id, ...body });
+        const saved = await kidsSaveSnapshot(store, db, id, snapshot);
+        return json(res, 200, { snapshot, record: saved });
+      }
+      if (rest === "director-snapshot" && req.method === "GET") {
+        const snaps = await kidsListSnapshots(store, db, id);
+        return json(res, 200, { snapshots: snaps });
+      }
+      if (rest === "director-gate" && req.method === "GET") {
+        const [audios, timelines, blueprints, snaps] = await Promise.all([
+          kidsListAudioAssets(store, db, id), kidsListTimelines(store, db, id), kidsListBlueprints(store, db, id), kidsListSnapshots(store, db, id),
+        ]);
+        const approvedTl = timelines.find((t) => t.status === "approved");
+        const approvedBp = blueprints.find((b) => b.approved === true || b.approved === 1);
+        const mode = approvedTl || approvedBp || audios[0]
+          ? "audio_driven"
+          : resolveProductionMode({});
+        const gate = canRunDirector({
+          productionMode: mode,
+          timelineApprovalStatus: approvedTl ? "approved" : "pending",
+          durationBlueprintApproved: Boolean(approvedBp),
+          directorInputSnapshotId: snaps[0]?.id || null,
+        });
+        let staleness = { stale: false, affected: [], reasons: [] };
+        if (snaps[0]?.snapshot && approvedTl) {
+          staleness = isSnapshotStale(snaps[0].snapshot, { masterTimelineVersion: approvedTl.version });
+        }
+        return json(res, 200, { gate, staleness, mode });
+      }
+      // ============================================================
       // AI Learning and Feedback
       // ============================================================
       if (rest === "feedback" && req.method === "GET") {
@@ -10229,6 +10706,7 @@ except Exception as e:
           maxTokens: 4000, temperature: 0.3, timeoutMs: REQUEST_TIMEOUT_MS,
           rawTag: `_raw_doc_${id}_analysis.log`,
         });
+        assertNoCJK(araw, "the documentary analysis");
         analysis = normalizeDocAnalysis(araw);
         analysis.source = "llm";
       } catch (e) {
@@ -10246,6 +10724,7 @@ except Exception as e:
           maxTokens: 16000, temperature: 0.7, timeoutMs: REQUEST_TIMEOUT_MS,
           rawTag: `_raw_doc_${id}_bible.log`,
         });
+        assertNoCJK(raw, "the documentary blueprint");
         blueprint = raw && typeof raw === "object" ? raw : null;
       } catch (e) {
         console.warn(`[documentary] bible LLM failed, heuristic fallback: ${e.message}`);
@@ -10289,6 +10768,7 @@ except Exception as e:
               maxTokens: 16000, temperature: 0.7, timeoutMs: REQUEST_TIMEOUT_MS,
               rawTag: `_raw_doc_${id}_ch${c.chapter_number}.log`,
             });
+            assertNoCJK(raw, "the documentary shot plan");
             const seqs = raw && Array.isArray(raw.sequences) ? raw.sequences : null;
             if (seqs && seqs.length) {
               c.sequences = seqs.map((q, i) => {
@@ -10830,7 +11310,7 @@ except Exception as e:
           const d = await llmPostChat(`${base}/v1/chat/completions`, {
             model: LLM_MODEL,
             messages: [
-              { role: "system", content: "You are an assistant film director for AI video generation. Reply with JSON only: {\"instructions\": \"<3-6 short imperative lines, newline-separated>\", \"reasoning\": \"<one short sentence>\"}. Suggest concrete visual-storytelling instructions tailored to the story (character consistency, mood, pacing, what to emphasize or avoid). Keep each line under 140 characters. Never repeat the story back." },
+              { role: "system", content: "You are an assistant film director for AI video generation. Reply with JSON only: {\"instructions\": \"<3-6 short imperative lines, newline-separated>\", \"reasoning\": \"<one short sentence>\"}. Suggest concrete visual-storytelling instructions tailored to the story (character consistency, mood, pacing, what to emphasize or avoid). Keep each line under 140 characters. Never repeat the story back. Write in English. NEVER write Chinese, Japanese or Korean." },
               {
                 role: "user",
                 content: JSON.stringify({

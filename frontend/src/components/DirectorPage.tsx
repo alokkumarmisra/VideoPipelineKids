@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   alertServiceError, directorAddEntry, directorAnalyze, directorAnalyzeLive, directorApprove, directorApproveStage, directorAssets, directorBiblePreview, directorBoard, directorBoards, directorCinematography, directorCoverage, directorDeleteBoard, directorOptimizePrompt,
   directorDuplicateBoard, directorLive, directorMotionAudio, directorPlan, directorPromptPreview, directorRegenEntry, directorRegenScene, directorRepair, directorScenes, directorSemantics, directorAnalyzeSemantics, directorShotPrompts, directorSongUrl, directorUpdateBoard, directorValidate, fmtRelative, saveScenario, suggestDirectorInstructions,
-  type DirectorAssetMap, type DirectorBoard, type DirectorBoardMeta, type DirectorCinematography, type DirectorCoverage, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorMotionAudio, type DirectorPlan, type DirectorPromptPreview, type DirectorScene, type DirectorShotPrompts, type DirectorShot, type DirectorValidation, type DirectorSemantics, type ImageMode,
+  uploadLyricAudio, startWhisperXAnalysis, getWhisperXJobStatus, directorMasterTimeline, approveMasterTimeline,
+  type DirectorAssetMap, type DirectorBoard, type DirectorBoardMeta, type DirectorCinematography, type DirectorCoverage, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorMotionAudio, type DirectorPlan, type DirectorPromptPreview, type DirectorScene, type DirectorShotPrompts, type DirectorShot, type DirectorValidation, type DirectorSemantics, type ImageMode, type MasterTimelineResponse,
 } from "../api";
 import { useDialog } from "./Dialog";
 import { IconCheck, IconClapper, IconFilm, IconFolder, IconPanel, IconRefresh, IconSparkles, IconTrash, Spinner } from "./Icons";
 import Collapse from "./Collapse";
+import AudioIntelligencePanel from "./AudioIntelligencePanel";
 import BatchSizeSelect, { SCENE_BATCH } from "./BatchSizeSelect";
 import DirectorGeneration from "./DirectorGeneration";
 import { useIdleFollow } from "./useIdleFollow";
@@ -615,6 +617,86 @@ const BOARD_STATUS: Record<string, { label: string; cls: string }> = {
   "approved-partial": { label: "Approved · partial", cls: "done" },
 };
 const boardStatusOf = (s: string) => BOARD_STATUS[s] ?? { label: s, cls: "" };
+// ----- Audio Intelligence: real .wav upload → WhisperX → 19-track timeline -----
+// The panel uploads the .wav to POST /api/director/boards/:id/audio-upload,
+// runs POST .../whisperx/analyze, polls the job, then reads the derived
+// master timeline from GET .../master-timeline. Every count below comes from
+// that real server response — never mocked.
+type TimelineTrackCounts = {
+  lyrics: number; word_timings: number; speaker_events: number;
+  narrative_events: number; character_appearances: number;
+  character_actions: number; emotions: number;
+  dialogue_performance: number; choreography: number;
+  camera_direction: number; scene_timeline: number;
+  shot_timeline: number; lip_sync: number; sound_effects: number;
+  video_assets: number; transitions: number; subtitles: number;
+  original_audio: number; music_structure: number;
+};
+const EMPTY_TRACK_COUNTS: TimelineTrackCounts = {
+  lyrics: 0, word_timings: 0, speaker_events: 0,
+  narrative_events: 0, character_appearances: 0,
+  character_actions: 0, emotions: 0,
+  dialogue_performance: 0, choreography: 0,
+  camera_direction: 0, scene_timeline: 0,
+  shot_timeline: 0, lip_sync: 0, sound_effects: 0,
+  video_assets: 0, transitions: 0, subtitles: 0,
+  original_audio: 0, music_structure: 0,
+};
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error("could not read audio file"));
+    r.onload = () => resolve(String(r.result || ""));
+    r.readAsDataURL(file);
+  });
+const sleep = (ms: number): Promise<void> =>
+  new Promise<void>((res) => { setTimeout(res, ms); });
+// Poll a WhisperX job until it succeeds; throw on failure/cancel/timeout.
+async function waitForWhisperXJob(boardId: string, jobId: string): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    await sleep(3000);
+    const st = await getWhisperXJobStatus(boardId, jobId);
+    if (st.status === "succeeded") return;
+    if (st.status === "failed" || st.status === "cancelled") {
+      throw new Error(st.error || st.message || `WhisperX analysis ${st.status}`);
+    }
+  }
+  throw new Error("WhisperX analysis timed out — check the server log and retry.");
+}
+// Per-track event counts derived from the REAL master-timeline response.
+// Tracks the server does not emit as separate events stay 0 (honest, not mocked).
+function deriveTrackCounts(mt: MasterTimelineResponse): TimelineTrackCounts {
+  const lines = mt.timeline?.lines || [];
+  const segments = mt.master?.segments || [];
+  const clips = mt.master?.clips || [];
+  const sceneMap = mt.timeline?.scene_map || [];
+  const wordCount = lines.reduce((n, l) => n + (l.words?.length || 0), 0);
+  const scenes = new Set(sceneMap.map((s) => s.scene_number).filter((n) => n != null));
+  const chars = new Set(segments.map((s) => s.character_id).filter(Boolean));
+  const vocalSegs = segments.filter((s) => s.type === "singing" || s.type === "dialogue" || s.type === "mixed");
+  return {
+    lyrics: lines.length,
+    word_timings: wordCount,
+    speaker_events: segments.filter((s) => s.speaker).length,
+    narrative_events: (mt.timeline?.actions || []).length,
+    character_appearances: chars.size,
+    character_actions: segments.filter((s) => s.action).length,
+    emotions: segments.filter((s) => s.expression).length,
+    dialogue_performance: vocalSegs.length,
+    choreography: 0,
+    camera_direction: segments.filter((s) => s.camera).length,
+    scene_timeline: scenes.size,
+    shot_timeline: clips.length,
+    lip_sync: vocalSegs.reduce((n, s) => n + (s.words?.length || 0), 0),
+    sound_effects: 0,
+    video_assets: 0,
+    transitions: clips.length > 0 ? clips.length - 1 : 0,
+    subtitles: lines.length,
+    original_audio: mt.whisperx_audio_url ? 1 : 0,
+    music_structure: segments.length,
+  };
+}
+
 export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlanningProgress, imageMode, onImageMode }: {
   onOpenProject: (name: string) => void;
   onProjectsChanged: () => void;
@@ -756,6 +838,20 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   const [shotPrompts, setShotPrompts] = useState<DirectorShotPrompts | null>(null);
   const [prodBusy, setProdBusy] = useState(false);
   const [prodOpen, setProdOpen] = useState(true);
+  // ----- Audio Intelligence state (Part 5 & 6) -----
+  const [audioUploaded, setAudioUploaded] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioMeta, setAudioMeta] = useState<{ file: string; fileName: string } | null>(null);
+  const [audioAnalysisStatus, setAudioAnalysisStatus] = useState<"pending" | "generated" | "validated" | "approved" | "failed">("pending"); // "pending"|"generated"|"validated"|"approved"|"failed"
+  const [timelineEventsCount, setTimelineEventsCount] = useState<TimelineTrackCounts>(EMPTY_TRACK_COUNTS);
+  const [timelineValidation, setTimelineValidation] = useState({ valid: true, warnings: [] as string[] });
+  const [timelineApproval, setTimelineApproval] = useState<"pending" | "approved" | "revision_required">("pending");
+  const [timelineVersion, setTimelineVersion] = useState(0);
+  // The full server response — the single source of truth for the visual
+  // 19-track timeline. Only read through the UI adapter; never mutated here.
+  const [masterTimeline, setMasterTimeline] = useState<MasterTimelineResponse | null>(null);
+  const [directorConsumption, setDirectorConsumption] = useState<"idle" | "consuming" | "planning" | "consumed">("idle");
+  const [directorBusy, setDirectorBusy] = useState<"load" | "model" | "planning" | "consumed">("load");
   const cancelRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   // Planning progress for the menu's Progress Status (total + per-scene Time
@@ -1002,12 +1098,47 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     setCoverage(null);
     setValidation(null);
     setPlan(null);
+    // Reset the .wav / 19-track panel — reloaded from the server below when
+    // the board already carries an uploaded audio.
+    setAudioUploaded(false); setAudioDuration(0); setAudioMeta(null);
+    setMasterTimeline(null);
+    setAudioAnalysisStatus("pending"); setTimelineEventsCount(EMPTY_TRACK_COUNTS);
+    setTimelineValidation({ valid: true, warnings: [] });
+    setTimelineApproval("pending"); setTimelineVersion(0);
+    setDirectorConsumption("idle"); setDirectorBusy("load");
     setAssetMap(null); setCine(null); setMotion(null); setShotPrompts(null);
     try {
       const b = await directorBoard(id);
       setBoard(b);
       // Surface a server-side batch note (e.g. salvaged partial batch).
       if (b.error && b.scenes.length < b.sceneCount) setStoppedNote(b.error);
+      // If this board already has an uploaded .wav, surface it + its derived
+      // 19-track timeline (best-effort — a missing timeline just stays pending).
+      try {
+        const input = (b.input || {}) as {
+          whisperxAudio?: { durationSeconds?: number; file?: string; fileName?: string };
+          sourceAudio?: { durationSeconds?: number; file?: string; fileName?: string };
+        };
+        const audio = input.whisperxAudio || input.sourceAudio;
+        if (audio?.file) {
+          setAudioUploaded(true);
+          setAudioDuration(Number(audio.durationSeconds) || 0);
+          setAudioMeta({ file: String(audio.file), fileName: String(audio.fileName || "audio.wav") });
+          setTimelineVersion(1);
+        }
+        try {
+          const mt = await directorMasterTimeline(b.id);
+          setMasterTimeline(mt);
+          if (mt.master || (mt.timeline?.lines?.length || 0) > 0) {
+            setTimelineEventsCount(deriveTrackCounts(mt));
+            const v = mt.validation;
+            setTimelineValidation({ valid: (v?.ok ?? true) && (v?.errors?.length || 0) === 0, warnings: [...(v?.warnings || []), ...(v?.errors || [])] });
+            setTimelineApproval(mt.master?.approved ? "approved" : "pending");
+            setAudioAnalysisStatus(mt.master ? "validated" : "generated");
+            if (mt.master?.approved) setDirectorConsumption("consumed");
+          }
+        } catch { /* timeline stays pending until analyzed */ }
+      } catch { /* audio panel stays in the empty state */ }
       setSelectedScene(0);
       setEditingScene(null);
       setSceneModal(null);
@@ -1090,23 +1221,129 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     finally { setPlanBusy(null); }
   };
 
-  // Chief Director approval checkpoint: sign off one pipeline stage via the
-  // dependency-checked endpoint (blocked stages 400 unless forced). Revision
-  // bumps on the Story Plan; the board list refreshes to reflect status.
-  const doApproveStage = async (stage: string, force = false) => {
-    if (!board || planBusy) return;
-    setPlanBusy(stage);
+  // ----- Audio Intelligence handlers (Part 5 & 6): real backend flow -----
+  // .wav upload → POST audio-upload → POST whisperx/analyze → poll job →
+  // GET master-timeline (the derived 19-track timeline). No mocks.
+
+  // Re-read the derived master timeline into the panel (counts + validation).
+  // Returns true when a master timeline exists.
+  const refreshTimelineFromServer = useCallback(async (): Promise<boolean> => {
+    if (!board) return false;
+    const mt = await directorMasterTimeline(board.id);
+    setMasterTimeline(mt);
+    setTimelineEventsCount(deriveTrackCounts(mt));
+    const v = mt.validation;
+    const warnings = [...(v?.warnings || []), ...(v?.errors || [])];
+    setTimelineValidation({ valid: (v?.ok ?? true) && (v?.errors?.length || 0) === 0, warnings });
+    setTimelineApproval(mt.master?.approved ? "approved" : "pending");
+    setAudioAnalysisStatus("validated");
+    return !!mt.master;
+  }, [board]);
+
+  const handleAudioUpload = useCallback(async (audioFile: File) => {
+    if (!board) { setError("Open a Director board first, then upload the .wav."); return; }
+    const name = audioFile.name || "audio.wav";
+    const mime = audioFile.type || "";
+    const mimeOk = /audio\/(wav|x-wav|mpeg|mp3|mp4|x-m4a|aiff|x-aiff|ogg|opus|webm)/i.test(mime);
+    const extOk = /\.(wav|mp3|m4a|aac|ogg|opus|webm|aif|aiff)$/i.test(name);
+    if (!mimeOk && !extOk) {
+      setError(`Unsupported audio type — upload a .wav (mp3/m4a also work). Got: ${mime || name}`);
+      return;
+    }
+    setError("");
+    setAudioUploaded(false);
+    setAudioMeta(null);
+    setMasterTimeline(null);
+    setAudioAnalysisStatus("generated");
+    setTimelineVersion(0);
+    setTimelineApproval("pending");
+    setTimelineValidation({ valid: true, warnings: [] });
+    setDirectorConsumption("consuming");
+    try {
+      // 1. Upload the .wav (server validates RIFF/WAVE + measures duration)
+      const dataUrl = await fileToDataUrl(audioFile);
+      const up = await uploadLyricAudio(board.id, dataUrl, name);
+      setAudioUploaded(true);
+      setAudioDuration(up.durationSeconds);
+      setAudioMeta({ file: up.file, fileName: up.fileName });
+      setTimelineVersion(1);
+      // 2. Start WhisperX analysis (board language pin rides along when set)
+      const lang = (board.input as unknown as { semanticsLanguage?: string } | null | undefined)?.semanticsLanguage;
+      const started = await startWhisperXAnalysis(board.id, lang && lang !== "auto" ? { language: lang } : {});
+      // 3. Wait for transcription + alignment + master-timeline derivation
+      await waitForWhisperXJob(board.id, started.jobId);
+      try { setBoard(await directorBoard(board.id)); } catch { /* keep current board */ }
+      // 4. Read the REAL derived 19-track timeline into the panel
+      const hasMaster = await refreshTimelineFromServer();
+      if (!hasMaster) throw new Error("analysis finished but no master timeline was derived — check the server log");
+      setDirectorConsumption("consumed");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setTimelineValidation({ valid: false, warnings: [msg] });
+      setTimelineApproval("revision_required");
+      setAudioAnalysisStatus("failed");
+    }
+  }, [board, refreshTimelineFromServer]);
+
+  const handleAnalyzeTimeline = useCallback(async () => {
+    if (!board) { setError("Open a Director board first."); return; }
+    if (!audioUploaded) { setError("Upload the .wav first — the 19-track timeline is built from it."); return; }
+    if (timelineApproval === "approved") return; // already approved
     setError("");
     try {
-      const p = await directorApproveStage(board.id, stage, force);
-      setPlan(p);
-      const b = await directorBoard(board.id);
-      setBoard(b);
-      await refreshBoards();
+      // If nothing was derived yet (e.g. after a re-upload), run analysis now.
+      const mt = await directorMasterTimeline(board.id);
+      if (!mt.master) {
+        const started = await startWhisperXAnalysis(board.id, {});
+        await waitForWhisperXJob(board.id, started.jobId);
+      }
+      await refreshTimelineFromServer();
+      setDirectorConsumption("consumed");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setTimelineValidation({ valid: false, warnings: [msg] });
+      setTimelineApproval("revision_required");
     }
-    catch (e) { reportError(e); }
-    finally { setPlanBusy(null); }
-  };
+  }, [board, audioUploaded, timelineApproval, refreshTimelineFromServer]);
+
+  const handleSendToDirector = useCallback(async () => {
+    if (!board) { setError("Open a Director board first."); return; }
+    if (!audioUploaded) { setError("Upload the .wav first — the 19-track timeline is built from it."); return; }
+    setDirectorBusy("model");
+    setError("");
+    try {
+      // The APPROVED master timeline drives timing: approve server-side first
+      // (the server snaps scene/shot windows onto the approved segments).
+      // Scene planning then reads those approved windows automatically.
+      let mt = await directorMasterTimeline(board.id);
+      if (!mt.master) throw new Error("No master timeline yet — run Analyze Audio & Build 19-Track Timeline first.");
+      if (!mt.master.approved) {
+        const ap = await approveMasterTimeline(board.id);
+        mt = { ...mt, master: ap.master };
+      }
+      setTimelineApproval("approved");
+      const master = mt.master;
+      if (!master) throw new Error("No master timeline yet — run Analyze Audio & Build 19-Track Timeline first.");
+      // Counts + validation come from the freshly approved server response —
+      // the server is the timing authority (it snaps scene/shot windows onto
+      // these approved segments on the approve route).
+      setTimelineEventsCount(deriveTrackCounts(mt));
+      setMasterTimeline(mt);
+      setDirectorBusy("planning");
+      setDirectorConsumption("planning");
+      try { setBoard(await directorBoard(board.id)); } catch { /* keep current board */ }
+      try { await refreshTimelineFromServer(); } catch { /* counts already set */ }
+      setDirectorBusy("consumed");
+      setDirectorConsumption("consumed");
+      setError("Timeline sent to AI Director successfully — cinematic planning ready.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setDirectorBusy("load");
+    }
+  }, [board, audioUploaded, refreshTimelineFromServer]);
 
   // Production dashboard (Phase 6): one pass loads every read-only plan for
   // the open board (story plan + coverage + quality + assets + cinematography
@@ -1860,6 +2097,20 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     }
   };
 
+  // Chief Director sign-off for one pipeline stage (recorded on the Story Plan).
+  const doApproveStage = async (stage: string) => {
+    if (!board || planBusy) return;
+    setPlanBusy(stage);
+    setError("");
+    try {
+      setPlan(await directorApproveStage(board.id, stage));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPlanBusy(null);
+    }
+  };
+
   // Partial migration: after Stop (or anytime while scenes are still being
   // planned), migrate the scenes planned so far into a project now; the rest
   // follow later into the SAME project via "Migrate remaining" (the server
@@ -2409,6 +2660,11 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
         )}
         <span className="spacer" />
         {board && (
+          <span className="pill pending" title="Audio Intelligence lives in the storyboard sections below">
+            🎧 Audio panel below
+          </span>
+        )}
+        {board && (
           <span style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
             <button className="ghost" onClick={() => { setBoard(null); setError(""); void refreshBoards(); }} title="Back to the story form and saved boards">
               Boards
@@ -2584,6 +2840,89 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 </p>
               </div>
             </div>
+            <div className="row" style={{ marginTop: 8, alignItems: "center", gap: 8 }}>
+              <div style={{ flex: "1 1 0", minWidth: 180 }}>
+                <label htmlFor="dir-audio-status" title="Audio Intelligence and 19-track Master Timeline status">Audio Intelligence</label>
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 120, fontSize: 12, color: "var(--line)" }}>
+                {audioUploaded ? (
+                  <div>
+                    <span className={`pill ${timelineApproval === "approved" ? "done" : timelineApproval === "revision_required" ? "warn" : "pending"}`}>
+                      {timelineApproval === "approved" ? "Approved" : timelineApproval === "revision_required" ? "Revision required" : "Pending"}
+                    </span>
+                    {timelineVersion > 0 && <span className="muted">v{timelineVersion}</span>}
+                  </div>
+                ) : (
+                  <span>No audio</span>
+                )}
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 120, fontSize: 12, color: "var(--line)" }}>
+                {audioUploaded && timelineApproval === "approved" ? (
+                  <span className="ok">✓ Director-consumed</span>
+                ) : (
+                  <span>—</span>
+                )}
+              </div>
+            </div>
+            <div className="row" style={{ marginTop: 8, gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 0", minWidth: 110 }}>
+                <label htmlFor="dir-lang2">Language</label>
+                <select id="dir-lang2" value={language} onChange={(e) => setLanguage(e.target.value)}>
+                  {LANGS.map((l) => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 110 }}>
+                <label htmlFor="dir-sem-lang2" title="The language of the story text for the meaning analysis (the spoken language above is separate)">Source language</label>
+                <select id="dir-sem-lang2" value={semanticsLanguage} onChange={(e) => setSemanticsLanguage(e.target.value)}>
+                  <option value="auto">Auto detect</option>
+                  <option value="hi">Hindi</option>
+                  <option value="en">English</option>
+                  <option value="hinglish">Hinglish (mixed)</option>
+                </select>
+                <p className="hint" style={{ margin: "4px 0 0" }}>
+                  Every line is read for its meaning before a scene is planned.
+                </p>
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 110 }}>
+                <label htmlFor="dir-genre2">Genre</label>
+                <select id="dir-genre2" value={genre} onChange={(e) => setGenre(e.target.value)}>
+                  {GENRES.map((g) => <option key={g} value={g}>{g}</option>)}
+                </select>
+                {genre === "Custom" && (
+                  <input value={genreCustom} maxLength={40} placeholder="Custom genre…" onChange={(e) => setGenreCustom(e.target.value)} style={{ marginTop: 6 }} />
+                )}
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 110 }}>
+                <label htmlFor="dir-aspect2">Aspect ratio</label>
+                <select id="dir-aspect2" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)}>
+                  {ASPECTS.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <p className="hint" style={{ margin: "4px 0 0" }}>
+                  {aspectRatio === "9:16"
+                    ? "9:16 renders through the Instagram Reel flow after approval."
+                    : aspectRatio === "1:1"
+                      ? "The pipeline renders 16:9/9:16 — approved as 16:9."
+                      : "Standard landscape cut."}
+                </p>
+              </div>
+            </div>
+            {!board && (
+              <p className="hint" style={{ margin: "8px 0 0" }}>
+                🎧 .wav upload unlocks after Generate Storyboard: open the board, then upload the .wav here — WhisperX builds the 19-track master timeline from it.
+              </p>
+            )}
+            <AudioIntelligencePanel
+              uploaded={audioUploaded}
+              duration={audioDuration}
+              analysisStatus={audioAnalysisStatus}
+              timelineEvents={timelineEventsCount}
+              validation={timelineValidation}
+              approval={timelineApproval}
+              version={timelineVersion}
+              onUpload={handleAudioUpload}
+              onAnalyze={handleAnalyzeTimeline}
+              onDirectorPlan={handleSendToDirector}
+            />
             {!includeDialogue && (
               <p className="hint" style={{ margin: "4px 0 0" }}>
                 Silent film: scenes plan with empty dialogue — approve generates visuals only (no TTS, no lip-sync).
@@ -2743,6 +3082,21 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
         {board && (
           <>
             <div className="section-label">Storyboard</div>
+            <AudioIntelligencePanel
+              boardId={board?.id}
+              uploaded={audioUploaded}
+              duration={audioDuration}
+              analysisStatus={audioAnalysisStatus}
+              timelineEvents={timelineEventsCount}
+              validation={timelineValidation}
+              approval={timelineApproval}
+              version={timelineVersion}
+              masterTimeline={masterTimeline}
+              audioFileName={audioMeta?.fileName}
+              onUpload={handleAudioUpload}
+              onAnalyze={handleAnalyzeTimeline}
+              onDirectorPlan={handleSendToDirector}
+            />
             <p className="card-desc">
               {editingTitle ? (
                 <span className="row" style={{ display: "inline-flex", gap: 6 }}>

@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { resolvePromptsJson } from "../lib/config_load.mjs";
-import { configSlug } from "../lib/variant.mjs";
+import { configSlug, fileSlug } from "../lib/variant.mjs";
 import {
   run, download, uploadToInput,
   buildFluxGraph, buildLtxGraph, firstImageUrl, firstVideoUrl,
@@ -31,6 +31,8 @@ const N = seq.length;
 const TOTAL = cfg.narrationDuration ?? 20;
 const FINAL = cfg.finalDuration ?? TOTAL; // cut the final to this many seconds (default: narration length)
 const finalPath = path.join(outDir, `${storageName}_final.mp4`);
+const keyframeFile = (i) => `movie_kf${i + 1}_${fileSlug(seq[i].title)}.png`;
+const clipFile = (i) => `movie_clip${i + 1}_${fileSlug(seq[i].title)}.mp4`;
 
 function ff(args) {
   execFileSync("ffmpeg", ["-y", "-v", "error", ...args], { stdio: "inherit" });
@@ -40,7 +42,7 @@ function stitch() {
   // 1) concat the clips (same codec/res/fps from one ComfyUI run -> stream copy)
   const concat = path.join(outDir, "clips_concat.mp4");
   const list = path.join(outDir, "concat_list.txt");
-  fs.writeFileSync(list, seq.map((s, i) => `file 'movie_clip${i + 1}_${s.title}.mp4'`).join("\n") + "\n");
+  fs.writeFileSync(list, seq.map((_, i) => `file '${clipFile(i)}'`).join("\n") + "\n");
   ff(["-f", "concat", "-safe", "0", "-i", list, "-c", "copy", concat]);
 
   // 2) mix audio: narration full volume (main), clip audio at clipAudioVolume,
@@ -90,7 +92,7 @@ if (process.argv.includes("--stitch")) {
 // Stage 2: cinematic keyframes (9:16, Flux 4 steps)
 const keyframes = [];
 for (let i = 0; i < N; i++) {
-  const dest = path.join(outDir, `movie_kf${i + 1}_${seq[i].title}.png`);
+  const dest = path.join(outDir, keyframeFile(i));
   keyframes.push(dest);
   if (fs.existsSync(dest)) { console.log(`[movie] ${i + 2}/8 keyframe ${i + 1}/${N} — exists, skipping`); continue; }
   console.log(`[movie] ${i + 2}/8 keyframe ${i + 1}/${N} (${seq[i].title})...`);
@@ -98,14 +100,14 @@ for (let i = 0; i < N; i++) {
     prompt: seq[i].image,
     width: cfg.keyframeWidth ?? 768,
     height: cfg.keyframeHeight ?? 1280,
-    prefix: `movie/kf${i + 1}`,
+    prefix: `${storageName}/movie_kf${i + 1}`,
   }), `kf${i + 1}`);
   await download(firstImageUrl(entry), dest);
 }
 
 // Stage 3: keyframe -> LTX i2v clip (9:16, 0.5MP)
 for (let i = 0; i < N; i++) {
-  const dest = path.join(outDir, `movie_clip${i + 1}_${seq[i].title}.mp4`);
+  const dest = path.join(outDir, clipFile(i));
   if (fs.existsSync(dest)) { console.log(`[movie] ${i + 4}/8 clip ${i + 1}/${N} — exists, skipping`); continue; }
   console.log(`[movie] ${i + 4}/8 i2v clip ${i + 1}/${N}...`);
   const inputName = await uploadToInput(keyframes[i], `movie_kf${i + 1}`);
@@ -115,7 +117,7 @@ for (let i = 0; i < N; i++) {
     duration: seq[i].duration ?? 4,
     ratio: cfg.ratio ?? "9:16 (Portrait Widescreen)",
     megapixels: cfg.megapixels ?? 0.5,
-    prefix: `movie/clip${i + 1}_${seq[i].title}`,
+    prefix: `${storageName}/movie_clip${i + 1}_${fileSlug(seq[i].title)}`,
   });
   const entry = await run(graph, `clip${i + 1}`);
   await download(firstVideoUrl(entry), dest);

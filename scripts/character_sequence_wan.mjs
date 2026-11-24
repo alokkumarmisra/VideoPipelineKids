@@ -42,7 +42,7 @@ import {
 import {
   VERTICAL, VERTICAL_FLUX_WIDTH, VERTICAL_FLUX_HEIGHT,
   VERTICAL_WAN_WIDTH, VERTICAL_WAN_HEIGHT,
-  normalizeFormat, outDirName, prefixForDir, verticalImagePrompt, verticalMotionPrompt,
+  normalizeFormat, outDirName, prefixForDir, fileSlug, verticalImagePrompt, verticalMotionPrompt,
 } from "../lib/variant.mjs";
 import { runSequence, stitchSequence } from "../lib/sequence.mjs";
 import { resolvePromptsJson } from "../lib/config_load.mjs";
@@ -132,13 +132,13 @@ const opts = {
     length: wanFrames(beatTargetDuration({ outDir, prefix, n: i + 1, beat: cfg.sequence[i], fallback: cfg.duration ?? 3 })),
     steps: cfg.steps ?? 8,
     negative: cfg.negative,
-    prefix: `${storageName}/wan_clip${i + 1}_${cfg.sequence[i].title}`,
+    prefix: `${storageName}/wan_clip${i + 1}_${fileSlug(cfg.sequence[i].title)}`,
   }),
   videoNode: "56",
 };
 
 if (process.argv.includes("--stitch")) {
-  try { stitchSequence(opts); }
+  try { await stitchSequence(opts); }
   catch (e) { console.error(`[wanchar] ${e.message}`); process.exit(1); }
   process.exit(0);
 }

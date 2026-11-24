@@ -34,12 +34,11 @@ import {
 } from "../lib/comfy.mjs";
 import {
   VERTICAL, VERTICAL_FLUX_WIDTH, VERTICAL_FLUX_HEIGHT, VERTICAL_LTX_RATIO, VERTICAL_LTX_MEGAPIXELS,
-  normalizeFormat, outDirName, prefixForDir, verticalImagePrompt, verticalMotionPrompt,
+  normalizeFormat, outDirName, prefixForDir, fileSlug, verticalImagePrompt, verticalMotionPrompt,
 } from "../lib/variant.mjs";
 import { runSequence, stitchSequence } from "../lib/sequence.mjs";
 import { resolvePromptsJson } from "../lib/config_load.mjs";
 import { configSlug } from "../lib/variant.mjs";
-import { beatTargetDuration } from "../lib/tts.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -126,25 +125,24 @@ const opts = {
   buildClip: (motion, image, i) => buildLtxGraph({
     prompt: move(motion),
     image,
-    // Dialogue beats grow to fit their voice audio (lib/tts.mjs) instead
-    // of the fixed global duration.
-    duration: beatTargetDuration({ outDir, prefix, n: i + 1, beat: cfg.sequence[i], fallback: cfg.duration ?? 3 }),
+    duration: cfg.sequence[i].duration ?? cfg.duration ?? 3,
     ratio: vertical ? VERTICAL_LTX_RATIO : "16:9 (Widescreen)",
     megapixels: vertical ? VERTICAL_LTX_MEGAPIXELS : 0.5,
     negative: cfg.negative, // explicit override; undefined -> cartoon-aware auto default in buildLtxGraph
-    prefix: `${storageName}/clip${i + 1}_${cfg.sequence[i].title}`,
+    prefix: `${storageName}/clip${i + 1}_${fileSlug(cfg.sequence[i].title)}`,
   }),
   videoNode: "75",
+  nativeAudio: true,
 };
 
 if (process.argv.includes("--stitch")) {
-  try { stitchSequence(opts); }
+  try { await stitchSequence(opts); }
   catch (e) { console.error(`[char] ${e.message}`); process.exit(1); }
   process.exit(0);
 }
 
 try {
-  await runSequence({ ...opts, regen, noDialogue: process.argv.includes("--no-dialogue"), chain: process.argv.includes("--chain") });
+  await runSequence({ ...opts, regen, nativeAudio: true, noDialogue: process.argv.includes("--no-dialogue"), chain: process.argv.includes("--chain") });
 } catch (e) {
   console.error(`[char] ${e.message}`);
   process.exit(1);

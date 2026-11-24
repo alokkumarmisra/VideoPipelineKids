@@ -35,7 +35,7 @@ import {
   // the old /api/story/* scaffolding is gone (it crashed with
   // "Unexpected end of JSON input").
   approveMasterTimeline, cancelWhisperXJob, generateMasterTimelineClips, getWhisperXJobStatus,
-  importWhisperTimeline, saveLyricCorrections, saveMasterCorrections, startWhisperXAnalysis,
+  aiCorrectLyricTimeline, importWhisperTimeline, saveLyricCorrections, saveMasterCorrections, startWhisperXAnalysis,
   unlockMasterTimeline, uploadLyricAudio, whisperXPreflight,
   type DirectorBoard, type DirectorBoardMeta, type DirectorInput, type DirectorScene, type ImageMode, type DirectorLive, type DirectorAnalyzeLive,
   type LyricCorrection, type MasterSegment, type MasterSegmentCorrection, type MasterSegmentType,
@@ -43,6 +43,7 @@ import {
 } from "../api";
 import { useDialog } from "./Dialog";
 import DirectorGeneration from "./DirectorGeneration";
+import { DIRECTOR_TEMPLATES, type DirectorTemplateId } from "../directorTemplates";
 import BatchSizeSelect, { SCENE_BATCH } from "./BatchSizeSelect";
 import { IconCheck, IconClapper, IconFilm, IconFolder, IconPanel, IconRefresh, IconSparkles, IconTrash, Spinner } from "./Icons";
 
@@ -292,6 +293,9 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
   const [semanticsLanguage, setSemanticsLanguage] = useState("auto");
   const [genre, setGenre] = useState("Adventure");
   const [visualStyle, setVisualStyle] = useState("3D Cinematic");
+  const [directorTemplate, setDirectorTemplate] = useState<DirectorTemplateId>("standard");
+  const [masterPrompt, setMasterPrompt] = useState("");
+  const [directorInstructions, setDirectorInstructions] = useState("");
   const [targetSeconds, setTargetSeconds] = useState("60");
   const [sceneSeconds, setSceneSeconds] = useState("3");
   // Seed the form from a studio brief when provided (user-visible values,
@@ -478,6 +482,11 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
       if (b.input?.semanticsLanguage) setSemanticsLanguage(String(b.input.semanticsLanguage));
       if (b.input?.genre) setGenre(String(b.input.genre));
       if (b.input?.visualStyle) setVisualStyle(String(b.input.visualStyle));
+      const template = b.input?.directorTemplate === "mahadev_devotional" ? "mahadev_devotional" : "standard";
+      setDirectorTemplate(template);
+      setMasterPrompt(String(b.input?.masterPrompt || ""));
+      setDirectorInstructions(String(b.input?.instructions || ""));
+      if (b.input?.targetSeconds) setTargetSeconds(String(Math.round(Number(b.input.targetSeconds))));
       setTab("characters"); setExpanded(0); setEditingChar(null); setEditingScene(null);
     }
     catch (e) { fail(e); }
@@ -491,7 +500,7 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
       genre, genreCustom: "", visualStyle, styleCustom: "",
       targetSeconds: Math.max(15, Math.min(3600, Math.round(Number(targetSeconds) || 60))),
       sceneSeconds: Math.min(30, Math.max(1, Math.round(Number(sceneSeconds) || 5))),
-      aspectRatio: "16:9", instructions: "",
+      aspectRatio: "16:9", instructions: directorInstructions, masterPrompt, directorTemplate,
       includeDialogue, chainContinuity: true,
     };
     if (!input.title) { setError("Give the story a title."); return; }
@@ -906,10 +915,35 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
         </section>
       )}
 
-      {/* Story input (§3): title + raw text only — no technical knobs up front. */}
+      {/* Story input: profile and raw source text are kept on the canonical Director board. */}
       <section className="card">
         <div className="card-head"><span className="story-sec-tag">Step 1 ·</span><h2>📝 Story input</h2></div>
         <div className="form-grid">
+          <label>Director profile
+            <select value={directorTemplate} onChange={(e) => {
+              const next = e.target.value as DirectorTemplateId;
+              setDirectorTemplate(next);
+              const profile = DIRECTOR_TEMPLATES[next];
+              setMasterPrompt(profile.masterPrompt);
+              setDirectorInstructions(profile.instructions);
+              if (next === "mahadev_devotional") {
+                setGenre("Devotional"); setVisualStyle("Indian Mythological"); setLanguage("Hindi"); setSemanticsLanguage("hi");
+                setSceneSeconds("5");
+                setIncludeDialogue(false);
+              }
+            }}>
+              {Object.entries(DIRECTOR_TEMPLATES).map(([id, profile]) => <option key={id} value={id}>{profile.label}</option>)}
+            </select>
+          </label>
+          {directorTemplate === "mahadev_devotional" && <details className="card-desc">
+            <summary>Review or edit Mahadev directing prompt</summary>
+            <label>Visual continuity and style prompt
+              <textarea value={masterPrompt} onChange={(e) => setMasterPrompt(e.target.value)} rows={8} maxLength={20000} />
+            </label>
+            <label>Director instructions
+              <textarea value={directorInstructions} onChange={(e) => setDirectorInstructions(e.target.value)} rows={5} />
+            </label>
+          </details>}
           <label>Title
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Ram, Sita and Shyam — Forest of Whispers" maxLength={120} />
           </label>
@@ -971,6 +1005,14 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
           REAL board flow (api.ts whisperx/master-timeline helpers). */}
       <AudioTimelineStudio
         boardId={board?.id ?? null}
+        onAudioUploaded={() => {
+          if (!board?.id) return;
+          void directorBoard(board.id).then((fresh) => {
+            setBoard(fresh);
+            if (fresh.input?.targetSeconds) setTargetSeconds(String(Math.round(Number(fresh.input.targetSeconds))));
+            setMasterApproved(false);
+          }).catch(() => {});
+        }}
         onApproved={() => {
           if (!board?.id) return;
           void directorMasterTimeline(board.id)
@@ -1277,7 +1319,7 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
 }
 
 // =====================================================================
-// Audio Timeline Studio — the Story audio pipeline as 5 explicit steps,
+// Audio Timeline Studio — the Story audio pipeline as 6 explicit steps,
 // riding the REAL WhisperX board flow (no parallel store, no duplicated
 // analyzer):
 //
@@ -1287,13 +1329,14 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
 //                                    not installed)
 //   2. Preliminary Audio Timeline  → measured whisper segments + vocal-activity
 //                                    rows + instrumental windows
-//   3. Lyrics vs Audio (lyric tab) → every board lyric line vs what WhisperX
+//   3. Director-Ready Segments     → 3–5s transcript cuts + JSON/SRT export
+//   4. Lyrics vs Audio (lyric tab) → every board lyric line vs what WhisperX
 //                                    heard; corrections stay drafts until
 //                                    saveLyricEdits persists them
-//   4. Final Master Timeline (master tab) → derived segments covering the
+//   5. Final Master Timeline (master tab) → derived segments covering the
 //                                    WHOLE audio (instrumental/singing/
 //                                    dialogue/mixed/unknown + repeats)
-//   5. Review & Approve (master tab) → audio player with click-to-seek,
+//   6. Review & Approve (master tab) → audio player with click-to-seek,
 //                                    segment corrections, the explicit
 //                                    APPROVE gate and the 3–5 s clip builder
 //
@@ -1329,13 +1372,14 @@ const AUDIO_SEGMENT_TYPES: { id: MasterSegmentType; label: string; color: string
 const audioTypeColor = (t: string): string =>
   AUDIO_SEGMENT_TYPES.find((s) => s.id === t)?.color || "#cbd5e1";
 
-type AudioStep = null | "analyzing" | "saving" | "approving" | "unlocking" | "clips";
+type AudioStep = null | "analyzing" | "saving" | "ai-correcting" | "approving" | "unlocking" | "clips";
 
-function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
+function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged, onAudioUploaded }: {
   boardId: string | null;
   /** Called after approve/unlock so the parent can refresh the plan header. */
   onApproved?: () => void;
   onProjectsChanged?: () => void;
+  onAudioUploaded?: () => void;
 }) {
   const dialog = useDialog();
   const [view, setView] = useState<MasterTimelineResponse | null>(null);
@@ -1395,6 +1439,8 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
       setUploaded({ fileName: r.fileName, durationSeconds: r.durationSeconds, sizeBytes: r.sizeBytes });
       setNote(`uploaded — measured duration ${audioClockFmt(r.durationSeconds)} (${Math.round(r.sizeBytes / 1024)} KB). A fresh audio invalidates the previous timeline.`);
       setMasterDrafts(new Map()); setLyricDrafts(new Map());
+      await reload();
+      onAudioUploaded?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -1412,7 +1458,7 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
           const s = await getWhisperXJobStatus(boardId, r.jobId);
           setJob({ status: s.status, progress: s.progress, stage: s.stage, message: s.message, log: s.log || undefined, error: s.error });
           if (s.status === "succeeded") {
-            setNote("WhisperX analysis complete — the timeline below is measured from the audio.");
+            setNote(`WhisperX analysis complete — timeline saved under ${s.export?.folder || "WavAnalysis/<project>"}.`);
             break;
           }
           if (s.status === "failed" || s.status === "cancelled") {
@@ -1447,7 +1493,7 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
     setError(""); setNote("");
     try {
       const r = await importWhisperTimeline(boardId, payload, language === "auto" ? undefined : language);
-      setNote(`imported ${r.timeline?.lines?.length ?? 0} aligned lines — ${r.warnings?.length || 0} warning(s)`);
+      setNote(`imported ${r.timeline?.lines?.length ?? 0} aligned lines — ${r.warnings?.length || 0} warning(s). Saved under ${r.export?.folder || "WavAnalysis/<project>"}.`);
       setLyricStale(false);
       await reload();
       setReviewTab("lyric");
@@ -1488,6 +1534,20 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
       await saveLyricCorrections(boardId, [...lyricDrafts.values()].map((d) => d as unknown as LyricCorrection));
       setLyricDrafts(new Map());
       setNote("corrections saved — manual windows outrank the transcript on every later import");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setStep(null); }
+  };
+
+  const runAiLyricCorrection = async () => {
+    if (!boardId) return;
+    setStep("ai-correcting"); setError(""); setNote("");
+    try {
+      const result = await aiCorrectLyricTimeline(boardId);
+      setNote(result.corrected
+        ? `AI corrected ${result.corrected} lyric line(s) from WhisperX word timings; ${result.needs_review.length} still need review. Original lyrics were preserved.`
+        : (result.message || `No safe automatic matches found; ${result.needs_review.length} line(s) still need review.`));
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1582,6 +1642,7 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
   const lines = timeline?.lines || [];
   const measuredLines = lines.filter((l) => l.match === "whisperx");
   const missingLines = lines.filter((l) => l.start_seconds == null);
+  const aiReviewLines = lines.filter((l) => !l.manual && l.timing !== "manual" && (l.start_seconds == null || l.timing !== "measured" || l.low_confidence || l.match_score < 0.62));
   const busy = step != null;
 
   return (
@@ -1713,42 +1774,46 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
               </div>
             ))}
           </div>
-          {view?.director_segments && (
-            <details style={{ marginTop: 10 }}>
-              <summary style={{ cursor: "pointer", fontWeight: 600 }}>
-                Director-ready segments · {view.director_segments.segments.length} · 3–5s target
-              </summary>
-              <p className="hint">
-                Cut at word boundaries, favoring pauses and punctuation. The transcript text and word timings are retained; longer phrases stay together when needed.
-              </p>
+        </div>
+      )}
+
+      {/* ---- Step 3: Director-Ready Segments ---- */}
+      {timeline && (
+        <div className="audio-step">
+          <div className="audio-step-head"><b>3 · Director-Ready Segments</b>
+            <span className="muted"> transcript-preserving cuts · 3–5s target · word-level timing retained</span>
+          </div>
+          {view?.director_segments ? <>
+            <p className="hint">
+              Cuts favor natural lyric, sentence, pause, speaker, and action boundaries. Longer phrases remain together when needed to preserve meaning.
+            </p>
+            <div className="row" style={{ alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+              <span className="pill">{view.director_segments.segments.length} segments</span>
               {!view.director_segments.text_preserved || !view.director_segments.validation.ok ? (
                 <div className="story-err" role="alert">
                   Export is blocked because validation failed: {view.director_segments.validation.errors.join("; ")}
                 </div>
-              ) : (
-                <div className="row" style={{ marginBottom: 8 }}>
-                  <a className="btn-blue" href={`/api/director/boards/${encodeURIComponent(boardId || "")}/whisperx/director-segments?format=json`}>Download JSON</a>
-                  <a className="btn-blue" href={`/api/director/boards/${encodeURIComponent(boardId || "")}/whisperx/director-segments?format=srt`}>Download SRT</a>
-                  <span className="pill ok">text preserved · timestamps and durations valid · no overlaps</span>
+              ) : <>
+                <a className="btn-blue" href={`/api/director/boards/${encodeURIComponent(boardId || "")}/whisperx/director-segments?format=json`}>Download JSON</a>
+                <a className="btn-blue" href={`/api/director/boards/${encodeURIComponent(boardId || "")}/whisperx/director-segments?format=srt`}>Download SRT</a>
+                <span className="pill ok">text preserved · timestamps and durations valid · no overlaps</span>
+              </>}
+            </div>
+            <div className="audio-table">
+              {view.director_segments.segments.map((s, i) => (
+                <div className="audio-row" key={s.segment_id}>
+                  <span className="pill">{i + 1}</span>
+                  <span style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                    {audioTimeFmt(s.start_seconds)} – {audioTimeFmt(s.end_seconds)} · {audioTimeFmt(s.duration_seconds)}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>{s.text}</span>
+                  <span className="muted">{s.cut_note}</span>
                 </div>
-              )}
-              <div className="audio-table">
-                {view.director_segments.segments.map((s, i) => (
-                  <div className="audio-row" key={s.segment_id}>
-                    <span className="pill">{i + 1}</span>
-                    <span style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                      {audioTimeFmt(s.start_seconds)} – {audioTimeFmt(s.end_seconds)} · {audioTimeFmt(s.duration_seconds)}
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0 }}>{s.text}</span>
-                    <span className="muted">{s.cut_note}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-          {view?.director_segments_error && (
-            <div className="story-err" role="alert">Director segments could not be built: {view.director_segments_error}</div>
-          )}
+              ))}
+            </div>
+          </> : <div className="story-err" role="alert">
+            Director segments could not be built: {view?.director_segments_error || "no valid WhisperX transcript segments are available"}
+          </div>}
         </div>
       )}
 
@@ -1763,10 +1828,10 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
         </div>
       )}
 
-      {/* ---- Step 3: Original Lyrics vs Audio (lyric tab) ---- */}
+      {/* ---- Step 4: Original Lyrics vs Audio (lyric tab) ---- */}
       {timeline && reviewTab === "lyric" && lines.length > 0 && (
         <div className="audio-step">
-          <div className="audio-step-head"><b>3 · Original Lyrics vs Audio</b>
+          <div className="audio-step-head"><b>4 · Original Lyrics vs Audio</b>
             <span className="muted"> the user&apos;s lyric text ALWAYS wins — WhisperX supplies timing only</span>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
@@ -1805,6 +1870,7 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
                     {l.heard_text && l.heard_text !== l.lyric_text && (
                       <span className="hint" title="What WhisperX heard (never written back)"> heard: “{l.heard_text}”</span>
                     )}
+                    {l.ai_corrected && <span className="pill ok" title="AI matched this line to existing WhisperX word timings">AI matched</span>}
                     {l.low_confidence && <span className="pill warn">low conf {audioTimeFmt(l.confidence)}</span>}
                     {d && <span className="pill ok">edited</span>}
                   </span>
@@ -1813,6 +1879,9 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
             })}
           </div>
           <div className="row" style={{ marginTop: 8, flexWrap: "wrap" }}>
+            <button className="primary" onClick={() => void runAiLyricCorrection()} disabled={busy || approved || aiReviewLines.length === 0 || !timeline.whisper.segments.some((s) => s.words?.length)} title="Use the local LLM to match uncertain lines to existing WhisperX word timings">
+              {step === "ai-correcting" ? <><Spinner size={14} /> checking transcript…</> : <><IconSparkles /> AI Auto-correct{aiReviewLines.length ? ` (${aiReviewLines.length})` : ""}</>}
+            </button>
             {lyricDrafts.size > 0 && (
               <button className="primary" onClick={() => void saveLyricEdits()} disabled={busy}>
                 {step === "saving" ? <><Spinner size={14} /> saving…</> : <><IconCheck /> Save corrections</>}
@@ -1820,13 +1889,14 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
             )}
             {approved && <span className="pill ok">timeline approved — unlock in the master tab to correct lines</span>}
           </div>
+          <p className="hint">AI uses the configured local model to match lines to measured WhisperX words. It only updates timings; original lyric text stays unchanged. Low confidence or conflicting matches remain for review. Analysis files are saved under <code>WavAnalysis/&lt;project_name_without_spaces&gt;/</code>.</p>
         </div>
       )}
 
-      {/* ---- Step 4: Final Master Timeline (master tab) ---- */}
+      {/* ---- Step 5: Final Master Timeline (master tab) ---- */}
       {master && reviewTab === "master" && (
         <div className="audio-step">
-          <div className="audio-step-head"><b>4 · Final Master Timeline</b>
+          <div className="audio-step-head"><b>5 · Final Master Timeline</b>
             <span className="muted"> one chronological segment list covering the WHOLE audio, word-level timings preserved</span>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
@@ -1858,10 +1928,10 @@ function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged }: {
         </div>
       )}
 
-      {/* ---- Step 5: Review & Approve Timeline (master tab) ---- */}
+      {/* ---- Step 6: Review & Approve Timeline (master tab) ---- */}
       {master && reviewTab === "master" && (
         <div className="audio-step">
-          <div className="audio-step-head"><b>5 · Review &amp; Approve Timeline</b>
+          <div className="audio-step-head"><b>6 · Review &amp; Approve Timeline</b>
             <span className="muted"> play the audio against the segments, correct anything off, then approve</span>
           </div>
           {view?.whisperx_audio_url ? (

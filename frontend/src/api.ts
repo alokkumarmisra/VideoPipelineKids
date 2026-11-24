@@ -928,6 +928,7 @@ export interface DirectorInput {
    * every image prompt (wins over the preset/custom text).
    */
   masterPrompt?: string;
+  directorTemplate?: string;
   targetSeconds: number;
   sceneSeconds: number;
   aspectRatio: string;
@@ -1440,6 +1441,8 @@ export interface LyricTimelineLine {
   occurrence: number;
   edited?: boolean;
   manual?: boolean;
+  ai_corrected?: boolean;
+  ai_match_confidence?: number;
   words: LyricWordTiming[];
 }
 export interface LyricPhrase {
@@ -1534,7 +1537,7 @@ export interface LyricCorrection {
 export const directorLyricTimeline = (id: string) =>
   get<LyricTimelineResponse>(`/api/director/boards/${encodeURIComponent(id)}/lyric-timeline`);
 export const importWhisperTimeline = (id: string, whisper: unknown, language?: string) =>
-  post<{ board_id: string; timeline: LyricTimeline; master?: MasterTimeline | null; stale?: boolean; validation: LyricTimelineValidation; warnings: string[] }>(
+  post<{ board_id: string; timeline: LyricTimeline; master?: MasterTimeline | null; stale?: boolean; validation: LyricTimelineValidation; warnings: string[]; export?: { folder: string; run_folder: string } }>(
     `/api/director/boards/${encodeURIComponent(id)}/whisper-import`,
     { whisper, ...(language ? { language } : {}) },
   );
@@ -1542,6 +1545,9 @@ export const saveLyricCorrections = (id: string, corrections: LyricCorrection[],
   fetch(`/api/director/boards/${encodeURIComponent(id)}/lyric-timeline`, {
     method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ corrections, ...(segmentCorrections ? { segment_corrections: segmentCorrections } : {}) }),
   }).then(directorOk<{ board_id: string; timeline: LyricTimeline; master?: MasterTimeline | null; clips?: MasterTimelineClip[] | null; stale?: boolean; validation: LyricTimelineValidation }>("lyric correction save failed"));
+export const aiCorrectLyricTimeline = (id: string) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/lyric-timeline/ai-correct`, { method: "POST" })
+    .then(directorOk<{ board_id: string; corrected: number; needs_review: { line_id: number; occurrence?: number; reason: string }[]; timeline?: LyricTimeline; message?: string; export?: { folder: string; run_folder: string } }>("AI lyric correction failed"));
 
 // ---- Master timeline (audio-aligned chronological segments) --------------
 // DERIVED from the lyric timeline + vocal-activity rows: one chronological
@@ -1736,6 +1742,7 @@ export const getWhisperXJobStatus = (id: string, jobId: string) =>
     log?: string | null;
     error?: string;
     timeline?: LyricTimeline;
+    export?: { folder: string; run_folder: string } | null;
   }>(`/api/director/boards/${encodeURIComponent(id)}/whisperx/jobs/${encodeURIComponent(jobId)}`);
 
 // Cancel WhisperX analysis job

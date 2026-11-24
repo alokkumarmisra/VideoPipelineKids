@@ -1,237 +1,207 @@
-# Implementation Plan: Sanskriti AI Studio — Rename Story to Story/Song + WhisperX Timeline Import
+# Implementation Plan: Audio Intelligence & 19-Track Master Timeline Integration
 
 ## Overview
+Integrate the existing 19-track Synchronized Master Timeline workflow from `Sanskriti-AI-Studio` into the KIDS project's AI Director, making it a mandatory prerequisite stage between Story Input and AI Director Intelligence.
 
-This implementation renames the existing "Story" workspace to "Story/Song" and adds complete WhisperX Timeline Import and Lyric-Action Synchronization features. Both Story Video and Song Video workflows share the same audio timeline, action planning, scene generation, validation, and rendering infrastructure.
+## Existing Components Analysis
 
-## Key Objectives
+### Sanskriti-AI-Studio (Source Project)
+- **`src/lib/studioEngines.ts`**: Contains `buildMasterTimeline()` - builds the complete 19-track timeline
+- **`src/lib/masterClock.ts`**: Time normalization, frame quantization, sample conversion
+- **`src/types/studio.ts`**: Complete type definitions for 19 tracks, AVTimelineEvent, MasterTimeline, Production
+- **`src/types/studio.ts` line 1325-1349**: `ALL_TIMELINE_TRACKS` - 19 tracks defined:
+  01. original_audio, 02. music_structure, 03. lyrics, 04. word_timings, 05. speaker_events,
+  06. narrative_events, 07. character_appearances, 08. character_actions, 09. emotions,
+  10. dialogue_performance, 11. choreography, 12. camera_direction, 13. scene_timeline,
+  14. shot_timeline, 15. lip_sync, 16. sound_effects, 17. video_assets, 18. transitions, 19. subtitles
 
-1. **Rename** the Story navigation item to "Story/Song"
-2. **Add** a workflow selector for "Story Video" and "Song Video"
-3. **Implement** WhisperX JSON import with validation
-4. **Preserve** original user lyrics (WhisperX is timing-only)
-5. **Create** canonical audio timeline with vocal/instrumental/unknown segments
-6. **Integrate** existing Story Director and Song Director against the timeline
-7. **Add** timeline review/editing panel
-8. **Ensure** both modes share the same infrastructure
+- **`Production` type** (line 1226-1285): Includes `masterTimeline`, `audioVisualTimeline`, `audioAnalysis`, `shots`, `scenes`
 
-## Architecture
+### KIDS Project (Target)
+- **`lib/director.mjs`**: AI Director functions (`buildBiblePrompt`, `buildScenesPrompt`, `normalizeScene`, etc.)
+- **`frontend/src/api.ts`**: API routes for director workflow
+- **`frontend/src/components/DirectorPage.tsx`**: Director UI
+- **`lib/kids_pipeline.mjs`**: 16-stage Kids production pipeline
 
-### Shared Infrastructure (already exists)
+## Integration Architecture
 
-- **`lib/semantics.mjs`**: Pure semantic engine — language detection, action extraction, entity extraction, camera planning, beat timing, validation, repair
-- **`lib/director.mjs`**: Intelligent Director — phrase extraction, scene planning, schema, board-to-scenario mapping
-- **`frontend/server.mjs`**: Backend API — director boards, WhisperX analysis, master timeline, lyric corrections
-- **`frontend/src/api.ts`**: Frontend API clients — `importWhisperTimeline`, `directorMasterTimeline`, `saveLyricCorrections`, etc.
-- **`frontend/src/components/StoryPage.tsx`**: Story page with lyric timeline tab (already has WhisperX import UI)
+```
+Story Input
+    ↓
+Audio Intelligence Engine (new prerequisite stage)
+    ↓
+19-Track Master Timeline Generation & Validation
+    ↓
+Timeline Approval Gate
+    ↓
+AI Director Intelligence (extended to consume approved timeline)
+    ↓
+Story Bible & Semantic Reconciliation
+    ↓
+Cinematic Planning
+    ↓
+Existing 16-Stage Kids Production Pipeline
+```
 
-### New/Modified Components
+## Phase 1: New Files to Create
 
-1. **`frontend/src/components/DirectorPage.tsx`**: Rename "Story" to "Story/Song", add workflow selector
-2. **`frontend/src/components/StoryPage.tsx`**: Add "Song" tab, enhance timeline review, share timeline state
-3. **`frontend/src/api.ts`**: Add/route Song-related API endpoints (shared with Story)
-4. **`lib/semantics.mjs`**: Ensure all lyric timeline functions handle both modes
-5. **`lib/master_timeline.mjs`**: Master timeline building + clip generation shared between modes
+### `lib/directorAudioAdapter.mjs`
+- `buildDirectorAudioContext(masterTimeline, production, options)` - converts approved 19-track MasterTimeline into normalized Director Input Contract
+- Provides: Audio Context, Narrative Context, Performance Context, Visual Context, Post-Production Context, Validation Context
 
-## Implementation Sections
+### `lib/directorAudioIntegration.mjs`
+- Integration functions that extend existing Director functions with optional audioContext parameter
+- `buildStoryPlan({input, blueprint, audioContext})`
+- `buildScenesPrompt({input, blueprint, beats, audioContext})`
+- `scoreDirectorPlan(board, {audioContext})`
+- `validateStoryBoard(board, audioValidation)` - extended with audio-aware validation
 
-### 1. Rename Story to Story/Song
+## Phase 2: Modify Existing Files
 
-- Update navigation label in `App.tsx` sidebar/ breadcrumbs
-- Update `DirectorPage.tsx` page title and headings
-- Update `StoryPage.tsx` page title from "Story" to "Story/Song"
-- Update breadcrumbs and empty states
-- Add workflow selector: "Story Video" / "Song Video" tabs
+### `lib/director.mjs`
+- Add optional `audioContext` parameter to:
+  - `buildBiblePrompt(input)` → add audio context info
+  - `buildScenesPrompt({input, blueprint, beats, ...})` → pass audioContext through
+  - `normalizeScene(s, n, sceneSeconds, opts)` → add audio timing awareness
+  - `validateStoryBoard(board)` → add audio timeline validation checks
+  - `scoreDirectorPlan(board, opts)` → add audio synchronization score component (20%)
+  - `buildDirectionRepairPrompt(...)` → include audio context in repair diagnostics
+  - `buildStoryPlan(board)` → reconcile with timeline
+  - `buildShotList(board)` → add timeline event traceability
+  - `buildImagePromptFor(shot, board)` → incorporate character identity from timeline
+  - `buildVideoPromptFor(shot, board)` → incorporate motion from timeline timing
 
-### 2. WhisperX Timeline Import
+### `frontend/src/api.ts`
+- Add routes for audio timeline upload, validation, and approval
+- Extend existing director routes to accept audioContext
 
-The existing `StoryPage.tsx` already has WhisperX import functionality. Need to ensure:
+### `frontend/src/components/DirectorPage.tsx`
+- Add Audio Intelligence panel displaying:
+  - Uploaded audio
+  - Audio duration and analysis status
+  - Timeline generation status
+  - Number of events per track
+  - Validation results
+  - Approval status
+- Workflow stages visualization: Story Input → Audio Summary → 19-Track Timeline → Approval → Director Intelligence
+- "Analyze Audio & Build 19-Track Timeline" action button
+- "Send Approved Timeline to AI Director" (disabled until approval complete)
 
-- Accept WhisperX JSON with fields: `segments[].start`, `segments[].end`, `segments[].text`, `segments[].words[].word`, `segments[].words[].start`, `segments[].words[].end`, `segments[].words[].score`
-- Validate file structure, timestamps, audio duration, word ordering
-- Support segment-only timestamps (word-level alignment unavailable clearly indicated)
-- Preserve original imported file, associate with project and audio asset
-- Store media on disk, metadata in PostgreSQL
+### `lib/kids_pipeline.mjs`
+- Update `KIDS_PIPELINE_STAGES` to include Audio Intelligence stage between "story" and "song"
+- Update `kidsStageStatus` to reflect audio timeline availability
+- Update `kidsRunnableStages` to block Director planning without approved timeline
 
-### 3. Preserve Original Lyrics
+## Phase 3: Database & Persistence
 
-- User's lyric text is always authoritative
-- WhisperX transcript kept in `heard_text` for review, never replaces user text
-- Support Hindi Unicode text and normalization
-- Support repeated lyric occurrences separately
-- Display recognized text alongside corrected text
-- Retain original timestamps when only text is corrected
-- Support re-alignment when corrected lyrics need new timestamps
-- Flag low-confidence, unmatched, missing, out-of-order words
-- Distinguish measured, manually corrected, and estimated data
+### Existing Tables (Reuse)
+- Production table: reuse `phase` field values ("Audio Intelligence", "Director Planning")
+- Add metadata columns:
+  - `audio_timeline_id` - reference to approved timeline package
+  - `audio_timeline_version` - version number
+  - `audio_timeline_status` - "generated"|"validated"|"approved"|"failed"
+  - `director_input_snapshot_id` - ID of director input contract
+  - `director_input_created_at` - timestamp
 
-### 4. Canonical Audio Timeline
+### Do NOT duplicate
+- Do not duplicate the complete 19-track event data into Director tables
+- Store references to the approved timeline package only
+- Director's derived output must remain additive - must not overwrite original Audio Timeline
 
-- **AudioSegment**: start/end seconds, type (vocal, instrumental, mixed, unknown), source and confidence
-- **LyricWord**: recognized text, corrected text, start/end times, confidence, alignment status
-- **LyricPhrase**: phrase text, start/end times, associated word IDs, section type
-- **ActionTimelineItem**: action ID, timing, related lyric phrase, character/location/prop references, action description, camera direction, lip-sync requirement, timing source
-- **SceneClip**: clip start/end times, associated action IDs, prompt, generation status, generated asset reference
+## Phase 4: Testing Strategy
 
-All timestamps use seconds from the beginning of the original audio. The measured audio timeline is authoritative — the LLM must not rewrite measured timestamps.
+### Test Scenarios
+1. Hindi devotional song with full 19-track timeline
+2. English children's song
+3. Hinglish song
+4. Instrumental-only music (verify zero lip-sync during instrumental shots - Part 12.3)
+5. Song with multiple characters
+6. Song with dialogue and narration
+7. Song with choreography
+8. Story-only production without audio (preserve existing Director workflow)
 
-### 5. Song Director Integration
+### Verification Points
+- All 19 tracks remain available after integration
+- Audio remains the single master clock - no independent scene/shot clocks
+- No unauthorized timing changes
+- Lip-sync rules enforced (no lip-sync during instrumental shots)
+- Character identities reconciled with Story Bible
+- Director shots reference their source timeline events
+- Existing Director functionality continues to work
+- Existing 16-stage production pipeline remains operational
 
-For each aligned phrase:
-- Determine which character acts or sings
-- What the character does
-- Which location and props are used
-- Whether mouth movement or lip-sync is required
-- Which camera movement and framing are appropriate
-- Whether the action continues from the previous clip
+## Phase 5: Migration & Rollback
 
-The director must respect the original lyric order and timestamps. Instrumental sections receive appropriate visual actions without triggering future lyric-specific actions.
+### Migration Steps
+1. Backup existing production data
+2. Add new metadata columns to database schema
+3. Implement adapter layer first (no database changes initially)
+4. Add UI workflow stages progressively
+5. Test story-only productions still work
+6. Test audio-driven productions with new pipeline
+7. Gradual rollout: enable audio timeline stage opt-in via feature flag
 
-### 6. Story Director Update
+### Rollback Strategy
+- Feature flag in `.env`: `ENABLE_AUDIO_TIMELINE_INTEGRATION=true|false`
+- When disabled, existing Director workflow operates unchanged
+- New metadata columns are optional (nullable), so schema can be dropped
+- Adapter layer is purely additive - no existing code modified destructively
 
-Story events follow the narrative while respecting the audio timeline. The story may continue across multiple lyric phrases — not every lyric forces a new scene. Maintain character identity, locations, props, visual style, narrative continuity, and genre-specific rules.
+## Key Constraints (from Spec)
 
-### 7. Timeline-Aware Scene and Clip Generation
+### PART 10 — TIMING AND LIP-SYNC INTEGRITY (Non-negotiable)
+- Original audio clock remains authoritative throughout
+- No independent scene clock, no independent shot clock
+- No arbitrary duration changes
+- No unapproved movement of timeline events
+- No lip-sync during instrumental shots
+- Every visible speaking character must have appropriate lip-sync events
+- Preserve word-level timing wherever available
 
-For each clip:
-1. Establish exact start and end time
-2. Retrieve actions overlapping that interval
-3. Convert absolute timestamps to clip-relative timestamps
-4. Include relevant lyrics, characters, locations, props, and visual style
-5. Specify action order and prevent premature actions
-6. Preserve continuity from preceding scenes
-7. Exclude actions occurring entirely outside the clip
+### PART 5 — DIRECTOR INPUT ADAPTER
+- Must NOT copy entire original audio into every scene
+- Pass references and time ranges only
+- Preserve original event IDs and source-track references
 
-Example: If clip starts at 9.0s and lyric begins at 10.1s, lyric-related action begins ~1.1s after clip starts.
+### PART 13 — AUTOMATIC REPAIR
+- Repair engine must identify defective scenes/shots by their source timeline events
+- Must preserve approved character identities
+- Must preserve original audio timestamps
+- Must preserve unaffected scenes
 
-Prefer one dominant action per clip. Generated clip durations conform to assigned timeline before final rendering.
+### PART 17 — EXISTING PRODUCTION PIPELINE
+- Preserve all 16 stages: director → story → song → audio → characters → locations → props → storyboard → images → video → voice → assembly → final → assets → QC → feedback
+- Adapt dependencies so audio-driven productions cannot execute Director planning without approved timeline
+- Do NOT unnecessarily change existing stage names, jobs, dependencies or execution behavior
 
-### 8. Instrumental and Unknown Sections
+## Implementation Priority
 
-- Allow establishing shots, entrances, dancing, reactions, transitions during instrumental sections
-- Do not stretch earlier lyric across long gaps
-- Do not assume every region without aligned lyrics is instrumental — mark as unknown until established
-- Preserve intentional gaps and overlapping vocals
+1. **Week 1**: Create `lib/directorAudioAdapter.mjs` and `lib/directorAudioIntegration.mjs`
+   - Implement `buildDirectorAudioContext()` function
+   - Extend key Director functions with optional audioContext parameter
+   - Maintain full backward compatibility
 
-### 9. Timeline Review Panel
+2. **Week 2**: Modify `frontend/src/api.ts`
+   - Add audio timeline upload/validation routes
+   - Extend director routes to accept audioContext
+   - Minimal UI changes for testing
 
-Display within the Story/Song workspace:
-- Original audio duration and playback position
-- Vocal, instrumental, mixed, and unknown intervals
-- Corrected lyric phrases and word timestamps
-- Character action intervals
-- Scene clip boundaries
-- Confidence values and validation warnings
-- Timing provenance: audio-aligned, manually corrected, or estimated
+3. **Week 3**: Modify `frontend/src/components/DirectorPage.tsx`
+   - Add Audio Intelligence panel
+   - Workflow stage visualization
+   - Integration buttons
 
-Allows users to:
-- Correct lyric text and timing
-- Review proposed actions
-- Approve the timeline
-- Regenerate dependent prompts without rerunning unrelated stages
+4. **Week 4**: Update `lib/kids_pipeline.mjs`
+   - Add Audio Intelligence stage to pipeline
+   - Update stage dependencies and status logic
+   - Test both audio-driven and story-only paths
 
-### 10. Validation and Background Processing
+5. **Week 5**: Comprehensive testing
+   - All 14 test scenarios from Part 18
+   - Backward compatibility verification
+   - Performance and timing validation
 
-Before video generation, validate:
-- Timestamp ranges and audio boundaries
-- Word and phrase ordering
-- Repeated lyric occurrences
-- Action-to-lyric relationships
-- Character and asset references
-- Clip durations and timeline coverage
-- Unresolved low-confidence alignment
-
-Run audio analysis, alignment, and generation as background jobs using existing job infrastructure. Provide progress, error reporting, retry, and cancellation. Cache alignment results using audio hash, lyric content, and model/configuration version.
-
-### 11. Testing
-
-Add tests for:
-- Instrumental intro followed by lyrics
-- Long gaps between vocal segments
-- Repeated choruses
-- Hindi recognition errors
-- Low-confidence words
-- Missing word-level timestamps
-- Lyrics crossing clip boundaries
-- Manual corrections and re-alignment
-- Instrumental and unknown regions
-- Final audio/video duration consistency
-- Existing Story workflows continuing to work after the rename
-
-Use deterministic fixtures with known timestamps and at least one manually verified real-song test.
-
-## Files to Create/Modify
-
-### Created:
-- `frontend/src/components/StorySongPage.tsx` — New Story/Song page combining Story and Song workflows
-- `lib/master_timeline.mjs` — Enhanced master timeline (if needed)
-- `tests/story_song.test.mjs` — Tests for the new feature
-
-### Modified:
-- `frontend/src/App.tsx` — Update navigation label, add Story/Song badge
-- `frontend/src/components/DirectorPage.tsx` — Rename "Story" to "Story/Song", add workflow selector
-- `frontend/src/components/StoryPage.tsx` — Add Song tab, enhance timeline review, share state
-- `frontend/src/api.ts` — Ensure all WhisperX/timeline routes work for both modes
-- `tests/lyric_timeline.test.mjs` — Ensure all existing tests pass
-- `tests/lyric_timeline_server.test.mjs` — Server tests for WhisperX import
-
-## Database Changes
-
-The existing database schema already supports:
-- `director_boards.lyric_timeline` — stored WhisperX timeline
-- `director_boards.master` — approved master timeline
-- `scenarios.config` — project config with project_type
-- `project_songs` — song form data (already exists for Create Song tab)
-
-No new database tables or migrations are needed unless adding new columns. The existing infrastructure is sufficient.
-
-## UI Changes
-
-1. **Sidebar/Navigation**: "Story/Song" label replacing "Story"
-2. **Workspace Page Title**: "Story/Song Studio" 
-3. **Breadcrumbs**: Story/Song path
-4. **Page Headings**: "Story/Song Studio" 
-5. **Empty States**: Support both Story and Song empty states
-6. **Workflow Tabs**: "Story Video" / "Song Video" selector
-7. **Lyric Timeline Panel**: Enhanced review/editing
-8. **Master Timeline Panel**: Same panel serves both modes
-9. **Audio Player**: Same player for both modes
-10. **Progress/Status**: Shared across both modes
-
-## API Changes
-
-Existing routes already support the feature:
-- `POST /api/whisperx/preflight` — WhisperX preflight check
-- `POST /api/director/boards` — Create board (supports song mode)
-- `GET/PUT /api/director/boards/:id/timeline` — Audio timeline
-- `POST /api/director/boards/:id/analyze-story` / `.../analyze-song` — Analyze
-- `GET /api/director/boards/:id/master` — Master timeline
-- `POST /api/director/boards/:id/approve-master` — Approve timeline
-- `POST /api/director/boards/:id/unlock-master` — Unlock timeline
-- `POST /api/director/boards/:id/generate-master-clips` — Generate clips
-- `GET /api/project/:name/song` — Song form data
-- `GET /api/project/:name/dialogue` — Dialogue status
-
-No new API routes needed — existing routes serve both modes.
-
-## Migration Strategy
-
-- Existing "Story" projects remain accessible and functional
-- When a user opens an existing Story project in the new Story/Song workspace, it defaults to "Story Video" mode
-- New projects can choose "Story Video" or "Song Video" at creation
-- All stored data (boards, scenes, timelines) carries a `project_type` or can be inferred
-- No data migration needed — the same board JSON works for both modes
-
-## Definition of Done
-
-- [ ] The existing Story workspace is displayed as "Story/Song"
-- [ ] Both Story Video and Song Video workflows remain accessible
-- [ ] WhisperX JSON imports and validates successfully
-- [ ] Original lyrics are preserved (never overwritten by transcript)
-- [ ] The approved master timeline drives action planning and clip generation
-- [ ] Instrumental sections do not trigger future lyric actions
-- [ ] Clip-local prompts respect the master timeline
-- [ ] The user can review and correct uncertain alignments
-- [ ] Existing project, asset, scene, batch, and rendering workflows continue to work
-- [ ] Database migrations and automated tests pass
-- [ ] Documentation updated according to project conventions
+6. **Week 6**: Finalization
+   - Feature flag configuration
+   - Documentation updates
+   - Rollback verification
