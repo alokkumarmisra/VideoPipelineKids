@@ -40,6 +40,7 @@ import {
   buildSemanticAnalysisPrompt,
   mergeModelSemantics,
   buildSemanticContext,
+  buildSemanticVariationContext,
   attachSemantics,
   validateSceneSemantics,
   repairSceneSemantics,
@@ -93,6 +94,7 @@ import {
   normalizeScene,
   canonicalizeSceneRefs,
   dedupeScenes,
+  flagRepeatStaging,
   sameLine,
   buildBiblePrompt,
   buildScenesPrompt,
@@ -150,6 +152,17 @@ import {
   buildRenderJob,
   buildQCReport,
 } from "../lib/director.mjs";
+import {
+  STORYBOARD_PHASES,
+  STORYBOARD_TRACKS,
+  normalizeStoryboardTimeline,
+  storyboardBatchContext,
+  buildStoryboardPromptBlock,
+  auditStoryboardCoverage,
+  validateStoryboardForApproval,
+  buildDirectorHandoff,
+  buildStoryboardView,
+} from "../lib/storyboard_planner.mjs";
 import { storyboardToScenario } from "../lib/project_import.mjs";
 import {
   KIDS_SCHEMA,
@@ -2892,6 +2905,12 @@ const liveReset = (id, note) => {
   const st = directorLive.get(id);
   if (st) { st.text = note ? `${note}\n` : ""; st.reasoning = ""; }
 };
+// Storyboard Planner 2.0 phase labels: updates only the LABEL in the existing
+// read-only buffer. It never resets tokens, changes polling, or calls the LLM.
+const livePhase = (id, phase) => {
+  const st = directorLive.get(id);
+  if (st && st.active) st.phase = phase;
+};
 const liveEnd = (id) => { directorLive.delete(id); };
 // Streaming twin of llmChatJson for director scene batches: same payload +
 // stream:true, same retry policy (transport drops re-issue the whole request,
@@ -3533,6 +3552,9 @@ function boardSemanticIssues(board) {
     for (const e of check.errors.slice(0, 3)) issues.push(`Scene ${scene.scene_number}: ${e}`);
     for (const w of (check.warnings || []).slice(0, 2)) issues.push(`Scene ${scene.scene_number}: ${w}`);
   }
+  // Camera-only repeats feed the SAME staged repair as the per-scene issues.
+  // Each note names its scene numbers so the repair route auto-targets them.
+  for (const note of flagRepeatStaging(arr(board && board.scenes))) issues.push(note);
   return issues;
 }
 
@@ -3544,6 +3566,25 @@ function semanticsForBatch(board, batchLines) {
   if (!wanted.size) return rows.slice(0, 12);
   const picked = rows.filter((r) => wanted.has(Number(r.line_id)));
   return picked.length ? picked : rows.slice(0, 12);
+}
+
+/**
+ * Meaning-variation guard for THIS batch only. Reads the same stored semantic
+ * rows the real batch just wrote, so Show prompt (prompt-preview) and the real
+ * Generate / Continue call render the identical block. Strict line-id filters
+ * (never the fallback in semanticsForBatch) keep unrelated lines out.
+ */
+function semanticVariationForBatch(board, batchLines, freshRows = null) {
+  const ids = new Set(arr(batchLines)
+    .map((l) => Number(l && (l.lyric_line_id || l.line_id))).filter((n) => n > 0));
+  const texts = new Set(arr(batchLines)
+    .map((l) => String((l && (l.lyric_text ?? l.text ?? l.line)) ?? "")).filter(Boolean));
+  if (!ids.size && !texts.size) return "";
+  const stored = arr(board && board.semantics && board.semantics.lines);
+  const rows = arr(freshRows).length ? arr(freshRows) : stored;
+  const picked = rows.filter((r) => r && (ids.has(Number(r.line_id))
+    || texts.has(String(r.source_text ?? r.text ?? ""))));
+  return buildSemanticVariationContext(picked);
 }
 
 // ---------------------------------------------------------------------------
@@ -7511,6 +7552,10 @@ const server = http.createServer(async (req, res) => {
       // the timing derivation above throws (it is best-effort).
       let masterTiming = null;
       let approvedApplied = false;
+      // Storyboard Planner 2.0: the richer read-only 19-track context. Built
+      // from the SAME approved master (never a second clock) and sliced to the
+      // identical batch window as masterTiming above. Null => old prompt.
+      let cinematicContext = null;
       try {
         const song = board.input && board.input.song;
         const transcriptSegments = Array.isArray(board.input?.songAnalysis?.transcript?.segments)
@@ -7523,33 +7568,18 @@ const server = http.createServer(async (req, res) => {
         // an edited story would otherwise be timed by stale windows, so it
         // falls back to the honest estimate instead (the Lyric panel flags
         // the stale timeline and asks for a re-import).
-        const storedTimeline = Array.isArray(board.lyric_timeline && board.lyric_timeline.lines)
-          ? board.lyric_timeline.lines : [];
-        const storedTiming = storedTimeline
-          .filter((l) => Number.isFinite(Number(l.start_seconds)) && Number.isFinite(Number(l.end_seconds)))
-          .map((l) => ({
-            lyric_line_id: Number(l.line_id) || 0,
-            lyric_text: String(l.lyric_text || ""),
-            song_start_time: Number(l.start_seconds),
-            song_end_time: Number(l.end_seconds),
-            timing: String(l.timing || "estimated"),
-          }))
-          .filter((l) => l.song_end_time > l.song_start_time);
-        const currentLineIds = lyricTimelineSourceLines(board)
-          .map((l) => Number(l.lyric_line_id)).filter((n) => Number.isFinite(n));
-        const storedCoversCurrent = storedTiming.length > 0 && currentLineIds.length > 0
-          && currentLineIds.every((id) => storedTiming.some((l) => l.lyric_line_id === id));
-        // An APPROVED master timeline outranks even the raw stored windows:
-        // the user reviewed and locked those segments (manual corrections
-        // included), so they are the authoritative timing reference for scene
-        // planning (priority: user-approved > validated alignment > estimate).
-        // Its lyric-carrying segments become the timed line list, and the
-        // batch prompt receives the approved slice (segments + clips) for
-        // this batch's time window so the scenes are planned ON the timeline.
+        // OPTIMIZATION: When an approved master timeline is present and covers
+        // the current lines, skip the stored timing analysis entirely since
+        // the approved master is the authoritative timing reference.
         const masterStored = board.lyric_timeline && board.lyric_timeline.master;
         const approvedMaster = masterStored && masterStored.approved
           && Array.isArray(masterStored.segments) && masterStored.segments.length
           ? masterStored : null;
+        const currentLineIds = lyricTimelineSourceLines(board)
+          .map((l) => Number(l.lyric_line_id)).filter((n) => Number.isFinite(n));
+        let lyricTiming = [];
+        let storedCoversCurrent = false;
+        let approvedApplied = false;
         if (approvedMaster) {
           const approvedTiming = approvedMaster.segments
             .filter((s) => Number(s.lyric_line_id) > 0 && Number.isFinite(Number(s.start_seconds)) && Number(s.end_seconds) > Number(s.start_seconds))
@@ -7561,13 +7591,41 @@ const server = http.createServer(async (req, res) => {
               timing: s.timing_source === "manual" ? "manual" : "whisperx",
             }));
           const approvedIds = new Set(approvedTiming.map((l) => l.lyric_line_id));
-          const approvedCoversCurrent = currentLineIds.length > 0
+          approvedApplied = currentLineIds.length > 0
             && currentLineIds.every((id) => approvedIds.has(id));
-          if (approvedCoversCurrent && approvedTiming.length) {
+          if (approvedApplied && approvedTiming.length) {
             lyricTiming = approvedTiming;
-            approvedApplied = true;
           }
-          const winFrom = prog.plannedSeconds;
+        }
+        if (!approvedApplied) {
+          // Fall back to stored timeline analysis
+          const storedTimeline = Array.isArray(board.lyric_timeline && board.lyric_timeline.lines)
+            ? board.lyric_timeline.lines : [];
+          const storedTiming = storedTimeline
+            .filter((l) => Number.isFinite(Number(l.start_seconds)) && Number.isFinite(Number(l.end_seconds)))
+            .map((l) => ({
+              lyric_line_id: Number(l.line_id) || 0,
+              lyric_text: String(l.lyric_text || ""),
+              song_start_time: Number(l.start_seconds),
+              song_end_time: Number(l.end_seconds),
+              timing: String(l.timing || "estimated"),
+            }))
+            .filter((l) => l.song_end_time > l.song_start_time);
+          const storedCoversCurrent = storedTiming.length > 0 && currentLineIds.length > 0
+            && currentLineIds.every((id) => storedTiming.some((l) => l.lyric_line_id === id));
+          if (storedCoversCurrent && storedTiming.length) {
+            lyricTiming = storedTiming;
+          }
+        }
+        // An APPROVED master timeline outranks even the raw stored windows:
+        // the user reviewed and locked those segments (manual corrections
+        // included), so they are the authoritative timing reference for scene
+        // planning (priority: user-approved > validated alignment > estimate).
+        // Its lyric-carrying segments become the timed line list, and the
+        // batch prompt receives the approved slice (segments + clips) for
+        // this batch's time window so the scenes are planned ON the timeline.
+        // (lyricTiming and approvedApplied already set above)
+        const winFrom = prog.plannedSeconds;
           const winTo = prog.plannedSeconds + budget;
           const inWin = (t) => Number(t.end_seconds ?? t.end) > winFrom - 0.001
             && Number(t.start_seconds ?? t.start) < winTo + 0.001;
@@ -7589,8 +7647,7 @@ const server = http.createServer(async (req, res) => {
               })),
             };
           }
-        }
-        if (storedCoversCurrent) {
+        if (!approvedApplied && storedCoversCurrent) {
           // The approved slice above already replaced this when it covers the
           // current lines; the raw stored windows are the next-best source.
           if (!approvedApplied) lyricTiming = storedTiming;
@@ -7620,8 +7677,89 @@ const server = http.createServer(async (req, res) => {
           if (!lineRange.length) lineRange = lyricTiming.slice();
         }
       } catch { /* line timing is best-effort; the batch runs without it */ }
-      return { ready: false, done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, masterTiming };
+      // Best-effort additive context: a board WITHOUT an approved timeline
+      // keeps the historical prompt byte-for-byte (normalize is read-only).
+      try {
+        const sbTimeline = normalizeStoryboardTimeline({ board });
+        if (sbTimeline.available) {
+          const ctx = storyboardBatchContext({
+            board,
+            timeline: sbTimeline,
+            from: prog.plannedSeconds,
+            to: prog.plannedSeconds + budget,
+          });
+          cinematicContext = buildStoryboardPromptBlock(ctx);
+        }
+      } catch (e) {
+        console.warn(`[director:${id}] cinematic context skipped: ${String(e?.message || e).slice(0, 160)}`);
+      }
+      // masterTiming stays the LAST field: existing wiring tests pin that
+      // exact tail, and the planning engine still reads it the same way.
+      return { ready: false, done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, cinematicContext, masterTiming };
     };
+    // -----------------------------------------------------------------------
+    // Storyboard Planner 2.0 — READ-ONLY views over the SAME board and the
+    // SAME approved timeline. No route here writes the board, moves a window,
+    // approves anything, or starts a run. They power the cinematic workspace
+    // without giving it a second planning engine.
+    // -----------------------------------------------------------------------
+    const storyboardRouteId = () => decodeURIComponent(p.split("/")[4] || "");
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const timeline = normalizeStoryboardTimeline({ board });
+      const audit = auditStoryboardCoverage({ board, timeline });
+      return json(res, 200, buildStoryboardView({ board, timeline, audit }));
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/timeline$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const tl = normalizeStoryboardTimeline({ board });
+      // Flat event list keeps the DAW-style ruler simple while the full 19
+      // lanes remain available for the lane view. Source ids are preserved.
+      const events = STORYBOARD_TRACKS.flatMap((track) => arr(tl.tracks[track]).map((e) => ({ ...e, track })))
+        .sort((a, b) => a.start - b.start || a.end - b.end);
+      return json(res, 200, {
+        board_id: id, source: tl.source, id: tl.id, version: tl.version,
+        approvedAt: tl.approvedAt, approved: tl.approved, available: tl.available,
+        durationSec: tl.durationSec, readOnly: true,
+        trackCounts: tl.trackCounts, tracks: tl.tracks, events,
+        note: tl.note,
+      });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/context$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const tl = normalizeStoryboardTimeline({ board });
+      const fromQ = Number(u.searchParams.get("from"));
+      const toQ = Number(u.searchParams.get("to"));
+      const from = Number.isFinite(fromQ) ? fromQ : 0;
+      const to = Number.isFinite(toQ) ? toQ : tl.durationSec;
+      const ctx = storyboardBatchContext({ board, timeline: tl, from, to });
+      return json(res, 200, { board_id: id, context: ctx, promptBlock: buildStoryboardPromptBlock(ctx) });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/coverage$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const timeline = normalizeStoryboardTimeline({ board });
+      return json(res, 200, { board_id: id, ...auditStoryboardCoverage({ board, timeline }) });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/validate$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const timeline = normalizeStoryboardTimeline({ board });
+      return json(res, 200, {
+        board_id: id,
+        ...validateStoryboardForApproval({ board, timeline }),
+        note: "Advisory pre-approval audit. The existing APPROVE route remains the authority; critical errors here are never silently waived.",
+      });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/handoff$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const timeline = normalizeStoryboardTimeline({ board });
+      return json(res, 200, { board_id: id, ...buildDirectorHandoff({ board, timeline }) });
+    }
     // Prompt preview (dry run): the EXACT system + user messages the next
     // Continue would send to the LLM — built by the same planner above, but
     // no model call and nothing saved. Powers Show prompt popup.
@@ -8700,6 +8838,10 @@ except Exception as e:
         // The approved master timeline rides the dry-run popup EXACTLY like
         // the real batch — Show prompt must show the timing contract too.
         masterTimeline: spec.masterTiming || null,
+        cinematicContext: spec.cinematicContext || null,
+        // Same gated abstract-line guidance the real batch sends (derived from
+        // the board's stored meaning for this line window).
+        semanticVariationContext: semanticVariationForBatch(board, spec.lineRange),
       });
       return json(res, 200, {
         ready: false,
@@ -8729,13 +8871,18 @@ except Exception as e:
         const body = await readJson(req).catch(() => ({}));
         const spec = nextSceneBatchSpec(board, body.count, id);
         if (spec.ready) return json(res, 200, spec.write ? writeDirectorBoard(spec.board) : spec.board);
-        const { done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, masterTiming } = spec;
+        const { done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, masterTiming, cinematicContext } = spec;
         const scenesRawTag = `_raw_${id}_scenes_${done + 1}.log`;
+        // Read-only phase labels for the storyboard workspace. Same buffer,
+        // same SSE/LLM call — the UI merely names the step it is watching.
+        liveBegin(id, { phase: STORYBOARD_PHASES[0], batchFrom: done + 1, batchTo: done + n });
+        if (masterTiming || cinematicContext) livePhase(id, STORYBOARD_PHASES[1]);
         // The MEANING pass for THIS batch: the configured model enriches the
         // deterministic reading of the lines this batch covers (the meaning
         // the scenes are planned FROM). A failure keeps the deterministic
         // analysis — the batch is never blocked by a slow model.
         const batchLines = arr(lineRange).length ? arr(lineRange) : arr(lyricTiming);
+        livePhase(id, STORYBOARD_PHASES[2]);
         const semanticLanguage = String((board.input && board.input.semanticsLanguage) || "auto");
         const deterministicRows = analyzeLinesDeterministic(
           batchLines.map((l) => ({
@@ -8772,6 +8919,10 @@ except Exception as e:
             created_at: new Date().toISOString(),
           };
         }
+        // The abstract/unresolved lines of THIS batch get one explicit,
+        // distinct visible action each — never the placeholder that used to
+        // make every scene identical except for its camera fields.
+        const semanticVariationContext = semanticVariationForBatch(board, lineRange, semanticRows);
         // Huge batches can get cut off mid-array (model hits max_tokens /
         // context). Salvage path: bind every COMPLETED scene from the raw
         // text and continue the plan from there, instead of 500ing with
@@ -8792,8 +8943,8 @@ except Exception as e:
         let attemptN = n;
         let attemptTag = scenesRawTag;
         let attemptCompact = false;
-        liveBegin(id, { phase: "scenes", batchFrom: done + 1, batchTo: done + n });
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        livePhase(id, STORYBOARD_PHASES[3]);
+        for (let attempt = 1; attempt <= 2; attempt++) {
         try {
           raw = await llmChatJsonLive({
             system: DIRECTOR_SYSTEM,
@@ -8814,6 +8965,8 @@ except Exception as e:
               // the timing contract the LLM must plan against (absolute
               // windows, instrumental/unknown rules, repeat occurrences).
               masterTimeline: masterTiming || null,
+              cinematicContext: cinematicContext || null,
+              semanticVariationContext,
             }),
             maxTokens: 16000,
             temperature: 0.5,
@@ -8824,6 +8977,7 @@ except Exception as e:
           });
           batchComplete = raw && raw.complete === true;
           assertNoCJK(raw, "the scene plan");
+          livePhase(id, STORYBOARD_PHASES[4]);
           break;
         } catch (e) {
           const msg = String((e && e.message) || "");
@@ -8975,6 +9129,7 @@ except Exception as e:
         // exact bible ids — free-text places, objects parked in the location
         // slot, and hallucinated cast are repaired/dropped here so every
         // stored scene actually grounds downstream (see canonicalizeSceneRefs).
+        livePhase(id, STORYBOARD_PHASES[5]);
         try {
           const { repairs, notes } = canonicalizeSceneRefs(normed, board.blueprint);
           for (const r of repairs.slice(0, 3)) {
@@ -8999,6 +9154,10 @@ except Exception as e:
         const warnBits = [];
         if (dropped > 0) warnBits.push(`${dropped} repeat scene${dropped === 1 ? "" : "s"} skipped (same title + action as an earlier scene)`);
         if (groundNotes.length) warnBits.push(...groundNotes);
+        // Meaning-aware repeat guard: different source lines staged with the
+        // same action/pose (only the camera changes) are reported, never
+        // dropped — dropping would leave a line uncovered.
+        for (const note of flagRepeatStaging(board.scenes).slice(0, 3)) warnBits.push(note);
         // The MEANING lands on the scenes: every scene carries its source
         // line, the interpretation, the visible action plan, the camera
         // rationale and the beats. A scene that does not show its line is
@@ -9067,7 +9226,10 @@ except Exception as e:
         // A clean full batch proves the model handles this size again —
         // drop the stall hint so planning returns to full batches.
         if (!salvageNote) board.planBatchHint = null;
-        return json(res, 200, writeDirectorBoard(board));
+        livePhase(id, STORYBOARD_PHASES[6]);
+        const savedBoard = writeDirectorBoard(board);
+        livePhase(id, completeOk ? STORYBOARD_PHASES[8] : STORYBOARD_PHASES[7]);
+        return json(res, 200, savedBoard);
       } finally {
         liveEnd(id);
         directorPlanning.delete(id);
