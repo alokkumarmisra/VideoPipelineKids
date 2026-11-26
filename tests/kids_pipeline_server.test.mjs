@@ -15,9 +15,6 @@ import { KIDS_SCHEMA, KIDS_SQLITE_SCHEMA } from "../lib/kids.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverSrc = fs.readFileSync(path.join(ROOT, "frontend", "server.mjs"), "utf8");
 const appSrc = fs.readFileSync(path.join(ROOT, "frontend", "src", "App.tsx"), "utf8");
-const pageSrc = fs.readFileSync(path.join(ROOT, "frontend", "src", "components", "SanskritiKidsPage.tsx"), "utf8");
-const panelsSrc = fs.readFileSync(path.join(ROOT, "frontend", "src", "components", "KidsStudioPanels.tsx"), "utf8");
-const apiSrc = fs.readFileSync(path.join(ROOT, "frontend", "src", "kidsApi.ts"), "utf8");
 
 describe("kids studio routes (static)", () => {
   const routes = [
@@ -118,36 +115,11 @@ describe("the kids schema carries the studio tables", () => {
 });
 
 describe("the frontend is wired to the studio", () => {
-  it("the sidenav calls the module Sanskriti Kids", () => {
-    assert.ok(appSrc.includes("Sanskriti Kids"), "the module label is missing");
-    assert.ok(!/>Kids Director</.test(appSrc), "the old 'Kids Director' nav label is still there");
-    assert.ok(appSrc.includes("nav-sanskriti-kids"), "the kids nav entry is missing");
-  });
-  it("the kids workflows are seeded from the studio brief (no lock)", () => {
-    assert.ok(!pageSrc.includes("kidsOnly"), "the studio still locks the story workflow to Kids");
-    assert.ok(appSrc.includes("KidsDirectorPage"), "the kids director page is not embedded");
-    const kidsPage = fs.readFileSync(path.join(ROOT, "frontend", "src", "components", "KidsDirectorPage.tsx"), "utf8");
-    assert.ok(kidsPage.includes('const GENRES = ["Kids"'), "the kids director genre select lost its options");
-    assert.ok(!kidsPage.includes("KIDS_GENRES"), "the kids director genre select is still pinned");
-  });
-  it("the studio page exposes every workflow tab", () => {
-    for (const tab of ["pipeline", "story_studio", "song_studio", "audio_studio", "library", "storyboard", "qc", "feedback"]) {
-      assert.ok(pageSrc.includes(`"${tab}"`), `the ${tab} tab is missing`);
-    }
-  });
-  it("the panels call the real API (no fake progress)", () => {
-    for (const call of [
-      "kidsPipeline", "kidsRunPipeline", "kidsStory", "kidsGenerateStory", "kidsApproveStory",
-      "kidsAnalyzeLyrics", "kidsRunAudioAnalysis", "kidsTimeline", "kidsBuildTimeline",
-      "kidsSaveTimeline", "kidsLibrary", "kidsCreateLibraryAsset", "kidsRunQc",
-      "kidsRecordExport", "kidsSaveFeedback", "kidsGenerateReference", "kidsJobs",
-    ]) {
-      assert.ok(panelsSrc.includes(call), `${call} is not used`);
-      assert.ok(apiSrc.includes(call), `${call} is not in the api client`);
-    }
-  });
-  it("the api client points at the /api/kids routes", () => {
-    assert.ok(apiSrc.includes("/api/kids/pipeline"), "the pipeline route is missing in the client");
-    assert.ok(apiSrc.includes("/api/kids/library"), "the library route is missing in the client");
+  it("the standalone Kids and Story/Song modules are not mounted in the app", () => {
+    assert.ok(!appSrc.includes("Sanskriti Kids"), "the Kids menu/page is still mounted");
+    assert.ok(!appSrc.includes("Story/Song"), "the Story/Song menu/page is still mounted");
+    assert.ok(!appSrc.includes("KidsDirectorPage"), "the standalone Kids Director is still mounted");
+    assert.ok(!appSrc.includes("StoryPage"), "the standalone Story page is still mounted");
+    assert.ok(appSrc.includes("<DirectorPage"), "the regular Director workflow was removed");
   });
 });

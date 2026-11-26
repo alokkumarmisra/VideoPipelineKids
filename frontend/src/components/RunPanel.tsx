@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { alertServiceError, serviceOfflineKind, startRun, killRun, tailRun, outScenario, getScenario, type AssetEvent, type Engine, type ImageMode, type RegenSpec, type RunRequest, type VideoFormat, type VideoType } from "../api";
+import { alertServiceError, serviceOfflineKind, startRun, killRun, tailRun, outScenario, getScenario, fmtDateTime, type AssetEvent, type Engine, type ImageMode, type RegenSpec, type RunRequest, type VideoFormat, type VideoType } from "../api";
 import OutputGallery from "./OutputGallery";
 import { useDialog } from "./Dialog";
-import { MIN_TASK_MS, formatElapsed, formatStarted, loadPace, recordPaceDuration, type GenerationProgress } from "./GenerationProgressBar";
+import { MIN_TASK_MS, emptyProgress, formatElapsed, formatStarted, loadPace, recordPaceDuration, type GenerationProgress } from "./GenerationProgressBar";
 import RenderMonitor, { type RmPin } from "./RenderMonitor";
 import type { Beat } from "../types";
 import { IconPanel, IconPlay, IconScissors, IconStop, IconClapper, Spinner } from "./Icons";
@@ -50,6 +50,8 @@ function RunPart({ storageKey, title, label, children }: {
 
 interface Props {
   scenario: string;
+  projectDisplayName?: string;
+  projectLastUsedAt?: number | null;
   /** Immutable storage folder for the viewed project (outputs/<folder>/). */
   folder?: string;
   engine: Engine;
@@ -136,7 +138,7 @@ function queuedTaskCounts(
 // Start / stitch / stop a run + live log tail (SSE) + live asset gallery.
 // Progress + ETA are derived from the real asset stream (see `progress`
 // below) — never fake timers.
-export default function RunPanel({ scenario, folder, engine, onEngine, imageMode, onImageMode, videoType = "YOUTUBE", onVideoType, onDone, onStatus, pendingRun, attachRun, serverRun, onProgress, comfyQueue = 0, runQueue = [] }: Props) {
+export default function RunPanel({ scenario, projectDisplayName, projectLastUsedAt, folder, engine, onEngine, imageMode, onImageMode, videoType = "YOUTUBE", onVideoType, onDone, onStatus, pendingRun, attachRun, serverRun, onProgress, comfyQueue = 0, runQueue = [] }: Props) {
   // Displayed cut: the live run owns the panel while running; when idle the
   // YOUTUBE/INSTAGRAM dropdown picks which cut's outputs show (and what the
   // header Generate/Stitch buttons produce next).
@@ -179,9 +181,11 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
   const [stoppingServer, setStoppingServer] = useState(false);
   useEffect(() => { if (!serverRun) setStoppingServer(false); }, [serverRun]);
 
-  // Idle view follows the selected project — never the previous run's
-  // captured scenario/folder/engine. A live run owns the panel regardless.
-  const idle = status !== "running";
+  // Keep the real run alive when switching projects, but only present its
+  // processing state in the project that owns that run.
+  const isCurrentProjectRun = status === "running" && runScenario === scenario;
+  const visibleStatus: RunStatus = runScenario === scenario ? status : "idle";
+  const idle = !isCurrentProjectRun;
   const displayScenario = idle ? scenario : (runScenario ?? scenario);
   const displayFolder = idle ? (folder ?? scenario) : (runFolder ?? folder ?? runScenario ?? scenario);
   const displayEngine = idle ? engine : (runEngine ?? engine);
@@ -770,6 +774,10 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
     };
   }, [assets, assetTimes, totalBeats, dlgBeats, runMeta, runQueue, status, startedAt, timeAnchor, endedAt, now, cancelled, runScenario, scenario]);
 
+  const visibleProgress = isCurrentProjectRun ? progress : emptyProgress;
+  const visibleAssets = isCurrentProjectRun ? assets : [];
+  const visibleLog = isCurrentProjectRun ? log : "";
+
   useEffect(() => { onProgress?.(progress); }, [progress, onProgress]);
 
   // Cumulative batch banking: each drained run's asset stream resets on the
@@ -815,7 +823,7 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
     ),
     done: <span className="pill done">done</span>,
     error: <span className="pill error">error</span>,
-  }[status];
+  }[visibleStatus];
 
   return (
     <section className={`card${collapsed ? " collapsed" : ""}`} aria-label="Rendered Clip">
@@ -825,6 +833,12 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
             <span className="head-icon hi-output"><IconClapper size={15} /></span>
             Rendered Clip
           </h2>
+          {scenario && (
+            <div className="run-project-meta" title={projectLastUsedAt == null ? undefined : `Last used ${fmtDateTime(projectLastUsedAt)}`}>
+              <strong>{projectDisplayName || scenario}</strong>
+              {projectLastUsedAt != null && <span>Last used · {fmtDateTime(projectLastUsedAt)}</span>}
+            </div>
+          )}
           {statusPill}
           <span className="spacer" />
           <button
@@ -840,24 +854,24 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
         <div className="run-head-controls">
         <div className="run-head-actions" role="group" aria-label="Run controls">
           <label className="vt-select" title="Chain scenes: beats N>1 carry seamless-continuation wording, so the movie plays as one connected story (every clip still animates its own scene image). Devotional (Shiv/Ram/Krishna) projects chain automatically; tick this to force it on.">
-            <input type="checkbox" checked={chain} onChange={toggleChain} disabled={status === "running"} aria-label="Chain scenes for a connected movie" />
+          <input type="checkbox" checked={chain} onChange={toggleChain} disabled={isCurrentProjectRun} aria-label="Chain scenes for a connected movie" />
             <span className="vt-label">🔗 Chain</span>
           </label>
-          <button className="primary run-head-btn" onClick={() => begin(false, null, 1, "run", engine, idleFormat, undefined, undefined, undefined, imageMode)} disabled={status === "running" || starting !== null || !scenario} title={!scenario ? "Select or save a scenario first" : engine === "ltx" ? "Generate scenes with LTX native audio; dialogue cues are sent with each scene prompt. No Edge-TTS or separate lip-sync pass is used." : "Generate scenes with Wan video; dialogue is voiced and lip-synced with the existing audio tools."}>
+          <button className="primary run-head-btn" onClick={() => begin(false, null, 1, "run", engine, idleFormat, undefined, undefined, undefined, imageMode)} disabled={isCurrentProjectRun || starting !== null || !scenario} title={!scenario ? "Select or save a scenario first" : engine === "ltx" ? "Generate scenes with LTX native audio; dialogue cues are sent with each scene prompt. No Edge-TTS or separate lip-sync pass is used." : "Generate scenes with Wan video; dialogue is voiced and lip-synced with the existing audio tools."}>
             {starting === "run" ? <Spinner size={12} /> : <IconPlay size={12} />}
             {starting === "run" ? "Starting…" : "Generate"}
           </button>
-          <button className="run-head-btn" onClick={() => begin(true, null, 1, "stitch", engine, idleFormat, undefined, undefined, undefined, imageMode)} disabled={status === "running" || starting !== null || !scenario} title={!scenario ? "Select or save a scenario first" : videoType === "INSTAGRAM" ? "Re-stitch the Reel final from selected mains only" : "Re-stitch final from selected mains only"}>
+          <button className="run-head-btn" onClick={() => begin(true, null, 1, "stitch", engine, idleFormat, undefined, undefined, undefined, imageMode)} disabled={isCurrentProjectRun || starting !== null || !scenario} title={!scenario ? "Select or save a scenario first" : videoType === "INSTAGRAM" ? "Re-stitch the Reel final from selected mains only" : "Re-stitch final from selected mains only"}>
             {starting === "stitch" ? <Spinner size={12} /> : <IconScissors size={12} />}
             {starting === "stitch" ? "Starting…" : "Stitch only"}
           </button>
-          {engine !== "ltx" && <button className="run-head-btn" onClick={() => begin(false, null, 1, "dialogue", engine, idleFormat, "dialogue", undefined, undefined, imageMode)} disabled={status === "running" || starting !== null || !scenario || !dlgBeats} title={!scenario ? "Select or save a scenario first" : !dlgBeats ? "No dialogue lines in this project — add speaker: line dialogue in the Director or editor first" : `Re-voice ${dlgBeats} dialogue beat${dlgBeats === 1 ? "" : "s"} + re-lip-sync for Wan output` }>
+          {engine !== "ltx" && <button className="run-head-btn" onClick={() => begin(false, null, 1, "dialogue", engine, idleFormat, "dialogue", undefined, undefined, imageMode)} disabled={isCurrentProjectRun || starting !== null || !scenario || !dlgBeats} title={!scenario ? "Select or save a scenario first" : !dlgBeats ? "No dialogue lines in this project — add speaker: line dialogue in the Director or editor first" : `Re-voice ${dlgBeats} dialogue beat${dlgBeats === 1 ? "" : "s"} + re-lip-sync for Wan output` }>
             {starting === "dialogue" ? <Spinner size={12} /> : <span aria-hidden="true">🎙</span>}
             {starting === "dialogue" ? "Starting…" : `Dialogue${dlgBeats ? ` (${dlgBeats})` : ""}`}
           </button>}
           <button
             className="danger run-head-btn"
-            disabled={status !== "running" || !runId || stopping}
+            disabled={!isCurrentProjectRun || !runId || stopping}
             title="Stop the active run"
             onClick={async () => {
               if (!runId || stopping) return;
@@ -903,7 +917,7 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
       {/* Another run owns the (serial) backend — name the blocker and offer
           to stop it. Hidden while this panel's own run is active (its Stop
           button covers that case). */}
-      {status !== "running" && serverRun && (
+      {status !== "running" && serverRun?.scenario === scenario && (
         <div className="server-busy" role="status">
           <span className="pill warn">
             <span className="dot pulse" />
@@ -943,10 +957,10 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
               scenario={displayScenario}
               outDir={displayOutDir}
               engine={displayEngine}
-              status={status}
-              progress={progress}
-              assets={assets}
-              log={log}
+              status={visibleStatus}
+              progress={visibleProgress}
+              assets={visibleAssets}
+              log={visibleLog}
               totalBeats={totalBeats}
               beatScenes={beatScenes}
               runMeta={runMeta}
@@ -963,10 +977,10 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
               scenario={displayScenario}
               outDir={displayOutDir}
               engine={displayEngine}
-              status={status}
-              progress={progress}
-              assets={assets}
-              log={log}
+              status={visibleStatus}
+              progress={visibleProgress}
+              assets={visibleAssets}
+              log={visibleLog}
               totalBeats={totalBeats}
               beatScenes={beatScenes}
               runMeta={runMeta}
@@ -983,8 +997,8 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
             {/* Run history belongs to the cut that produced it: while running
                 the panel follows the run, but an idle panel on the other cut
                 hides it (the monitors above already show that cut from disk). */}
-            {assets.length > 0 && (status === "running" || runFormat === idleFormat) && (
-              <OutputGallery scenario={outScenario(runFolder ?? folder ?? runScenario ?? scenario, runEngine ?? engine, runFormat)} refreshKey={0} assets={assets} bare totalScenes={totalBeats} beats={seqBeats} progress={progress} />
+            {visibleAssets.length > 0 && (isCurrentProjectRun || runFormat === idleFormat) && (
+              <OutputGallery scenario={outScenario(runFolder ?? folder ?? runScenario ?? scenario, runEngine ?? engine, runFormat)} refreshKey={0} assets={visibleAssets} bare totalScenes={totalBeats} beats={seqBeats} progress={visibleProgress} />
             )}
           </RunPart>
         </>
@@ -994,7 +1008,7 @@ export default function RunPanel({ scenario, folder, engine, onEngine, imageMode
 
       <RunPart storageKey="ss-sec-run-terminal" title="Terminal" label="Run log terminal">
         <pre ref={boxRef} className="log">
-          {log || <span className="log-empty">— log will stream here once a run starts —</span>}
+          {visibleLog || <span className="log-empty">— log will stream here once a run starts —</span>}
         </pre>
       </RunPart>
 
