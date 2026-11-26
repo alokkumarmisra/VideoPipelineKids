@@ -4,6 +4,7 @@ resources/
 reface/
 devotional/
 kids/
+director_assets/
 workflows/merged_pipeline.json
 node_modules/
 *.log

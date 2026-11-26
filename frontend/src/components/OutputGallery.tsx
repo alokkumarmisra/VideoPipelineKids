@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { sceneGroupsOf, sceneColor, sceneTint } from "./sceneGroups";
-import { listOutputs, outputUrl, selectMain, uploadRef, isVerticalOut, getDialogueStatus, saveSceneDialogue, listProjectAssets, type AssetEvent, type RunRequest, type VideoFormat, type VideoType, type Engine, type DialogueBeatStatus, type DialogueLine } from "../api";
+import { listOutputs, outputUrl, selectMain, uploadRef, isVerticalOut, getDialogueStatus, saveSceneDialogue, listProjectAssets, directorAssetFileUrl, type AssetEvent, type RunRequest, type VideoFormat, type VideoType, type Engine, type DialogueBeatStatus, type DialogueLine } from "../api";
 import type { AssetVersion, MainsInfo, VersionsInfo, AssetKind, Beat } from "../types";
 import type { GenerationProgress } from "./GenerationProgressBar";
 import { formatLiveElapsed } from "./GenerationProgressBar";
@@ -64,6 +64,8 @@ interface Props {
       the Keyframes → clips tile header shows `Scene <SN> · Shot <shot>` in
       addition to the `n/total` beat position. Absent = legacy `Scene n/total`. */
   beats?: Beat[] | null;
+  /** Persist the editable image/motion prompt for one flat beat index. */
+  onPromptChange?: (beatIndex: number, kind: "image" | "video", prompt: string) => Promise<void> | void;
   /** A dialogue edit landed — parent should reload the scenario config
       (board summary + Story Board) and re-list outputs. */
   onDialogueSaved?: () => void;
@@ -181,7 +183,7 @@ function GenOverlay({ label, readout }: { label: string; readout?: string | null
 
 // Gallery of outputs/<scenario>/: ref, keyframes, clips (with version
 // pickers + regenerate), final cut.
-export default function OutputGallery({ scenario, refreshKey, assets, bare, generatingScenario, generatingFormat, section = "all", regenTarget, runQueue = [], onStitch, onRegen, onBulkRegen, onUploaded, onEngineSwitch, totalScenes, progress, onGotoEditorScene, summary, projectName, displayName, dialogueEngine = "ltx", dialogueFormat = "landscape", beats, onDialogueSaved }: Props) {
+export default function OutputGallery({ scenario, refreshKey, assets, bare, generatingScenario, generatingFormat, section = "all", regenTarget, runQueue = [], onStitch, onRegen, onBulkRegen, onUploaded, onEngineSwitch, totalScenes, progress, onGotoEditorScene, summary, projectName, displayName, dialogueEngine = "ltx", dialogueFormat = "landscape", beats, onPromptChange, onDialogueSaved }: Props) {
   const [files, setFiles] = useState<string[]>([]);
   const [versions, setVersions] = useState<VersionsInfo>({ ref: [], beats: {}, final: [] });
   const [mains, setMains] = useState<MainsInfo>({ ref: null, beats: {}, final: null });
@@ -211,6 +213,7 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
   // Bulk-regen selection: checked scenes in the Keyframes → clips grid.
   // Reset whenever the viewed output dir changes so picks never leak across projects.
   const [selected, setSelected] = useState<number[]>([]);
+  const [promptEditor, setPromptEditor] = useState<{ beat: number; kind: "image" | "video"; value: string; saving: boolean; error: string } | null>(null);
   const [bulkKind, setBulkKind] = useState<"clip" | "keyframe" | "both">("clip");
   const toggleSelected = (n: number) =>
     setSelected((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n].sort((a, b) => a - b)));
@@ -1649,6 +1652,11 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
               return formatLiveElapsed(progress.activeElapsedMs);
             };
             const renderBeat = (n: number) => {
+              const beat = beats?.[n - 1];
+              const sceneBlock = beatsBlocks.find((block) => block.nums.includes(n));
+              const linkedReferences = Array.isArray(beat?.reference_images)
+                ? beat.reference_images.filter((item) => String(item?.path ?? "").trim())
+                : [];
               const bv = versions.beats[String(n)] ?? { keyframe: [], clip: [] };
               const kfMain = mains.beats[String(n)]?.keyframe || bv.keyframe[bv.keyframe.length - 1]?.file || null;
               const clipMain = mains.beats[String(n)]?.clip || bv.clip[bv.clip.length - 1]?.file || null;
@@ -1694,7 +1702,9 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                     {gs && (
                       <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: gs.color, flex: "none" }} />
                     )}
-                    <span aria-hidden="true" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: "1 1 auto" }}>{beatHead(beats, n, total)}</span>
+                    <span aria-hidden="true" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: "1 1 auto" }} title={sceneBlock?.title ? `${beatHead(beats, n, total)} · ${sceneBlock.title}` : beatHead(beats, n, total)}>
+                      {beatHead(beats, n, total)}{sceneBlock?.title ? <small className="shot-scene-title"> · {sceneBlock.title}</small> : null}
+                    </span>
                     {onBulkRegen && (
                       <input
                         type="checkbox"
@@ -1819,6 +1829,29 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                   />
                     </div>
                   </div>
+                  {linkedReferences.length > 0 && (
+                    <div className="shot-asset-references" aria-label={`Visual references for beat ${n}`}>
+                      <span className="shot-asset-references-label">Visual references · {linkedReferences.length}</span>
+                      <div className="shot-asset-reference-list">
+                        {linkedReferences.map((item, ri) => {
+                          const src = directorAssetFileUrl(item.path);
+                          const name = String(item.reference_id || item.asset_id || `${item.type || "asset"} ${ri + 1}`);
+                          return (
+                            <button key={`${item.asset_id || name}-${item.version || ri}-${ri}`} type="button" className="shot-asset-reference" title={`${item.type || "Asset"}: ${name}${item.version ? ` · v${item.version}` : ""} — preview image`} onClick={() => setPreview({ src, kind: "image", alt: `${item.type || "Asset"} ${name}` })}>
+                              <img src={src} alt="" loading="lazy" />
+                              <span><b>{String(item.type || "asset")}</b><small>{name}{item.version ? ` · v${item.version}` : ""}</small></span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {onPromptChange && beat && (
+                    <div className="shot-prompt-actions">
+                      <button type="button" className="ghost shot-prompt-btn" onClick={() => setPromptEditor({ beat: n, kind: "image", value: String(beat.image ?? ""), saving: false, error: "" })} title={`View or edit the image prompt sent for ${beatHead(beats, n, total)}`}><IconImage size={12} /> Image prompt</button>
+                      <button type="button" className="ghost shot-prompt-btn" onClick={() => setPromptEditor({ beat: n, kind: "video", value: String(beat.motion ?? ""), saving: false, error: "" })} title={`View or edit the video prompt sent for ${beatHead(beats, n, total)}`}><IconFilm size={12} /> Video prompt</button>
+                    </div>
+                  )}
                 </div>
               );
             };
@@ -1826,31 +1859,11 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
             // scene_number ascending) — each block carries its own shot grid;
             // the ungrouped trailing block only appears for beats the linkage
             // doesn't cover.
-            return beatsBlocks.map((block) => (
-              <div
-                className="beats-scene-block"
-                key={block.key}
-                style={block.color ? { borderColor: `color-mix(in srgb, ${block.color} 45%, transparent)` } : undefined}
-              >
-                {block.sceneNumber != null && (
-                  <div
-                    className="beats-scene-head"
-                    title={`Scene ${block.sceneNumber} — in the order the AI Story Director created it (${block.nums.length} shot${block.nums.length === 1 ? "" : "s"})`}
-                    style={block.color ? { background: block.tint ?? undefined, borderBottomColor: `color-mix(in srgb, ${block.color} 55%, transparent)`, color: block.color } : undefined}
-                  >
-                    <span aria-hidden="true" className="beats-scene-dot" style={block.color ? { background: block.color } : undefined} />
-                    <span className="beats-scene-name">Scene {block.sceneNumber}{block.title ? ` · ${block.title}` : ""}</span>
-                    <span className="beats-scene-count">{block.nums.length} shot{block.nums.length === 1 ? "" : "s"}</span>
-                  </div>
-                )}
-                <div className="grid grid-compact grid-5col">
-                  {block.nums.map(renderBeat)}
-                </div>
-              </div>
-            ));
+            const orderedBeatNumbers = beatsBlocks.flatMap((block) => block.nums);
+            return <div className="beats-grid-container"><div className="beats-scenes-grid">{orderedBeatNumbers.map(renderBeat)}</div></div>;
             })()}
             {fallbackShots.length > 0 && (
-            <div className="grid grid-compact grid-5col">
+            <div className="beats-grid-container"><div className="beats-scenes-grid">
             {fallbackShots.map(({ kf, clip }, fi) => {
               const m = kf.match(/_seq(\d+)_/);
               const fn = m ? Number(m[1]) : fi + 1;
@@ -1895,7 +1908,7 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
               </div>
               );
             })}
-            </div>
+            </div></div>
             )}
           <p className="hint">
             Pick a version to make it <b>your pick</b> — the final cut stitches the main version of every beat.
@@ -1904,6 +1917,28 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
             Every keyframe is anchored on the reference selected as main — switching the main ref regenerates stale images on the next run.
           </p>
         </>
+      )}
+      {promptEditor && (
+        <div className="dlg-overlay" role="dialog" aria-modal="true" aria-label={`${promptEditor.kind} prompt editor`} onMouseDown={(e) => { if (e.target === e.currentTarget && !promptEditor.saving) setPromptEditor(null); }}>
+          <div className="dlg-box dir-asset-prompt-dialog shot-prompt-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="dir-asset-prompt-mark">{promptEditor.kind === "image" ? <IconImage size={20} /> : <IconFilm size={20} />}</div>
+            <div className="dir-asset-prompt-eyebrow">KEYFRAMES → CLIPS · BEAT {promptEditor.beat}</div>
+            <h3 className="dir-asset-prompt-title">{promptEditor.kind === "image" ? "Image prompt" : "Video prompt"}</h3>
+            <p className="dir-asset-prompt-subtitle">This is the saved scene prompt consumed by generation. The pipeline may append its required identity or motion consistency instructions.</p>
+            <label className="dir-asset-prompt-label" htmlFor="shot-prompt-value">Prompt sent to generation</label>
+            <textarea id="shot-prompt-value" className="dir-asset-prompt-input" value={promptEditor.value} maxLength={12000} onChange={(e) => setPromptEditor({ ...promptEditor, value: e.target.value, error: "" })} autoFocus />
+            <div className="dir-asset-prompt-footer"><span className="hint">Saving updates this project’s beat prompt. Regenerate the image or clip to use the new text.</span><span className="dir-asset-prompt-count">{promptEditor.value.length}/12000</span></div>
+            {promptEditor.error && <p className="hint err-text">{promptEditor.error}</p>}
+            <div className="dlg-actions dir-asset-prompt-actions">
+              <button type="button" className="ghost" disabled={promptEditor.saving} onClick={() => setPromptEditor(null)}>Cancel</button>
+              <button type="button" className="primary dir-asset-prompt-submit" disabled={promptEditor.saving} onClick={async () => {
+                setPromptEditor((p) => p ? { ...p, saving: true, error: "" } : p);
+                try { await onPromptChange?.(promptEditor.beat, promptEditor.kind, promptEditor.value); setPromptEditor(null); }
+                catch (e) { setPromptEditor((p) => p ? { ...p, saving: false, error: e instanceof Error ? e.message : String(e) } : p); }
+              }}>{promptEditor.saving ? <Spinner size={12} /> : null}{promptEditor.saving ? "Saving…" : "Save prompt"}</button>
+            </div>
+          </div>
+        </div>
       )}
       {((section === "all" && switchingGallery && mediaCount === 0) ||
         (section === "output" && switchingGallery && !shownFinal && !curKf && !curClip) ||

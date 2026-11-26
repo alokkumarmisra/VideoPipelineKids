@@ -323,14 +323,13 @@ describe("delta versioning", () => {
     assert.match(srv, /shot_count = EXCLUDED\.shot_count/);
   });
 
-  it("director approve names the project exactly like the story title", () => {
+  it("director approve keeps a space-free project key and the story title for display", () => {
     const srv = fs.readFileSync(path.join(ROOT, "frontend", "server.mjs"), "utf8");
-    // Regression: approve slugified the frozen analyze-time title, so "Rat
-    // story" became minku_story. The project must take the board title
-    // verbatim (spaces allowed, like other display names). Re-migrates
-    // (partial flow) reuse board.scenarioName so the rest lands in the SAME
-    // project — the verbatim-title rule still governs the first approve.
-    assert.match(srv, /board\.scenarioName \|\| String\(board\.input\.title/);
+    // Internal project/output keys are space-free; the visible title remains
+    // verbatim in display_name. Re-migrates reuse the existing project key.
+    assert.match(srv, /const approveTitle = String\(board\.input\.title/);
+    assert.match(srv, /board\.scenarioName \|\| spaceFreeName\(approveTitle\) \|\| id/);
+    assert.match(srv, /config\.display_name = approveTitle/);
     assert.ok(!srv.includes("slug(board.input.title)"), "must not slugify the story title");
     // Boards are renamable before approve.
     assert.match(srv, /board\.input\.title = nt/);

@@ -21,6 +21,7 @@ import CreateSongPage from "./components/CreateSongPage";
 import DocumentaryPage from "./components/DocumentaryPage";
 import DatabasePage from "./components/DatabasePage";
 import ComponentsPage from "./components/ComponentsPage";
+import PromptSettingsPage from "./components/PromptSettingsPage";
 import ViewBoundary from "./components/ViewBoundary";
 import Login from "./components/Login";
 import { DialogProvider, useDialog } from "./components/Dialog";
@@ -351,7 +352,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
   const boxBgFallback = theme === "dark" ? DEFAULT_BG_DARK : DEFAULT_BG_LIGHT;
   const boxBtnFallback = theme === "dark" ? DEFAULT_BTN_DARK : DEFAULT_BTN_LIGHT;
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
-  const [view, setView] = useState<"home" | "workspace" | "resource" | "director" | "kids_director" | "sanskriti_kids" | "story_song" | "song" | "documentary" | "database" | "components">("home");
+  const [view, setView] = useState<"home" | "workspace" | "resource" | "director" | "kids_director" | "sanskriti_kids" | "story_song" | "song" | "documentary" | "database" | "components" | "settings">("home");
   const [name, setName] = useState("");
   const [cfg, setCfg] = useState<Scenario | null>(null);
   const [cfgLoading, setCfgLoading] = useState(false);
@@ -1475,6 +1476,11 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                 { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
                 { key: "cur", label: "Documentary", icon: <IconClipboard size={13} aria-hidden="true" />, tone: "ci-documentary", current: true },
               ];
+            } else if (view === "settings") {
+              crumbs = [
+                { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
+                { key: "cur", label: "Prompt Settings", icon: <IconBlocks size={13} aria-hidden="true" />, tone: "ci-components", current: true },
+              ];
             } else if (view === "database") {
               crumbs = [
                 { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
@@ -1786,6 +1792,15 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
               <span className="sidenav-icon"><IconDatabase size={16} aria-hidden="true" /></span>
               <span className="sidenav-label">Database</span>
             </button>
+            <button
+              className={`sidenav-btn nav-settings ${view === "settings" ? "on" : ""}`}
+              onClick={() => setView("settings")}
+              aria-current={view === "settings" ? "page" : undefined}
+              title="Configure reusable Director prompt instructions"
+            >
+              <span className="sidenav-icon"><IconBlocks size={16} aria-hidden="true" /></span>
+              <span className="sidenav-label">Prompt Settings</span>
+            </button>
           </div>
           <button
             className="sidenav-pin"
@@ -1809,7 +1824,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
         {/* Projects rail tab — always visible (except Home): clicking slides
             only the container out over the content, clicking again collapses
             it. Nothing ever shrinks (same pattern as the Scene Tools dock). */}
-        {view !== "home" && (
+        {view !== "home" && view !== "settings" && (
           <button
             className="sidebar-show"
             onClick={toggleSidebar}
@@ -1909,12 +1924,17 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
             <ComponentsPage />
           </ViewBoundary>
         </div>
+        <div className="col" style={view !== "settings" ? { display: "none" } : undefined}>
+          <ViewBoundary name="Prompt Settings">
+            <PromptSettingsPage />
+          </ViewBoundary>
+        </div>
         <div className="col" style={view !== "database" ? { display: "none" } : undefined}>
           <ViewBoundary name="Database">
             <DatabasePage />
           </ViewBoundary>
         </div>
-        {sidebarOpen && (
+        {sidebarOpen && view !== "settings" && (
         <aside className="sidebar" style={view === "home" ? { display: "none" } : undefined}>
           <div className="sidebar-head">
             <span>Projects</span>
@@ -2180,6 +2200,16 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
             onUploaded={refresh}
             totalScenes={editor && Array.isArray(editor.config.sequence) ? editor.config.sequence.length : null}
             beats={editor && Array.isArray(editor.config.sequence) ? editor.config.sequence : null}
+            onPromptChange={async (beatIndex, kind, prompt) => {
+              if (!editor) throw new Error("No project is open");
+              const base: Scenario = draft ? draft.config : { ...editor.config, ...overrides };
+              const sequence = Array.isArray(base.sequence) ? [...base.sequence] : [];
+              const beat = sequence[beatIndex - 1];
+              if (!beat) throw new Error(`Beat ${beatIndex} was not found`);
+              sequence[beatIndex - 1] = { ...beat, [kind === "image" ? "image" : "motion"]: prompt };
+              const result = await applySceneSequenceEdit(sequence);
+              if (!result.applied) throw new Error("Prompt was not changed");
+            }}
             progress={topProgress}
             onGotoEditorScene={(n) => gotoScene("editor", n)}
             summary={boardSummary}

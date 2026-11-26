@@ -40,6 +40,8 @@ export interface Beat {
   lyric_segment?: string;
   semantic_meaning?: string;
   visual_event?: string;
+  /** Approved Director master-image references linked to this beat. */
+  reference_images?: { asset_id?: string; reference_id?: string; version?: number; type?: "character" | "location" | "object" | string; path: string }[];
 }
 
 export interface Scenario {

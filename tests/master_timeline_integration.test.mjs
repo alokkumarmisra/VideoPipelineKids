@@ -250,7 +250,7 @@ describe("applyApprovedTimelineToScenes", () => {
 
 describe("server wiring — the approved timeline drives the REAL workflow", () => {
   test("the batch planner prefers the APPROVED segments over the raw stored windows", () => {
-    assert.ok(serverSrc.includes("const approvedCoversCurrent"), "the approved-coverage gate is missing");
+    assert.ok(serverSrc.includes("let approvedApplied = false") && serverSrc.includes("currentLineIds.every((id) => approvedIds.has(id))"), "the approved-coverage gate is missing");
     assert.ok(serverSrc.includes("lyricTiming = approvedTiming"), "the planner never assigns the approved windows");
     assert.ok(serverSrc.includes("approvedApplied"), "the planner cannot tell whether the approved timing was applied");
   });
@@ -264,8 +264,9 @@ describe("server wiring — the approved timeline drives the REAL workflow", () 
   test("the approve path snaps scene timings to the approved timeline BEFORE boardToScenario", () => {
     const idx = serverSrc.indexOf("applyApprovedTimelineToScenes(board.scenes, approvedMaster)");
     assert.ok(idx > 0, "the approve route never applies the approved timing");
-    const before = serverSrc.indexOf("const config = boardToScenario(board);", idx);
+    const before = serverSrc.indexOf("const generationBoard = {", idx);
     assert.ok(before > idx, "the snap must run BEFORE boardToScenario builds the config");
+    assert.ok(serverSrc.indexOf("boardToScenario(generationBoard)", before) > before, "the enriched generation board must be assembled after timing snap");
     assert.ok(serverSrc.includes("timing_corrections: timingCorrections"), "the approve response must report the snaps");
     assert.ok(/applyApprovedTimelineToScenes,\s*\}\s*from\s*"\.\.\/lib\/master_timeline\.mjs"/.test(serverSrc), "the import is missing");
   });

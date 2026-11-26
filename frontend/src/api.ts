@@ -911,6 +911,7 @@ export const listProjectAssets = (name: string, version?: number, mode?: "effect
 export interface DirectorInput {
   title: string;
   story: string;
+  analyzerType?: string;
   language: string;
   /**
    * The language of the SOURCE TEXT for the meaning analysis
@@ -991,9 +992,15 @@ export interface DirectorScene {
   story_beat: string;
   duration_seconds: number;
   characters: string[];
+  /** Approved master asset IDs resolved after planning; no descriptions stored here. */
+  asset_refs?: { characters: string[]; locations: string[]; objects: string[] };
+  asset_reference_issues?: string[];
+  /** Canonical bible object ids visible in this scene. */
+  objects?: string[];
   location: string;
   time_of_day: string;
   action: string;
+  motion?: string;
   emotion: string;
   expression: string;
   body_language: string;
@@ -1053,6 +1060,11 @@ export interface DirectorShot {
   semantic_meaning?: string;
   visual_event?: string;
   characters: string[];
+  /** Approved master asset IDs resolved after planning; no descriptions stored here. */
+  asset_refs?: { characters: string[]; locations: string[]; objects: string[] };
+  asset_reference_issues?: string[];
+  /** Canonical bible object ids visible in this shot. */
+  objects?: string[];
   // Intelligent Director direction (optional; absent on legacy shots).
   characters_detailed?: {
     character_id: string;
@@ -1068,6 +1080,7 @@ export interface DirectorShot {
   location: string;
   time_of_day?: string;
   action: string;
+  motion?: string;
   emotion?: string;
   expression?: string;
   body_language?: string;
@@ -1104,6 +1117,21 @@ export interface DirectorBoard {
     lyric_lines?: { lyric_line_id: number; lyric_text: string; semantic_analysis?: string; visual_complexity?: string; planned_shots?: number }[];
   } | null;
   scenes: DirectorScene[];
+  scenePlanningMetrics?: {
+    updatedAt?: string;
+    batches: {
+      from: number;
+      requested: number;
+      received: number;
+      accepted: number;
+      attempts: { attempt: number; startedAt: string; durationMs: number; outcome: "success" | "failed"; requestedScenes: number }[];
+      preparationMs: number;
+      llmMs: number;
+      postLlmMs: number;
+      totalMs: number;
+      recordedAt: string;
+    }[];
+  };
   audioTimeline?: DirectorAudioTimeline;
   sceneCount: number;
   styleLock?: string;
@@ -1317,6 +1345,10 @@ export interface DirectorLive {
   batchFrom?: number | null;
   batchTo?: number | null;
   startedAt?: number;
+  elapsedMs?: number;
+  llmElapsedMs?: number | null;
+  currentAttempt?: number | null;
+  llmAttempts?: { attempt: number; durationMs: number }[];
   chars?: number;
   /** True while a thinking model streams reasoning_content and no content token has arrived yet. */
   thinking?: boolean;
@@ -1327,6 +1359,37 @@ export interface DirectorLive {
 }
 export const directorLive = (id: string) =>
   get<DirectorLive>(`/api/director/boards/${encodeURIComponent(id)}/live`);
+
+export interface DirectorPromptSettingsRule {
+  id: string;
+  scope: "director" | "kids" | "documentary";
+  title: string;
+  description: string;
+  defaultEnabled: boolean;
+  defaultText: string;
+}
+export interface DirectorPromptSettings {
+  rules: Record<string, { enabled: boolean; text: string }>;
+  custom: { enabled: boolean; text: string };
+}
+export interface DirectorPromptSettingsResponse {
+  catalog: DirectorPromptSettingsRule[];
+  settings: DirectorPromptSettings;
+  appendedText: string;
+  appendedTextByWorkflow: Record<"director" | "kids" | "documentary", string>;
+}
+export const getDirectorPromptSettings = () =>
+  get<DirectorPromptSettingsResponse>("/api/settings/director-prompts");
+export const saveDirectorPromptSettings = async (settings: DirectorPromptSettings) => {
+  const r = await fetch("/api/settings/director-prompts", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  const d = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(d?.error || `request failed (HTTP ${r.status})`);
+  return d as DirectorPromptSettingsResponse;
+};
 
 // Intelligent Director: Lyric Coverage Map (read-only) — every lyric line
 // with its meaningful phrases, assigned scenes/shots and coverage status.
@@ -1376,6 +1439,176 @@ export interface DirectorValidation {
 }
 export const directorValidate = (id: string) =>
   get<DirectorValidation>(`/api/director/boards/${encodeURIComponent(id)}/validate`);
+
+// ---------------------------------------------------------------------------
+// Storyboard Planner 2.0 — READ-ONLY cinematic workspace views. Every route
+// reads the same board + approved timeline; none writes or starts a run.
+// ---------------------------------------------------------------------------
+export interface StoryboardEvent {
+  id: string;
+  trackId?: string;
+  track?: string;
+  start: number;
+  end: number;
+  label: string;
+  [key: string]: unknown;
+}
+export interface StoryboardShot {
+  shot_id: string;
+  parent_scene: number;
+  start: number | null;
+  end: number | null;
+  shot_type: string;
+  angle: string;
+  movement: string;
+  characters: string[];
+  action: string;
+  expression: string;
+  emotion: string;
+  lighting: string;
+  environment: string;
+  visual_focus: string;
+  image_prompt: string;
+  video_prompt: string;
+  source_line_ids: number[];
+  lip_sync_required: boolean;
+}
+export interface StoryboardScene {
+  scene_number: number;
+  title: string;
+  start: number | null;
+  end: number | null;
+  duration: number;
+  characters: string[];
+  location: string;
+  objects: string[];
+  action: string;
+  emotion: string;
+  expression: string;
+  camera: Record<string, unknown> | null;
+  lighting: string;
+  environment: string;
+  source_line_ids: number[];
+  audio_timing_references: { id: string; start: number; end: number }[];
+  image_prompt: string;
+  video_prompt: string;
+  continuity: { from_previous: string; to_next: string; instructions: string };
+  transition: string;
+  timing_source: string | null;
+  shots: StoryboardShot[];
+}
+export interface StoryboardCoverage {
+  complete: boolean;
+  coveragePercent: number;
+  durationCoveragePercent: number;
+  totalAudioDuration: number;
+  plannedDuration: number;
+  unplannedDuration: number;
+  sceneCount: number;
+  shotCount: number;
+  uncoveredLyricEvents: { id: string; lineId?: number | null; start: number; end: number; label: string }[];
+  uncoveredNarrativeEvents: { id: string; start: number; end: number; label: string }[];
+  instrumentalCoverage: {
+    total: number;
+    covered: number;
+    coveredWindows: { id: string; start: number; end: number; label: string }[];
+    uncoveredWindows: { id: string; start: number; end: number; label: string }[];
+  };
+  gaps: { from: number; to: number; seconds: number; intentional: boolean }[];
+  overlaps: { scene: number; start: number; end: number }[];
+  continuityWarnings: string[];
+  endingCovered: boolean;
+}
+export interface StoryboardView {
+  schema: string;
+  board_id: string;
+  status: string;
+  title: string;
+  sceneCount: number;
+  phases: string[];
+  timeline: {
+    source: string;
+    id: string | null;
+    version: number | null;
+    approvedAt: string | null;
+    durationSec: number;
+    approved: boolean;
+    available: boolean;
+    readOnly: boolean;
+    trackCounts: Record<string, number>;
+    tracks: Record<string, StoryboardEvent[]>;
+  };
+  scenes: StoryboardScene[];
+  coverage: StoryboardCoverage;
+  note: string;
+}
+export interface StoryboardValidation {
+  board_id: string;
+  canApprove: boolean;
+  errors: { code: string; message: string }[];
+  warnings: { code: string; message: string }[];
+  checks: Record<string, boolean>;
+  coverage: StoryboardCoverage;
+  note?: string;
+}
+export interface StoryboardTimeline {
+  board_id: string;
+  source: string;
+  id: string | null;
+  version: number | null;
+  approvedAt: string | null;
+  durationSec: number;
+  approved: boolean;
+  available: boolean;
+  readOnly: boolean;
+  trackCounts: Record<string, number>;
+  tracks: Record<string, StoryboardEvent[]>;
+  events: StoryboardEvent[];
+  note: string;
+}
+export interface StoryboardContext {
+  board_id: string;
+  context: {
+    available: boolean;
+    source: string;
+    from: number;
+    to: number;
+    durationSec: number;
+    tracks: Record<string, StoryboardEvent[]>;
+    instrumentals: (StoryboardEvent & { lyricOverlap: boolean; visualShotsAdvisory: number })[];
+    uncoveredLyrics: { id: string; lineId?: number; start: number; end: number; label: string }[];
+    uncoveredNarrative: { id: string; start: number; end: number; label: string }[];
+    continuity: Record<string, unknown> | null;
+  };
+  promptBlock: string | null;
+}
+export interface StoryboardHandoff {
+  board_id: string;
+  schema: string;
+  source: string;
+  timeline_reference: Record<string, unknown>;
+  story_bible: Record<string, unknown>;
+  scene_timeline: StoryboardScene[];
+  lip_sync_requirements: { id: string; start: number; end: number; characterId: string }[];
+  audio_timing_references: { id: string; lineId: number | null; start: number; end: number }[];
+  coverage_summary: Record<string, unknown>;
+  note: string;
+}
+export const directorStoryboard = (id: string) =>
+  get<StoryboardView>(`/api/director/boards/${encodeURIComponent(id)}/storyboard`);
+export const directorStoryboardTimeline = (id: string) =>
+  get<StoryboardTimeline>(`/api/director/boards/${encodeURIComponent(id)}/storyboard/timeline`);
+export const directorStoryboardContext = (id: string, from?: number, to?: number) =>
+  get<StoryboardContext>(
+    `/api/director/boards/${encodeURIComponent(id)}/storyboard/context` +
+      `${from != null ? `?from=${from}` : ""}${to != null ? `${from != null ? "&" : "?"}to=${to}` : ""}`,
+  );
+export const directorStoryboardCoverage = (id: string) =>
+  get<{ board_id: string } & StoryboardCoverage>(`/api/director/boards/${encodeURIComponent(id)}/storyboard/coverage`);
+export const directorStoryboardValidate = (id: string) =>
+  get<StoryboardValidation>(`/api/director/boards/${encodeURIComponent(id)}/storyboard/validate`);
+export const directorStoryboardHandoff = (id: string) =>
+  get<StoryboardHandoff>(`/api/director/boards/${encodeURIComponent(id)}/storyboard/handoff`);
 
 // ---------------------------------------------------------------------------
 // The MEANING-AWARE semantic analysis (lib/semantics.mjs).
@@ -1833,9 +2066,81 @@ export interface DirectorAssetMap {
   duplicates: { name: string; ids: string[] }[];
   styleGuide: { style: string; characters: number; locations: number; palettes: string[]; lighting: string[]; layout: string };
   issues: string[];
+  /** Generate Assets stage state (added by the real asset stage). */
+  production?: DirectorAssetProduction | null;
+}
+
+/** One master asset reused across every scene of a Director board. */
+export interface DirectorMasterAsset {
+  id: string;
+  reference_id?: string;
+  type: "character" | "location" | "object";
+  name: string;
+  blueprint_id: string;
+  prompt: string;
+  description: string;
+  reference: string | null;
+  status: "pending" | "no-prompt" | "queued" | "generating" | "review" | "approved" | "skipped";
+  approvedAt: string | null;
+  error: string | null;
+  version: number;
+  image_versions?: { version: number; reference: string; reference_id?: string; prompt?: string }[];
+  workflow?: string;
+  model?: string;
+}
+export interface DirectorAssetJob {
+  id: string;
+  asset_id: string;
+  kind: string;
+  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+  workflow: string;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface DirectorAssetProduction {
+  status: "idle" | "generating" | "review" | "approved";
+  assets: DirectorMasterAsset[];
+  jobs: DirectorAssetJob[];
+  skipped: boolean;
+  /** Bible version these assets were derived from; a change requires a rebuild. */
+  sourceSignature?: string | null;
+  updatedAt: string | null;
+}
+export interface DirectorAssetResult {
+  production: DirectorAssetProduction;
+  queued?: number;
+  no_prompt?: string[];
+  approved?: number;
 }
 export const directorAssets = (id: string) =>
   get<DirectorAssetMap>(`/api/director/boards/${encodeURIComponent(id)}/assets`);
+
+const directorAssetAction = (id: string, action: string, body: Record<string, unknown> = {}) =>
+  post<DirectorAssetResult>(`/api/director/boards/${encodeURIComponent(id)}/assets/${action}`, body);
+/** Queue master reference renders for all pending assets (or explicit ids). */
+export const directorGenerateAssets = (id: string, body: { ids?: string[]; workflow?: string } = {}) =>
+  directorAssetAction(id, "generate", body);
+/** Re-render one asset from an explicit prompt (saved prompt is the model input). */
+export const directorRegenerateAsset = (id: string, assetId: string, prompt?: string, workflow?: string) =>
+  directorAssetAction(id, "regenerate", { id: assetId, ...(prompt ? { prompt } : {}), ...(workflow ? { workflow } : {}) });
+/** Approve either every review-ready asset or an explicit id list. */
+export const directorApproveAssets = (id: string, ids?: string[]) =>
+  directorAssetAction(id, "approve", ids?.length ? { ids } : {});
+/** Continue the pipeline without rendering assets (honest, explicit skip). */
+export const directorSkipAssets = (id: string) => directorAssetAction(id, "skip", {});
+export const directorAssetFileUrl = (filePath: string) =>
+  (() => {
+    const input = String(filePath || "").trim();
+    if (/^(https?:|data:|blob:)/i.test(input)) return input;
+    let rel = input.replace(/\\/g, "/").replace(/^\/+/, "");
+    // Older Windows-backed board snapshots may have persisted the absolute
+    // binary path instead of the relative path used by the current writer.
+    const rootAt = rel.toLowerCase().lastIndexOf("director_assets/");
+    if (rootAt >= 0) rel = rel.slice(rootAt + "director_assets/".length);
+    if (rel.toLowerCase().startsWith("director-assets/")) rel = rel.slice("director-assets/".length);
+    return `/director-assets/${rel.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
+  })();
 
 // Cinematography & shot planning (Phase 3) — read-only shot list, camera,
 // lighting, blocking, transitions + validation.

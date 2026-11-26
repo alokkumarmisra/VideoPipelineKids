@@ -33,6 +33,13 @@ import { audioDuration, dialogueWavFile } from "../lib/tts.mjs";
 import { FFMPEG, FFPROBE } from "../lib/ffmpeg.mjs";
 import { analyzePcm } from "../lib/audio_analysis.mjs";
 import { resolveImageWorkflow, DEFAULT_IMAGE_WORKFLOW, isImageWorkflowId } from "../lib/image_workflows.mjs";
+import {
+  buildBoardAssetState, blueprintAssetSignature, assetVersionId,
+  findDuplicateAssets, buildAssetReferenceMap, buildVisualStyleGuide, validateAssetContinuity,
+} from "../lib/asset_service.mjs";
+import {
+  getBoardAssetState, findAsset, isValidAssetId, approveAssets, skipAssets, compactIndex, resolveSceneAssetRefs,
+} from "../lib/asset_endpoints.mjs";
 import { buildAudioTimeline, audioTimelineDuration, validateAudioTimeline, syncAudioTimelineToScenes } from "../lib/audio_timeline.mjs";
 import {
   SEMANTIC_SYSTEM,
@@ -88,10 +95,16 @@ import {
   sceneCountFor,
   styleLockFor,
   DIRECTOR_SYSTEM,
+  DIRECTOR_PROMPT_RULES,
+  normalizeDirectorPromptSettings,
+  directorPromptAddons,
+  kidsPromptAddons,
+  documentaryPromptAddons,
   stripJson,
   normalizeBlueprint,
   normalizeDialogue,
   normalizeScene,
+  compactSceneGenerationDirections,
   canonicalizeSceneRefs,
   dedupeScenes,
   flagRepeatStaging,
@@ -323,6 +336,17 @@ function isSafeSegment(s) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
+const DIRECTOR_PROMPT_SETTINGS_FILE = path.join(ROOT, "data", "director_prompt_settings.json");
+const readDirectorPromptSettings = () => {
+  try { return normalizeDirectorPromptSettings(JSON.parse(fs.readFileSync(DIRECTOR_PROMPT_SETTINGS_FILE, "utf8"))); }
+  catch { return normalizeDirectorPromptSettings(); }
+};
+const writeDirectorPromptSettings = (raw) => {
+  const normalized = normalizeDirectorPromptSettings(raw);
+  fs.mkdirSync(path.dirname(DIRECTOR_PROMPT_SETTINGS_FILE), { recursive: true });
+  fs.writeFileSync(DIRECTOR_PROMPT_SETTINGS_FILE, JSON.stringify(normalized, null, 2), "utf8");
+  return normalized;
+};
 
 // Same tiny .env loader as lib/comfy.mjs (real env vars always win).
 {
@@ -2888,7 +2912,7 @@ async function llmPostChat(url, payload, { timeoutMs = REQUEST_TIMEOUT_MS, tag =
 // batch finishes (success, salvage or error).
 const directorLive = new Map(); // boardId -> { active, phase, batchFrom, batchTo, startedAt, text }
 const liveBegin = (id, info) => {
-  directorLive.set(id, { active: true, startedAt: Date.now(), text: "", reasoning: "", ...info });
+  directorLive.set(id, { active: true, startedAt: Date.now(), text: "", reasoning: "", llmStartedAt: null, llmAttempts: [], ...info });
 };
 const liveAppend = (id, chunk) => {
   const st = directorLive.get(id);
@@ -2910,6 +2934,16 @@ const liveReset = (id, note) => {
 const livePhase = (id, phase) => {
   const st = directorLive.get(id);
   if (st && st.active) st.phase = phase;
+};
+const liveLlmStart = (id, attempt) => {
+  const st = directorLive.get(id);
+  if (st && st.active) { st.llmStartedAt = Date.now(); st.currentAttempt = attempt; }
+};
+const liveLlmEnd = (id, attempt) => {
+  const st = directorLive.get(id);
+  if (!st || !st.active || !st.llmStartedAt) return;
+  st.llmAttempts.push({ attempt, durationMs: Date.now() - st.llmStartedAt });
+  st.llmStartedAt = null;
 };
 const liveEnd = (id) => { directorLive.delete(id); };
 // Streaming twin of llmChatJson for director scene batches: same payload +
@@ -4293,6 +4327,296 @@ function serveKids(res, rel) {
   fs.createReadStream(p).pipe(res);
 }
 
+// ------------------------------------------- Director master asset renders
+// Master reference stills for the Director "Generate Assets" stage. Board JSON
+// is the source of truth (no schema migration); binaries live here and are
+// served auth-gated under /director-assets/... . Renders reuse the Kids
+// reference script — it already sends the saved prompt verbatim and accepts an
+// arbitrary --out path. The pump is serial and shares the ComfyUI queue with
+// the main run + Kids pumps.
+const DIRECTOR_ASSETS_DIR = process.env.DIRECTOR_ASSETS_DIR
+  ? path.resolve(process.env.DIRECTOR_ASSETS_DIR)
+  : path.join(ROOT, "director_assets");
+const DIRECTOR_ASSET_KIND_DIR = { character: "characters", location: "locations", object: "objects" };
+let directorAssetPumping = false;
+const directorAssetProcs = new Map();
+
+function serveDirectorAssets(res, rel) {
+  const parts = String(rel || "").split("/");
+  if (parts.some((s) => !isSafeSegment(s))) { res.writeHead(400); return res.end(); }
+  const p = path.join(DIRECTOR_ASSETS_DIR, ...parts);
+  if (!p.startsWith(DIRECTOR_ASSETS_DIR) || !fs.existsSync(p) || !fs.statSync(p).isFile()) {
+    res.writeHead(404); return res.end();
+  }
+  res.writeHead(200, { "Content-Type": MIME[path.extname(p).toLowerCase()] || "application/octet-stream", "Cache-Control": "no-store" });
+  fs.createReadStream(p).pipe(res);
+}
+
+function directorAssetBoardFile(id) {
+  if (!isSafe(id)) return null;
+  return path.join(DIRECTOR, `${id}.json`);
+}
+function directorAssetReadBoard(id) {
+  const f = directorAssetBoardFile(id);
+  return f && fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : null;
+}
+async function directorComfyProbe() {
+  const base = String(process.env.COMFY_BASE || "").replace(/\/+$/, "");
+  if (!base) return { up: false, error: "COMFY_BASE is not set" };
+  try {
+    const response = await fetch(`${base}/system_stats`, { signal: AbortSignal.timeout(1800) });
+    if (!response.ok) return { up: false, error: `ComfyUI returned HTTP ${response.status}` };
+    return { up: true, error: null };
+  } catch (e) {
+    return { up: false, error: String(e?.message || e || "ComfyUI is unreachable") };
+  }
+}
+function directorAssetFailQueuedJobs(reason) {
+  if (!fs.existsSync(DIRECTOR)) return;
+  for (const file of fs.readdirSync(DIRECTOR)) {
+    if (!file.endsWith(".json")) continue;
+    let board;
+    try { board = directorAssetReadBoard(path.basename(file, ".json")); }
+    catch { continue; }
+    const state = board?.assetProduction;
+    if (!state || !Array.isArray(state.jobs)) continue;
+    let changed = false;
+    for (const job of state.jobs) {
+      if (!job || (job.status !== "PENDING" && job.status !== "PROCESSING")) continue;
+      const message = String(reason || "ComfyUI is unavailable").slice(-600);
+      job.status = "FAILED";
+      job.error = message;
+      job.updated_at = new Date().toISOString();
+      const asset = (state.assets || []).find((row) => row.id === job.asset_id);
+      if (asset) { asset.status = "pending"; asset.error = message; }
+      changed = true;
+    }
+    if (!changed) continue;
+    state.status = (state.assets || []).some((asset) => asset.reference) ? "review" : "idle";
+    state.updatedAt = new Date().toISOString();
+    directorAssetWriteBoard(board);
+  }
+}
+function directorAssetWriteBoard(board) {
+  const f = directorAssetBoardFile(board && board.id);
+  if (!f) throw new Error("bad board id");
+  fs.mkdirSync(DIRECTOR, { recursive: true });
+  board.updatedAt = new Date().toISOString();
+  fs.writeFileSync(f, JSON.stringify(board, null, 2));
+  // Same best-effort mirror the Director routes use — the file write already
+  // succeeded, so a DB hiccup must never fail a generation.
+  void pgUpsertDirectorBoard(board).catch((e) => console.warn("[pg] director asset board mirror failed:", e.message));
+  return board;
+}
+function directorAssetRelPath(boardId, asset, version) {
+  const kind = DIRECTOR_ASSET_KIND_DIR[asset.type] || "objects";
+  const name = isSafe(asset.id) ? asset.id : "asset";
+  const stem = String(asset.name || asset.id || "asset")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 72) || name.toLowerCase();
+  return `${boardId}/${kind}/${name}/${stem}_v${Math.max(1, Number(version) || 1)}.png`;
+}
+const directorAssetVersionsCache = new Map();
+function directorAssetWithVersions(boardId, state) {
+  const assets = state.assets || [];
+  const stamp = `${String(state.updatedAt || "")}|${assets.map((a) => [a.id, a.status, a.version, a.reference, a.prompt].join("\u0001")).join("\u0002")}`;
+  const cached = directorAssetVersionsCache.get(boardId);
+  if (cached && cached.stamp === stamp) {
+    directorAssetVersionsCache.delete(boardId);
+    directorAssetVersionsCache.set(boardId, cached);
+    return { ...state, assets: cached.assets };
+  }
+  const versionedAssets = assets.map((asset) => {
+    const current = String(asset.reference || "").replace(/\\/g, "/");
+    const currentDir = path.dirname(path.join(DIRECTOR_ASSETS_DIR, ...directorAssetRelPath(boardId, asset, 1).split("/")));
+    const files = new Map();
+    try {
+      for (const file of fs.readdirSync(currentDir)) {
+        if (!file.toLowerCase().endsWith(".png")) continue;
+        let version = null;
+        if (file === "reference.png") version = 1;
+        else if (/^reference_v(\d+)\.png$/i.test(file)) version = Number(file.match(/^reference_v(\d+)\.png$/i)?.[1]);
+        else {
+          const stem = path.basename(file, path.extname(file));
+          const found = stem.match(/_v(\d+)$/i);
+          if (found) version = Number(found[1]);
+        }
+        if (!Number.isInteger(version) || version < 1) continue;
+        const rel = `${boardId}/${DIRECTOR_ASSET_KIND_DIR[asset.type] || "objects"}/${isSafe(asset.id) ? asset.id : "asset"}/${file}`;
+        const existing = files.get(version);
+        const preferred = current === rel || !existing
+          || (existing.reference !== current && path.basename(existing.reference) === "reference.png" && file !== "reference.png");
+        if (preferred) files.set(version, { version, reference: rel });
+      }
+    } catch { /* no render folder yet */ }
+    if (current && ![...files.values()].some((item) => item.reference === current)) {
+      const inferred = Number(current.match(/_v(\d+)\.png$/i)?.[1]) || Number(asset.version) || 1;
+      files.set(inferred, { version: inferred, reference: current });
+    }
+    const currentVersion = [...files.values()].find((item) => item.reference === current)?.version
+      || Number(asset.version) || [...files.keys()].sort((a, b) => b - a)[0] || 1;
+    const versionPrompts = new Map((state.jobs || [])
+      .filter((job) => job?.asset_id === asset.id && Number(job?.metadata?.version) > 0 && job?.metadata?.prompt)
+      .map((job) => [Number(job.metadata.version), String(job.metadata.prompt)]));
+    const image_versions = [...files.values()].sort((a, b) => a.version - b.version).map((item) => ({
+      ...item,
+      reference_id: assetVersionId(asset, item.version),
+      prompt: versionPrompts.get(item.version) || (item.version === currentVersion ? asset.prompt : ""),
+    }));
+    return { ...asset, version: currentVersion, reference_id: assetVersionId(asset, currentVersion), image_versions };
+  });
+  directorAssetVersionsCache.set(boardId, { stamp, assets: versionedAssets });
+  // Bound the process cache when a user opens many boards in one session.
+  while (directorAssetVersionsCache.size > 48) {
+    directorAssetVersionsCache.delete(directorAssetVersionsCache.keys().next().value);
+  }
+  return { ...state, assets: versionedAssets };
+}
+// Approved masters ride the SCENE prompt as a compact visual index. This is a
+// text lock, not a pixel anchor: the Flux.1-dev reference workflow is pure
+// text-to-image. Skipped stages contribute nothing (nothing was rendered).
+function directorApprovedAssets(board, stateOverride = null) {
+  const state = stateOverride || directorAssetWithVersions(board.id, getBoardAssetState(board));
+  if (state.status !== "approved" || state.skipped) return [];
+  return compactIndex(state).filter((a) => a.reference);
+}
+
+// Resolve compact asset references only at approval time. Scene board rows
+// keep ids and direction; the existing generation scenario receives the
+// approved prompts plus safe local reference paths as ephemeral generation
+// data. The sequence runner can pixel-anchor those references in Flux 2 mode.
+function attachDirectorAssetGenerationData(config) {
+  const root = path.resolve(DIRECTOR_ASSETS_DIR);
+  for (const beat of Array.isArray(config?.sequence) ? config.sequence : []) {
+    const missing = [];
+    const files = (Array.isArray(beat.reference_images) ? beat.reference_images : []).flatMap((item) => {
+      const rel = String(item?.path || "").replace(/\\/g, "/");
+      const parts = rel.split("/");
+      if (!rel || parts.some((part) => !isSafeSegment(part))) {
+        missing.push(`${String(item?.asset_id || "asset")}: invalid reference path`);
+        return [];
+      }
+      const absolute = path.resolve(root, ...parts);
+      if (!(absolute === root || absolute.startsWith(`${root}${path.sep}`)) || !fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) {
+        missing.push(`${String(item?.asset_id || "asset")}: reference image is missing from storage`);
+        return [];
+      }
+      return [{ ...item, path: absolute }];
+    });
+    beat.reference_images = files;
+    if (missing.length) beat.asset_reference_issues = [...new Set([...(beat.asset_reference_issues || []), ...missing])];
+    const preferred = files.find((x) => x.type === "character")
+      || files.find((x) => x.type === "location") || files.find((x) => x.type === "object");
+    if (preferred) beat.reference_image_path = preferred.path;
+  }
+  return config;
+}
+
+async function directorAssetPumpJobs() {
+  if (directorAssetPumping || !fs.existsSync(DIRECTOR)) return;
+  // One ComfyUI job at a time across ALL generators (the queue is serial).
+  if ([...directorAssetProcs.values()].some((p) => p && p.exitCode === null)) return;
+  if (typeof runs !== "undefined" && [...runs.values()].some((r) => r.status === "running")) return;
+  if (typeof kidsProcs !== "undefined" && [...kidsProcs.values()].some((p) => p && p.exitCode === null)) return;
+  directorAssetPumping = true;
+  try {
+    let picked = null;
+    for (const file of fs.readdirSync(DIRECTOR)) {
+      if (!file.endsWith(".json")) continue;
+      let board;
+      try { board = directorAssetReadBoard(path.basename(file, ".json")); }
+      catch (e) { console.warn(`[director-assets] skipping unreadable board ${file}:`, e.message); continue; }
+      const jobs = board?.assetProduction?.jobs;
+      if (!Array.isArray(jobs)) continue;
+      const job = jobs.find((j) => j && (j.status === "PENDING" || j.status === "PROCESSING"));
+      if (job) { picked = { board, job }; break; }
+    }
+    if (!picked) return;
+    const { board, job } = picked;
+    const comfy = await directorComfyProbe();
+    if (!comfy.up) {
+      directorAssetFailQueuedJobs(`ComfyUI is unavailable: ${comfy.error}. Start ComfyUI and retry asset generation.`);
+      return;
+    }
+    const assets = board.assetProduction.assets || [];
+    const asset = assets.find((a) => a.id === job.asset_id);
+    if (!asset) throw new Error(`asset ${job.asset_id} is missing from this board`);
+    const savedPrompt = String(asset.prompt || "").trim();
+    if (!savedPrompt) throw new Error(`asset ${asset.id} has no saved generation prompt — write one first`);
+
+    const version = Number(asset.version || 0) + 1;
+    const rel = directorAssetRelPath(board.id, asset, version);
+    const outFile = path.join(DIRECTOR_ASSETS_DIR, ...rel.split("/"));
+    fs.mkdirSync(path.dirname(outFile), { recursive: true });
+    const wf = resolveImageWorkflow(String(job.workflow || "flux_text_image"), DEFAULT_IMAGE_WORKFLOW);
+
+    job.status = "PROCESSING";
+    job.updated_at = new Date().toISOString();
+    job.metadata = { ...(job.metadata || {}), file: rel, workflow: wf.id, version, prompt: savedPrompt };
+    asset.status = "generating";
+    asset.error = null;
+    board.assetProduction.status = "generating";
+    board.assetProduction.updatedAt = new Date().toISOString();
+    directorAssetWriteBoard(board);
+
+    const args = [
+      "scripts/kids_reference.mjs", "--workflow", wf.id,
+      "--prompt", savedPrompt, "--out", outFile,
+      "--width", String(wf.width), "--height", String(wf.height),
+      "--steps", String(wf.steps),
+    ];
+    const proc = spawn(process.execPath, args, { cwd: ROOT, env: process.env, windowsHide: true });
+    directorAssetProcs.set(job.id, proc);
+    let log = "";
+    proc.stdout.on("data", (d) => { log += String(d); });
+    proc.stderr.on("data", (d) => { log += String(d); });
+    proc.on("error", (e) => { log += `\n${e && e.message ? e.message : String(e)}`; });
+    proc.on("close", (code) => {
+      directorAssetProcs.delete(job.id);
+      // Re-read: the board may have been edited while the render was running.
+      const fresh = directorAssetReadBoard(board.id);
+      if (!fresh || !fresh.assetProduction) return void directorAssetPumpJobs();
+      const freshJob = (fresh.assetProduction.jobs || []).find((j) => j.id === job.id);
+      const freshAsset = (fresh.assetProduction.assets || []).find((a) => a.id === asset.id);
+      const ok = code === 0 && fs.existsSync(outFile);
+      if (ok && freshJob && freshAsset) {
+        freshJob.status = "COMPLETED";
+        freshJob.updated_at = new Date().toISOString();
+        freshAsset.reference = rel;
+        freshAsset.version = version;
+        freshAsset.status = "review";
+        freshAsset.error = null;
+        freshAsset.workflow = wf.id;
+        freshAsset.model = wf.model;
+        fresh.assetProduction.status = "review";
+      } else {
+        try { if (fs.existsSync(outFile)) fs.unlinkSync(outFile); } catch { /* ignore */ }
+        if (freshJob) {
+          freshJob.status = "FAILED";
+          freshJob.error = (log || "").slice(-600) || `render exited with code ${code}`;
+          freshJob.updated_at = new Date().toISOString();
+        }
+        if (freshAsset) {
+          freshAsset.status = "pending";
+          freshAsset.error = (log || "").slice(-600) || `render exited with code ${code}`;
+        }
+      }
+      fresh.assetProduction.updatedAt = new Date().toISOString();
+      directorAssetWriteBoard(fresh);
+      void directorAssetPumpJobs();
+    });
+  } catch (e) {
+    console.error("[director-assets] pump failed:", e && e.message);
+    directorAssetFailQueuedJobs(`Asset generation could not start: ${e?.message || String(e)}`);
+  } finally {
+    directorAssetPumping = false;
+  }
+}
+
 // ---------------------------------------------------------------- auth
 // Single-user login. Credentials come from env (video_test/.env or real env);
 // defaults are admin / admin — override for anything non-local.
@@ -5437,8 +5761,38 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Everything below (API + generated outputs) requires a session.
-    if ((p.startsWith("/api/") || p.startsWith("/outputs/") || p.startsWith("/resources/") || p.startsWith("/kids/")) && !authedUser(req))
+    if ((p.startsWith("/api/") || p.startsWith("/outputs/") || p.startsWith("/resources/") || p.startsWith("/kids/") || p.startsWith("/director-assets/")) && !authedUser(req))
       return json(res, 401, { error: "unauthorized" });
+
+    if (p === "/api/settings/director-prompts" && req.method === "GET") {
+      const settings = readDirectorPromptSettings();
+      return json(res, 200, {
+        catalog: DIRECTOR_PROMPT_RULES.map(({ id, scope, title, description, defaultEnabled, text }) => ({ id, scope, title, description, defaultEnabled, defaultText: text })),
+        settings,
+        appendedText: directorPromptAddons(settings),
+        appendedTextByWorkflow: {
+          director: directorPromptAddons(settings),
+          kids: kidsPromptAddons(settings),
+          documentary: documentaryPromptAddons(settings),
+        },
+      });
+    }
+    if (p === "/api/settings/director-prompts" && req.method === "PUT") {
+      let body;
+      try { body = await readJson(req); }
+      catch { return json(res, 400, { error: "bad json" }); }
+      const settings = writeDirectorPromptSettings(body);
+      return json(res, 200, {
+        catalog: DIRECTOR_PROMPT_RULES.map(({ id, scope, title, description, defaultEnabled, text }) => ({ id, scope, title, description, defaultEnabled, defaultText: text })),
+        settings,
+        appendedText: directorPromptAddons(settings),
+        appendedTextByWorkflow: {
+          director: directorPromptAddons(settings),
+          kids: kidsPromptAddons(settings),
+          documentary: documentaryPromptAddons(settings),
+        },
+      });
+    }
 
     if (p === "/api/scenarios" && req.method === "GET") {
       const favs = readFavs();
@@ -6611,13 +6965,17 @@ const server = http.createServer(async (req, res) => {
     // honest estimate and the Lyric panel asks for a re-import instead of
     // silently timing new scenes with old audio.
     const lyricTimelineStale = (board, timeline) => {
-      const stored = arr(timeline && timeline.lines).map((l) => Number(l.line_id)).filter((n) => Number.isFinite(n));
-      if (!stored.length) return false;
-      const current = lyricTimelineSourceLines(board)
-        .map((l) => Number(l.lyric_line_id)).filter((n) => Number.isFinite(n));
+      const storedRows = arr(timeline && timeline.lines).filter((l) => Number.isFinite(Number(l.line_id)));
+      if (!storedRows.length) return false;
+      const currentRows = lyricTimelineSourceLines(board).filter((l) => Number.isFinite(Number(l.lyric_line_id)));
+      const current = currentRows.map((l) => Number(l.lyric_line_id));
       if (!current.length) return false;
-      const have = new Set(stored);
-      return current.some((id) => !have.has(id));
+      const byId = new Map(storedRows.map((l) => [Number(l.line_id), l]));
+      const normalizeText = (value) => String(value || "").normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+      return currentRows.some((line) => {
+        const prior = byId.get(Number(line.lyric_line_id));
+        return !prior || normalizeText(prior.lyric_text) !== normalizeText(line.lyric_text ?? line.text);
+      });
     };
     // Ask the configured local model to match uncertain lyric lines to spans
     // in measured WhisperX words. It can cite word indices only; the server
@@ -6872,6 +7230,8 @@ const server = http.createServer(async (req, res) => {
       return {
         title,
         story,
+        analyzerType: ["story_director", "song_director", "story_from_song_director", "kids_director", "devotional_director"].includes(String(b.analyzerType || ""))
+          ? String(b.analyzerType) : "story_director",
         language,
         // The language of the SOURCE TEXT for the meaning analysis
         // (auto | hi | en | hinglish) — the spoken language stays separate.
@@ -7299,6 +7659,8 @@ const server = http.createServer(async (req, res) => {
             }
             if (typeof patch.input.language === "string" && DIRECTOR_LANGS.includes(patch.input.language))
               board.input.language = patch.input.language;
+            if (typeof patch.input.analyzerType === "string" && ["story_director", "song_director", "story_from_song_director", "kids_director", "devotional_director"].includes(patch.input.analyzerType))
+              board.input.analyzerType = patch.input.analyzerType;
             if (typeof patch.input.genre === "string" && DIRECTOR_GENRES.includes(patch.input.genre))
               board.input.genre = patch.input.genre;
             if (typeof patch.input.genreCustom === "string")
@@ -7399,7 +7761,17 @@ const server = http.createServer(async (req, res) => {
             if (board.input.chainContinuity !== true) {
               for (const s of board.scenes) scrubSceneContinuity(s);
             }
-            board.sceneCount = board.scenes.length;
+            if (board.scenes.length) {
+              board.sceneCount = board.scenes.length;
+            } else {
+              // Deleting all scenes resets planning to the full duration-based
+              // cap; zero would make the next Generate Scenes call a no-op.
+              const target = Number(board.input?.song?.durationSeconds)
+                || Number(board.input?.targetSeconds)
+                || Number(board.input?.sourceAudio?.durationSeconds)
+                || 0;
+              board.sceneCount = sceneCountFor(target, board.input?.sceneSeconds);
+            }
           }
           board.status = board.scenes.length ? "ready" : (board.blueprint ? "analyzed" : board.status);
           board.error = null;
@@ -7443,6 +7815,10 @@ const server = http.createServer(async (req, res) => {
         batchFrom: st.batchFrom ?? null,
         batchTo: st.batchTo ?? null,
         startedAt: st.startedAt,
+        elapsedMs: Math.max(0, Date.now() - st.startedAt),
+        llmElapsedMs: st.llmStartedAt ? Math.max(0, Date.now() - st.llmStartedAt) : null,
+        currentAttempt: st.currentAttempt || null,
+        llmAttempts: st.llmAttempts || [],
         chars: st.text.length,
         thinking: !st.text && !!reasoning,
         reasoning: reasoning.slice(-4000),
@@ -7488,6 +7864,16 @@ const server = http.createServer(async (req, res) => {
       const avgScene = Math.max(1, Number(board.input.sceneSeconds) || 3);
       const DONE_TOL = Math.max(1, avgScene / 2);
       const timeCovered = planTarget > 0 && (planTarget - prog.plannedSeconds) <= DONE_TOL;
+      // Old/empty boards can have sceneCount=0 (for example, saving an empty
+      // scene array). Recover the duration-based cap before the ready check;
+      // otherwise Continue immediately returns an empty board forever.
+      if (!done && !(Number(board.sceneCount) > 0)) {
+        const recoveredCount = sceneCountFor(planTarget, avgScene);
+        if (recoveredCount > 0) {
+          board.sceneCount = recoveredCount;
+          console.warn(`[director:${id}] recovered empty scene cap as ${recoveredCount} from ${planTarget}s / ${avgScene}s`);
+        }
+      }
       let remaining = board.sceneCount - done;
       if (timeCovered) {
         board.sceneCount = board.scenes.length;
@@ -7572,7 +7958,8 @@ const server = http.createServer(async (req, res) => {
         // the current lines, skip the stored timing analysis entirely since
         // the approved master is the authoritative timing reference.
         const masterStored = board.lyric_timeline && board.lyric_timeline.master;
-        const approvedMaster = masterStored && masterStored.approved
+        const timingFresh = !lyricTimelineStale(board, board.lyric_timeline);
+        const approvedMaster = timingFresh && masterStored && masterStored.approved
           && Array.isArray(masterStored.segments) && masterStored.segments.length
           ? masterStored : null;
         const currentLineIds = lyricTimelineSourceLines(board)
@@ -7599,7 +7986,7 @@ const server = http.createServer(async (req, res) => {
         }
         if (!approvedApplied) {
           // Fall back to stored timeline analysis
-          const storedTimeline = Array.isArray(board.lyric_timeline && board.lyric_timeline.lines)
+          const storedTimeline = timingFresh && Array.isArray(board.lyric_timeline && board.lyric_timeline.lines)
             ? board.lyric_timeline.lines : [];
           const storedTiming = storedTimeline
             .filter((l) => Number.isFinite(Number(l.start_seconds)) && Number.isFinite(Number(l.end_seconds)))
@@ -7611,7 +7998,7 @@ const server = http.createServer(async (req, res) => {
               timing: String(l.timing || "estimated"),
             }))
             .filter((l) => l.song_end_time > l.song_start_time);
-          const storedCoversCurrent = storedTiming.length > 0 && currentLineIds.length > 0
+          storedCoversCurrent = storedTiming.length > 0 && currentLineIds.length > 0
             && currentLineIds.every((id) => storedTiming.some((l) => l.lyric_line_id === id));
           if (storedCoversCurrent && storedTiming.length) {
             lyricTiming = storedTiming;
@@ -8673,6 +9060,8 @@ except Exception as e:
         duplicates: dupes,
         styleGuide: buildVisualStyleGuide(board),
         issues: validateAssetContinuity(board),
+        // The Generate Assets stage lives on the board JSON (no DB migration).
+        production: directorAssetWithVersions(id, getBoardAssetState(board)),
       });
     }
     // Cinematography & shot planning (Phase 3) — read-only plans derived
@@ -8743,6 +9132,8 @@ except Exception as e:
       const board = readDirectorBoard(id);
       if (!board.blueprint) return json(res, 400, { error: "analyze the story first" });
       if (!Array.isArray(board.scenes) || !board.scenes.length) return json(res, 400, { error: "no scenes to repair" });
+      const sceneAssetState = directorAssetWithVersions(id, getBoardAssetState(board));
+      const approvedSceneAssets = directorApprovedAssets(board, sceneAssetState);
       const body = await readJson(req).catch(() => ({}));
       const scored = scoreDirectorPlan({ ...board, blueprint: { ...(board.blueprint || {}), lyric_lines: boardLyricLines(board) } });
       let targets = Array.isArray(body.scene_numbers)
@@ -8768,6 +9159,8 @@ except Exception as e:
           { lyric_line_id: s.line_from },
           { lyric_line_id: s.line_to },
         ]).filter((l) => l.lyric_line_id)),
+        approvedAssets: approvedSceneAssets,
+        promptAddons: directorPromptAddons(readDirectorPromptSettings()),
       });
       const raw = await llmChatJson({
         system: DIRECTOR_SYSTEM, user, maxTokens: 6000, temperature: 0.5,
@@ -8800,6 +9193,9 @@ except Exception as e:
           }
         } catch { /* lyric join is best-effort */ }
         try { canonicalizeSceneRefs(normed, board.blueprint); } catch { /* grounding is best-effort */ }
+        const assetRefs = resolveSceneAssetRefs(normed, sceneAssetState);
+        if (assetRefs.issues.length) console.warn(`[director:${id}] repair asset refs: ${assetRefs.issues.join("; ").slice(0, 400)}`);
+        if (approvedSceneAssets.length) compactSceneGenerationDirections(normed);
         // Preserve the repaired scene_number even when the model omits it.
         if (num) normed.scene_number = num;
         return normed;
@@ -8842,6 +9238,10 @@ except Exception as e:
         // Same gated abstract-line guidance the real batch sends (derived from
         // the board's stored meaning for this line window).
         semanticVariationContext: semanticVariationForBatch(board, spec.lineRange),
+        // Approved master assets ride the prompt exactly like the real batch —
+        // Show prompt must be byte-identical to what the model receives.
+        approvedAssets: directorApprovedAssets(board),
+        promptAddons: directorPromptAddons(readDirectorPromptSettings()),
       });
       return json(res, 200, {
         ready: false,
@@ -8864,6 +9264,8 @@ except Exception as e:
       try {
         const board = readDirectorBoard(id);
         if (!board.blueprint) throw new Error("analyze the story first");
+        const sceneAssetState = directorAssetWithVersions(id, getBoardAssetState(board));
+        const approvedSceneAssets = directorApprovedAssets(board, sceneAssetState);
         const anatomyErrors = validateBibleAnatomy(board.blueprint);
         if (anatomyErrors.length) {
           return json(res, 400, { error: anatomyErrors[0], errors: anatomyErrors });
@@ -8873,14 +9275,16 @@ except Exception as e:
         if (spec.ready) return json(res, 200, spec.write ? writeDirectorBoard(spec.board) : spec.board);
         const { done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, masterTiming, cinematicContext } = spec;
         const scenesRawTag = `_raw_${id}_scenes_${done + 1}.log`;
+        const batchStartedAt = Date.now();
+        const batchLlmAttempts = [];
+        const promptAddons = directorPromptAddons(readDirectorPromptSettings());
         // Read-only phase labels for the storyboard workspace. Same buffer,
         // same SSE/LLM call — the UI merely names the step it is watching.
         liveBegin(id, { phase: STORYBOARD_PHASES[0], batchFrom: done + 1, batchTo: done + n });
         if (masterTiming || cinematicContext) livePhase(id, STORYBOARD_PHASES[1]);
-        // The MEANING pass for THIS batch: the configured model enriches the
-        // deterministic reading of the lines this batch covers (the meaning
-        // the scenes are planned FROM). A failure keeps the deterministic
-        // analysis — the batch is never blocked by a slow model.
+        // The MEANING pass for THIS batch is deterministic by default. A
+        // second LLM round trip is available only when explicitly requested;
+        // scene planning already receives the complete line-by-line context.
         const batchLines = arr(lineRange).length ? arr(lineRange) : arr(lyricTiming);
         livePhase(id, STORYBOARD_PHASES[2]);
         const semanticLanguage = String((board.input && board.input.semanticsLanguage) || "auto");
@@ -8892,7 +9296,7 @@ except Exception as e:
           { language: semanticLanguage, bible: board.blueprint, genre: board.input && board.input.genre },
         );
         let semanticRows = deterministicRows;
-        if (deterministicRows.length && body.useModel !== false) {
+        if (deterministicRows.length && body.useModel === true) {
           const enriched = await enrichSemanticsWithModel(
             deterministicRows.map((r) => ({ id: r.line_id, text: r.source_text })),
             {
@@ -8945,6 +9349,8 @@ except Exception as e:
         let attemptCompact = false;
         livePhase(id, STORYBOARD_PHASES[3]);
         for (let attempt = 1; attempt <= 2; attempt++) {
+        const llmAttemptStartedAt = Date.now();
+        liveLlmStart(id, attempt);
         try {
           raw = await llmChatJsonLive({
             system: DIRECTOR_SYSTEM,
@@ -8967,6 +9373,10 @@ except Exception as e:
               masterTimeline: masterTiming || null,
               cinematicContext: cinematicContext || null,
               semanticVariationContext,
+              // The approved Generate Assets stage feeds the scene planner a
+              // compact visual index keyed by bible id (text lock, not pixels).
+              approvedAssets: approvedSceneAssets,
+              promptAddons,
             }),
             maxTokens: 16000,
             temperature: 0.5,
@@ -8975,11 +9385,17 @@ except Exception as e:
             liveId: id,
             tag: `story_scenes_${done + 1}`,
           });
+          const attemptDurationMs = Date.now() - llmAttemptStartedAt;
+          batchLlmAttempts.push({ attempt, startedAt: new Date(llmAttemptStartedAt).toISOString(), durationMs: attemptDurationMs, outcome: "success", requestedScenes: attemptN });
+          liveLlmEnd(id, attempt);
           batchComplete = raw && raw.complete === true;
           assertNoCJK(raw, "the scene plan");
           livePhase(id, STORYBOARD_PHASES[4]);
           break;
         } catch (e) {
+          const attemptDurationMs = Date.now() - llmAttemptStartedAt;
+          batchLlmAttempts.push({ attempt, startedAt: new Date(llmAttemptStartedAt).toISOString(), durationMs: attemptDurationMs, outcome: "failed", requestedScenes: attemptN });
+          liveLlmEnd(id, attempt);
           const msg = String((e && e.message) || "");
           // Always log the real cause: the stall error below is generic and
           // otherwise masks transport/timeout failures (no raw file is even
@@ -9030,6 +9446,7 @@ except Exception as e:
           throw new Error(board.error);
         }
         }
+        const postLlmStartedAt = Date.now();
         const got = Array.isArray(raw.scenes) ? raw.scenes : (Array.isArray(raw) ? raw : []);
         if (!got.length) throw new Error("director returned no scenes — try again");
         assertNoCJK(got, "the scene plan");
@@ -9141,6 +9558,12 @@ except Exception as e:
         } catch (e) {
           console.warn(`[director:${id}] grounding failed for batch scene ${normed.scene_number}: ${e && e.message ? e.message : e}`);
         }
+        const assetRefs = resolveSceneAssetRefs(normed, sceneAssetState);
+        for (const issue of assetRefs.issues) {
+          if (groundNotes.length < 12) groundNotes.push(issue);
+          console.warn(`[director:${id}] asset reference: ${issue}`);
+        }
+        if (approvedSceneAssets.length) compactSceneGenerationDirections(normed);
         landed.push(normed);
         }
         // Exact-duplicate scene guard (same title + action as an
@@ -9226,6 +9649,25 @@ except Exception as e:
         // A clean full batch proves the model handles this size again —
         // drop the stall hint so planning returns to full batches.
         if (!salvageNote) board.planBatchHint = null;
+        const llmMs = batchLlmAttempts.reduce((sum, item) => sum + item.durationMs, 0);
+        const scenePlanningMetrics = board.scenePlanningMetrics && typeof board.scenePlanningMetrics === "object"
+          ? board.scenePlanningMetrics : { batches: [] };
+        scenePlanningMetrics.batches = Array.isArray(scenePlanningMetrics.batches) ? scenePlanningMetrics.batches : [];
+        scenePlanningMetrics.batches.push({
+          from: done + 1,
+          requested: n,
+          received: got.length,
+          accepted: kept.length,
+          attempts: batchLlmAttempts,
+          preparationMs: Math.max(0, (batchLlmAttempts[0] ? Date.parse(batchLlmAttempts[0].startedAt) : postLlmStartedAt) - batchStartedAt),
+          llmMs,
+          postLlmMs: Math.max(0, Date.now() - postLlmStartedAt),
+          totalMs: Math.max(0, Date.now() - batchStartedAt),
+          recordedAt: new Date().toISOString(),
+        });
+        if (scenePlanningMetrics.batches.length > 100) scenePlanningMetrics.batches.splice(0, scenePlanningMetrics.batches.length - 100);
+        scenePlanningMetrics.updatedAt = new Date().toISOString();
+        board.scenePlanningMetrics = scenePlanningMetrics;
         livePhase(id, STORYBOARD_PHASES[6]);
         const savedBoard = writeDirectorBoard(board);
         livePhase(id, completeOk ? STORYBOARD_PHASES[8] : STORYBOARD_PHASES[7]);
@@ -9407,6 +9849,8 @@ except Exception as e:
       if (!Number.isInteger(index) || index < 0 || index >= board.scenes.length)
         throw new Error("bad scene index");
       const scene = board.scenes[index];
+      const sceneAssetState = directorAssetWithVersions(id, getBoardAssetState(board));
+      const approvedSceneAssets = directorApprovedAssets(board, sceneAssetState);
       const raw = await llmChatJson({
         system: DIRECTOR_SYSTEM,
         user: buildRegenPrompt({
@@ -9414,6 +9858,8 @@ except Exception as e:
           prevScene: index > 0 ? board.scenes[index - 1] : null,
           nextScene: index < board.scenes.length - 1 ? board.scenes[index + 1] : null,
           styleLock: board.styleLock,
+          approvedAssets: approvedSceneAssets,
+          promptAddons: directorPromptAddons(readDirectorPromptSettings()),
         }),
         maxTokens: 4000,
         temperature: 0.6,
@@ -9422,6 +9868,10 @@ except Exception as e:
       });
       const fresh = raw.scene && typeof raw.scene === "object" ? raw.scene : raw;
       board.scenes[index] = normalizeScene(fresh, scene.scene_number, scene.duration_seconds);
+      try { canonicalizeSceneRefs(board.scenes[index], board.blueprint); } catch { /* best-effort legacy grounding */ }
+      const assetRefs = resolveSceneAssetRefs(board.scenes[index], sceneAssetState);
+      if (assetRefs.issues.length) board.scenes[index].asset_reference_issues = assetRefs.issues;
+      if (approvedSceneAssets.length) compactSceneGenerationDirections(board.scenes[index]);
       if (board.input.includeDialogue === false) board.scenes[index].dialogue = [];
       if (board.input.chainContinuity !== true) scrubSceneContinuity(board.scenes[index]);
       board.error = null;
@@ -9586,7 +10036,11 @@ except Exception as e:
       } catch (e) {
         console.warn(`[director:${id}] approve timing snap failed: ${e && e.message ? e.message : e}`);
       }
-      const config = boardToScenario(board);
+      const generationBoard = {
+        ...board,
+        assetProduction: directorAssetWithVersions(id, getBoardAssetState(board)),
+      };
+      const config = attachDirectorAssetGenerationData(boardToScenario(generationBoard));
       // Partial-migration flow: the first approve claims a project name (the
       // story title as a space-free KEY, _2-suffixed on collision); every
       // later "migrate remaining" re-approve reuses board.scenarioName so the
@@ -9895,7 +10349,7 @@ except Exception as e:
         try {
           const raw = await llmChatJson({
             system: KIDS_DIRECTOR_SYSTEM,
-            user: buildKidsDirectorPlanPrompt(draft),
+            user: buildKidsDirectorPlanPrompt(draft, { promptAddons: kidsPromptAddons(readDirectorPromptSettings()) }),
             maxTokens: 16000,
             temperature: 0.7,
             timeoutMs: REQUEST_TIMEOUT_MS,
@@ -10926,7 +11380,10 @@ except Exception as e:
           try {
             const raw = await llmChatJson({
               system: DOCUMENTARY_DIRECTOR_SYSTEM,
-              user: buildDocShotsPrompt({ brief: board.brief, board, chapter: c, startGlobal: global, analysisCtx: actx }),
+              user: buildDocShotsPrompt({
+                brief: board.brief, board, chapter: c, startGlobal: global, analysisCtx: actx,
+                promptAddons: documentaryPromptAddons(readDirectorPromptSettings()),
+              }),
               maxTokens: 16000, temperature: 0.7, timeoutMs: REQUEST_TIMEOUT_MS,
               rawTag: `_raw_doc_${id}_ch${c.chapter_number}.log`,
             });
@@ -12163,6 +12620,120 @@ if (p === "/api/database/rows" && (req.method === "POST" || req.method === "PUT"
       }).join("/");
       return serveKids(res, rel);
     }
+    if (p.startsWith("/director-assets/")) {
+      // /director-assets/<boardId>/<kind>/<assetId>/reference[_vN].png
+      const rel = p.slice("/director-assets/".length).split("/").map((s) => {
+        try { return decodeURIComponent(s); } catch { return ""; }
+      }).join("/");
+      return serveDirectorAssets(res, rel);
+    }
+
+    // ----- Generate Assets stage (real jobs, persisted on the board JSON) -----
+    const assetBoardMatch = p.match(/^\/api\/director\/boards\/([^/]+)\/assets\/(generate|approve|skip|regenerate)$/);
+    if (assetBoardMatch && req.method === "POST") {
+      const id = decodeURIComponent(assetBoardMatch[1]);
+      const action = assetBoardMatch[2];
+      const board = readDirectorBoard(id);
+      const body = (await readJson(req).catch(() => ({}))) || {};
+      let state = getBoardAssetState(board);
+
+      if (action === "generate" || action === "regenerate") {
+        const comfy = await directorComfyProbe();
+        if (!comfy.up) {
+          return json(res, 503, {
+            error: `ComfyUI is unavailable: ${comfy.error}. Start ComfyUI and retry asset generation.`,
+            production: state,
+          });
+        }
+      }
+
+      if (action === "generate") {
+        // Build once per bible version. Clicking twice must NOT reset a
+        // rendered-but-unapproved asset to pending or queue duplicate jobs.
+        const signature = blueprintAssetSignature(board.blueprint);
+        if (!state.assets.length || state.sourceSignature !== signature) {
+          state = buildBoardAssetState(board.blueprint, state);
+        }
+        if (state.jobs.some((j) => j && (j.status === "PENDING" || j.status === "PROCESSING"))) {
+          return json(res, 409, { error: "master asset renders are already queued — wait for them to finish", production: state });
+        }
+        const wanted = Array.isArray(body.ids) && body.ids.length
+          ? new Set(body.ids.map(String)) : null;
+        const wf = resolveImageWorkflow(String(body.workflow || "flux_text_image"), DEFAULT_IMAGE_WORKFLOW);
+        const targets = state.assets.filter((a) => {
+          if (wanted && !wanted.has(a.id)) return false;
+          if (wanted) return Boolean(String(a.prompt || "").trim()); // explicit retry
+          return a.status === "pending" || a.status === "no-prompt";
+        });
+        const noPrompt = targets.filter((a) => !String(a.prompt || "").trim()).map((a) => a.id);
+        const queueable = targets.filter((a) => String(a.prompt || "").trim());
+        if (!queueable.length && noPrompt.length) {
+          return json(res, 400, { error: `assets have no saved generation prompt: ${noPrompt.join(", ")}`, production: state });
+        }
+        const now = new Date().toISOString();
+        for (const a of queueable) {
+          state.jobs.push({
+            id: `dir_asset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+            asset_id: a.id,
+            kind: "master_reference",
+            status: "PENDING",
+            workflow: wf.id,
+            error: null,
+            created_at: now,
+            updated_at: now,
+            metadata: {},
+          });
+          a.status = "queued";
+          a.error = null;
+        }
+        state.status = queueable.length ? "generating" : state.status;
+        board.assetProduction = state;
+        directorAssetWriteBoard(board);
+        if (queueable.length) void directorAssetPumpJobs();
+        return json(res, 202, { production: state, queued: queueable.length, no_prompt: noPrompt });
+      }
+
+      if (action === "regenerate") {
+        const assetId = String(body.id || "");
+        if (!isValidAssetId(assetId)) return json(res, 400, { error: "invalid asset id" });
+        const asset = findAsset(state, assetId);
+        if (!asset) return json(res, 404, { error: "no such asset on this board" });
+        const prompt = String(body.prompt ?? asset.prompt ?? "").trim();
+        if (!prompt) return json(res, 400, { error: "a generation prompt is required" });
+        const wf = resolveImageWorkflow(String(body.workflow || asset.workflow || "flux_text_image"), DEFAULT_IMAGE_WORKFLOW);
+        asset.prompt = prompt; // explicit edit wins
+        asset.status = "queued";
+        asset.error = null;
+        const now = new Date().toISOString();
+        state.jobs.push({
+          id: `dir_asset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          asset_id: asset.id, kind: "master_reference", status: "PENDING", workflow: wf.id,
+          error: null, created_at: now, updated_at: now, metadata: {},
+        });
+        state.status = "generating";
+        state.updatedAt = now;
+        board.assetProduction = state;
+        directorAssetWriteBoard(board);
+        void directorAssetPumpJobs();
+        return json(res, 202, { production: state });
+      }
+
+      if (action === "approve") {
+        const ids = Array.isArray(body.ids) && body.ids.length ? body.ids.map(String) : null;
+        const result = approveAssets(state, ids);
+        board.assetProduction = result.state;
+        directorAssetWriteBoard(board);
+        return json(res, 200, { production: result.state, approved: result.changed });
+      }
+
+      if (action === "skip") {
+        board.assetProduction = skipAssets(state);
+        directorAssetWriteBoard(board);
+        return json(res, 200, { production: board.assetProduction });
+      }
+
+      return json(res, 400, { error: "unknown asset action" });
+    }
     if (p.startsWith("/api/")) return json(res, 404, { error: "unknown route" });
     serveStatic(req, res, p === "/" ? "/index.html" : p);
   } catch (e) {
@@ -12185,5 +12756,7 @@ server.on("error", (e) => {
 server.listen(PORT, () => {
   console.log(`frontend server on http://localhost:${PORT}`);
   console.log(`[env] LLM_BASE=${process.env.LLM_BASE || "(not set)"} COMFY_BASE=${process.env.COMFY_BASE || "(not set)"}`);
+  // Resume any master-asset renders interrupted by a restart.
+  void directorAssetPumpJobs();
 });
 

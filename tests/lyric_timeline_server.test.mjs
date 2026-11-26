@@ -53,12 +53,12 @@ describe("lyric timeline routes (static)", () => {
   });
 
   it("the planner uses the stored timeline ONLY while it covers the current lines", () => {
-    assert.ok(serverSrc.includes("const storedCoversCurrent"), "the coverage gate is missing");
+    assert.ok(serverSrc.includes("let storedCoversCurrent = false") && serverSrc.includes("storedCoversCurrent = storedTiming.length > 0"), "the coverage gate is missing");
     assert.ok(
       serverSrc.includes("currentLineIds.every((id) => storedTiming.some((l) => l.lyric_line_id === id))"),
       "coverage must check every current line id",
     );
-    assert.ok(serverSrc.includes("if (storedCoversCurrent)"), "the planner does not honour the coverage gate");
+    assert.ok(serverSrc.includes("if (storedCoversCurrent && storedTiming.length)"), "the planner does not honour the coverage gate");
   });
 
   it("staleness is computed once and reported by every lyric route", () => {

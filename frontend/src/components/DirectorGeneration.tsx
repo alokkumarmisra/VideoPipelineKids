@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  folderOf, getScenario, listRuns, listScenarios, outScenario, saveScenario, slugFolder,
+  folderOf, getScenario, listOutputs, listRuns, listScenarios, outScenario, saveScenario, slugFolder,
   type Engine, type ImageMode, type RegenSpec, type RunRequest, type VideoFormat, type VideoType,
 } from "../api";
 import type { AssetKind } from "../types";
@@ -27,6 +27,9 @@ interface Props {
   imageMode?: ImageMode;
   /** Callback when image mode changes. */
   onImageMode?: (mode: ImageMode) => void;
+  /** Keep the long-running generation panel mounted while switching tabs. */
+  activeSection?: "media" | "export";
+  onStatus?: (status: { mediaReady: boolean; exportReady: boolean; runningStage: "media" | "export" | null; progressPct: number }) => void;
 }
 
 const sameRequest = (a: RunRequest, b: RunRequest) =>
@@ -73,7 +76,7 @@ export function foreignRunForProject(
 // is untouched. Multi-shot scenes need no special casing here: APPROVE
 // already flattens each shot to one generation beat (scene_N_a/b/…), so the
 // beats gallery naturally renders one image + clip per shot.
-export default function DirectorGeneration({ projectName, displayName, boardScenes = [], onOpenProject, imageMode: initialImageMode, onImageMode }: Props) {
+export default function DirectorGeneration({ projectName, displayName, boardScenes = [], onOpenProject, imageMode: initialImageMode, onImageMode, activeSection = "media", onStatus }: Props) {
   const [engine, setEngine] = useState<Engine>("ltx");
   const [videoType, setVideoType] = useState<VideoType>("YOUTUBE");
   // Always use the passed prop; if not provided, default to "flux_text_image"
@@ -86,6 +89,7 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
 
   // Run wiring (mirrors App's workspace queue, scoped to this panel).
   const [runActive, setRunActive] = useState(false);
+  const [runStage, setRunStage] = useState<"media" | "export">("media");
   const [runScenario, setRunScenario] = useState<string | null>(null);
   const [runFormat, setRunFormat] = useState<VideoFormat>("landscape");
   const [regenTarget, setRegenTarget] = useState<{ kind: AssetKind; index?: number } | null>(null);
@@ -214,6 +218,7 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
     if (runActive) {
       setRunQueue((q) => (q.some((x) => sameRequest(x, item)) ? q : [...q, item]));
     } else {
+      setRunStage(item.stitch ? "export" : "media");
       setPendingRun({ nonce: Date.now(), ...item });
     }
   };
@@ -223,6 +228,7 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
     if (runActivePrev.current && !runActive && runQueue.length > 0) {
       const [next, ...rest] = runQueue;
       setRunQueue(rest);
+      setRunStage(next.stitch ? "export" : "media");
       setPendingRun({ nonce: Date.now(), ...next });
     }
     runActivePrev.current = runActive;
@@ -260,6 +266,7 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
         }
         return next;
       });
+      setRunStage(first.stitch ? "export" : "media");
       setPendingRun({ nonce: Date.now(), ...first });
     }
   };
@@ -311,6 +318,36 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
   const refGenerating =
     runActive && regenTarget?.kind === "ref" && !!projectName && runScenario === projectName;
 
+  useEffect(() => {
+    if (!cutDir || !cfg) {
+      onStatus?.({ mediaReady: false, exportReady: false, runningStage: runActive ? runStage : attachRun ? (attachRun.stitch ? "export" : "media") : null, progressPct: genProgress.pct });
+      return;
+    }
+    let cancelled = false;
+    const readStatus = async () => {
+      try {
+        const outputs = await listOutputs(cutDir);
+        if (cancelled) return;
+        const sequence = Array.isArray((cfg as Scenario).sequence) ? (cfg as Scenario).sequence : [];
+        const mediaReady = sequence.length > 0 && sequence.every((_, i) => {
+          const beat = outputs.versions?.beats?.[String(i + 1)];
+          return Boolean(beat?.keyframe?.length && beat?.clip?.length);
+        });
+        const exportReady = Boolean(outputs.versions?.final?.length)
+          || outputs.files.some((file) => /_final(?:_v\d+)?\.mp4$/i.test(file));
+        onStatus?.({ mediaReady, exportReady, runningStage: runActive ? runStage : attachRun ? (attachRun.stitch ? "export" : "media") : null, progressPct: genProgress.pct });
+      } catch {
+        if (!cancelled) onStatus?.({ mediaReady: false, exportReady: false, runningStage: runActive ? runStage : attachRun ? (attachRun.stitch ? "export" : "media") : null, progressPct: genProgress.pct });
+      }
+    };
+    void readStatus();
+    const timer = runActive ? window.setInterval(() => void readStatus(), 5000) : null;
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearInterval(timer);
+    };
+  }, [cutDir, cfg, refreshKey, runActive, runStage, attachRun, genProgress.pct, onStatus]);
+
   if (!projectName) return null;
 
   return (
@@ -332,6 +369,7 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
         Each timed shot renders its own keyframe + clip.
       </p>
 
+      <div id="director-panel-media" hidden={activeSection !== "media"}>
       <RunPanel
         scenario={projectName}
         folder={folder}
@@ -395,6 +433,17 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
             onUploaded={refresh}
             totalScenes={totalScenes}
             beats={cfg && Array.isArray((cfg as Scenario).sequence) ? (cfg as Scenario).sequence : null}
+            onPromptChange={async (beatIndex, kind, prompt) => {
+              if (!cfg) throw new Error("Project configuration is not loaded");
+              const sequence = Array.isArray(cfg.sequence) ? [...cfg.sequence] : [];
+              const beat = sequence[beatIndex - 1];
+              if (!beat) throw new Error(`Beat ${beatIndex} was not found`);
+              sequence[beatIndex - 1] = { ...beat, [kind === "image" ? "image" : "motion"]: prompt };
+              const updated: Scenario = { ...cfg, sequence };
+              await saveScenario(projectName, updated);
+              setCfg(updated);
+              refresh();
+            }}
             progress={genProgress}
             projectName={projectName}
             dialogueEngine={engine}
@@ -423,6 +472,22 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
           />
         </div>
       )}
+      </div>
+      <div id="director-panel-export" hidden={activeSection !== "export"} style={{ marginTop: 12 }}>
+        {cutDir && (
+          <OutputGallery
+            key={`dir-final:${cutDir}`}
+            scenario={cutDir}
+            refreshKey={refreshKey}
+            section="output"
+            generatingScenario={runFolderBase}
+            generatingFormat={runActive ? runFormat : null}
+            runQueue={runQueue}
+            onStitch={() => requestRun({ stitch: true, format: cutFormat })}
+            onUploaded={refresh}
+          />
+        )}
+      </div>
     </section>
   );
 }

@@ -3,7 +3,8 @@ import {
   alertServiceError, directorAddEntry, directorAnalyze, directorAnalyzeLive, directorApprove, directorApproveStage, directorAssets, directorBiblePreview, directorBoard, directorBoards, directorCinematography, directorCoverage, directorDeleteBoard, directorOptimizePrompt,
   directorDuplicateBoard, directorLive, directorMotionAudio, directorPlan, directorPromptPreview, directorRegenEntry, directorRegenScene, directorRepair, directorScenes, directorSemantics, directorAnalyzeSemantics, directorShotPrompts, directorSongUrl, directorUpdateBoard, directorValidate, fmtRelative, saveScenario, suggestDirectorInstructions,
   uploadLyricAudio, startWhisperXAnalysis, getWhisperXJobStatus, directorMasterTimeline, approveMasterTimeline,
-  type DirectorAssetMap, type DirectorBoard, type DirectorBoardMeta, type DirectorCinematography, type DirectorCoverage, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorMotionAudio, type DirectorPlan, type DirectorPromptPreview, type DirectorScene, type DirectorShotPrompts, type DirectorShot, type DirectorValidation, type DirectorSemantics, type ImageMode, type MasterTimelineResponse,
+  directorGenerateAssets, directorApproveAssets, directorSkipAssets, directorRegenerateAsset, directorAssetFileUrl,
+  type DirectorAssetMap, type DirectorAssetProduction, type DirectorMasterAsset, type DirectorBoard, type DirectorBoardMeta, type DirectorCinematography, type DirectorCoverage, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorMotionAudio, type DirectorPlan, type DirectorPromptPreview, type DirectorScene, type DirectorShotPrompts, type DirectorShot, type DirectorValidation, type DirectorSemantics, type ImageMode, type MasterTimelineResponse,
 } from "../api";
 import { useDialog } from "./Dialog";
 import { IconCheck, IconClapper, IconFilm, IconFolder, IconPanel, IconRefresh, IconSparkles, IconTrash, Spinner } from "./Icons";
@@ -11,11 +12,61 @@ import Collapse from "./Collapse";
 import AudioIntelligencePanel from "./AudioIntelligencePanel";
 import BatchSizeSelect, { SCENE_BATCH } from "./BatchSizeSelect";
 import DirectorGeneration from "./DirectorGeneration";
+import StoryboardWorkspace from "./StoryboardWorkspace";
+import Lightbox, { type PreviewItem } from "./Lightbox";
 import { useIdleFollow } from "./useIdleFollow";
 import {
   emptyProgress, formatDuration, loadDirectorPace, recordDirectorPaceDuration,
   type GenerationProgress,
 } from "./GenerationProgressBar";
+
+type DirectorTabId = "brief" | "audio" | "assets" | "storyboard" | "review" | "scenes" | "media" | "export";
+type DirectorTabStatus = "approved" | "pending" | "running";
+const DIRECTOR_TABS: { id: DirectorTabId; label: string }[] = [
+  { id: "brief", label: "Brief" },
+  { id: "audio", label: "Audio Analysis" },
+  { id: "assets", label: "Characters & World" },
+  { id: "storyboard", label: "Storyboard" },
+  { id: "review", label: "Review & Quality" },
+  { id: "scenes", label: "Generate Scenes" },
+  { id: "media", label: "Generate Media" },
+  { id: "export", label: "Export" },
+];
+
+function DirectorAssetPreview({ name, reference, versions = [] }: { name: string; reference: string; versions?: PreviewItem[] }) {
+  const src = directorAssetFileUrl(reference);
+  const [failed, setFailed] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  useEffect(() => setFailed(false), [src]);
+  if (failed) {
+    return <div className="dir-asset-preview-error" role="img" aria-label={`Preview unavailable for ${name}`}>
+      <IconFilm size={20} />
+      <span>Image preview could not be loaded</span>
+    </div>;
+  }
+  const items = versions.length ? versions : [{ src, kind: "image" as const, alt: `${name} generated reference` }];
+  const current = items.findIndex((item) => item.src === src);
+  return <>
+    <button className="dir-asset-preview-button" type="button" onClick={() => setPreviewIndex(current >= 0 ? current : 0)} title={`Preview ${name} image`} aria-label={`Preview ${name} image`}>
+      <img
+        className="dir-asset-preview"
+        src={src}
+        alt={`${name} generated reference — click to preview`}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+      />
+      <span className="dir-asset-preview-hint">View image</span>
+    </button>
+    {previewIndex != null && <Lightbox
+      item={items[previewIndex] || items[0]}
+      items={items}
+      index={previewIndex}
+      onIndexChange={setPreviewIndex}
+      onClose={() => setPreviewIndex(null)}
+    />}
+  </>;
+}
 
 const GENRES = ["Kids", "Devotional", "Adventure", "Fantasy", "Horror", "Comedy", "Educational", "Custom"];
 const STYLES = ["3D Preschool Animation", "3D Cinematic", "Realistic", "Anime", "Cartoon", "Indian Mythological", "Fantasy", "Custom"];
@@ -473,6 +524,17 @@ const boardBeatsTotal = (scenes: DirectorScene[], sceneCount: number): number =>
 // Planned seconds across scenes (1-decimal), vs the board's time target.
 const boardPlannedSeconds = (scenes: DirectorScene[]): number =>
   Math.round(scenes.reduce((a, s) => a + (Number(s.duration_seconds) || 0), 0) * 10) / 10;
+// Some older/empty boards persisted sceneCount=0. Display and plan from the
+// same duration-based cap the server recovers, rather than hiding the scene
+// panel (and its live LLM response) until the first batch has returned.
+const directorSceneCap = (board: DirectorBoard | null): number => {
+  if (!board) return 0;
+  const saved = Math.round(Number(board.sceneCount) || 0);
+  if (saved > 0) return saved;
+  const target = Math.round(Number(board.input.song?.durationSeconds ?? board.input.targetSeconds) || 0);
+  const seconds = Math.max(1, Math.min(30, Math.floor(Number(board.input.sceneSeconds) || 3)));
+  return target > 0 ? Math.min(300, Math.max(1, Math.round(target / seconds))) : 0;
+};
 // Numbered source lines (story lines or lyric lines) for coverage text.
 const sourceLinesOf = (board: DirectorBoard | null): string[] => {
   if (!board) return [];
@@ -642,21 +704,25 @@ const EMPTY_TRACK_COUNTS: TimelineTrackCounts = {
   video_assets: 0, transitions: 0, subtitles: 0,
   original_audio: 0, music_structure: 0,
 };
-const fileToDataUrl = (file: File): Promise<string> =>
+const fileToDataUrl = (file: File, onProgress?: (percent: number) => void): Promise<string> =>
   new Promise<string>((resolve, reject) => {
     const r = new FileReader();
     r.onerror = () => reject(new Error("could not read audio file"));
-    r.onload = () => resolve(String(r.result || ""));
+    r.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) onProgress?.(Math.floor((event.loaded / event.total) * 20));
+    };
+    r.onload = () => { onProgress?.(20); resolve(String(r.result || "")); };
     r.readAsDataURL(file);
   });
 const sleep = (ms: number): Promise<void> =>
   new Promise<void>((res) => { setTimeout(res, ms); });
 // Poll a WhisperX job until it succeeds; throw on failure/cancel/timeout.
-async function waitForWhisperXJob(boardId: string, jobId: string): Promise<void> {
+async function waitForWhisperXJob(boardId: string, jobId: string, onProgress?: (percent: number) => void): Promise<void> {
   for (let i = 0; i < 400; i++) {
     await sleep(3000);
     const st = await getWhisperXJobStatus(boardId, jobId);
-    if (st.status === "succeeded") return;
+    onProgress?.(Math.min(100, Math.max(0, Number(st.progress) || 0)));
+    if (st.status === "succeeded") { onProgress?.(100); return; }
     if (st.status === "failed" || st.status === "cancelled") {
       throw new Error(st.error || st.message || `WhisperX analysis ${st.status}`);
     }
@@ -741,6 +807,16 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   // Boards.
   const [boards, setBoards] = useState<DirectorBoardMeta[]>([]);
   const [board, setBoard] = useState<DirectorBoard | null>(null);
+  const [activeDirectorTab, setActiveDirectorTab] = useState<DirectorTabId>("brief");
+  const [mediaOutputsReady, setMediaOutputsReady] = useState(false);
+  const [finalOutputReady, setFinalOutputReady] = useState(false);
+  const [mediaProcessingStage, setMediaProcessingStage] = useState<"media" | "export" | null>(null);
+  const [generationProgressPct, setGenerationProgressPct] = useState(0);
+  // Generate Assets stage — master stills reused by every scene of the board.
+  const [assetProduction, setAssetProduction] = useState<DirectorAssetProduction | null>(null);
+  const [assetBusy, setAssetBusy] = useState(false);
+  const [selectedAssetVersions, setSelectedAssetVersions] = useState<Record<string, number | null>>({});
+  const [assetPromptEditor, setAssetPromptEditor] = useState<{ assetId: string; name: string; prompt: string } | null>(null);
   const [busy, setBusy] = useState<{ label: string; since: number } | null>(null);
   const [error, setError] = useState("");
   const [sceneProgress, setSceneProgress] = useState("");
@@ -843,6 +919,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioMeta, setAudioMeta] = useState<{ file: string; fileName: string } | null>(null);
   const [audioAnalysisStatus, setAudioAnalysisStatus] = useState<"pending" | "generated" | "validated" | "approved" | "failed">("pending"); // "pending"|"generated"|"validated"|"approved"|"failed"
+  const [audioBusy, setAudioBusy] = useState(false);
+  const [audioProgressPct, setAudioProgressPct] = useState(0);
   const [timelineEventsCount, setTimelineEventsCount] = useState<TimelineTrackCounts>(EMPTY_TRACK_COUNTS);
   const [timelineValidation, setTimelineValidation] = useState({ valid: true, warnings: [] as string[] });
   const [timelineApproval, setTimelineApproval] = useState<"pending" | "approved" | "revision_required">("pending");
@@ -1093,6 +1171,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   };
 
   const openBoard = async (id: string) => {
+    setActiveDirectorTab("storyboard");
     setError("");
     setStoppedNote(null);
     setCoverage(null);
@@ -1107,9 +1186,11 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     setTimelineApproval("pending"); setTimelineVersion(0);
     setDirectorConsumption("idle"); setDirectorBusy("load");
     setAssetMap(null); setCine(null); setMotion(null); setShotPrompts(null);
+    setAssetProduction(null); setAssetBusy(false);
     try {
       const b = await directorBoard(id);
       setBoard(b);
+      void loadAssetProduction(id);
       // Surface a server-side batch note (e.g. salvaged partial batch).
       if (b.error && b.scenes.length < b.sceneCount) setStoppedNote(b.error);
       // If this board already has an uploaded .wav, surface it + its derived
@@ -1259,10 +1340,13 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     setTimelineApproval("pending");
     setTimelineValidation({ valid: true, warnings: [] });
     setDirectorConsumption("consuming");
+    setAudioBusy(true);
+    setAudioProgressPct(0);
     try {
       // 1. Upload the .wav (server validates RIFF/WAVE + measures duration)
-      const dataUrl = await fileToDataUrl(audioFile);
+      const dataUrl = await fileToDataUrl(audioFile, setAudioProgressPct);
       const up = await uploadLyricAudio(board.id, dataUrl, name);
+      setAudioProgressPct(30);
       setAudioUploaded(true);
       setAudioDuration(up.durationSeconds);
       setAudioMeta({ file: up.file, fileName: up.fileName });
@@ -1271,11 +1355,12 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       const lang = (board.input as unknown as { semanticsLanguage?: string } | null | undefined)?.semanticsLanguage;
       const started = await startWhisperXAnalysis(board.id, lang && lang !== "auto" ? { language: lang } : {});
       // 3. Wait for transcription + alignment + master-timeline derivation
-      await waitForWhisperXJob(board.id, started.jobId);
+      await waitForWhisperXJob(board.id, started.jobId, setAudioProgressPct);
       try { setBoard(await directorBoard(board.id)); } catch { /* keep current board */ }
       // 4. Read the REAL derived 19-track timeline into the panel
       const hasMaster = await refreshTimelineFromServer();
       if (!hasMaster) throw new Error("analysis finished but no master timeline was derived — check the server log");
+      setAudioProgressPct(100);
       setDirectorConsumption("consumed");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1283,6 +1368,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       setTimelineValidation({ valid: false, warnings: [msg] });
       setTimelineApproval("revision_required");
       setAudioAnalysisStatus("failed");
+    } finally {
+      setAudioBusy(false);
     }
   }, [board, refreshTimelineFromServer]);
 
@@ -1291,20 +1378,27 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     if (!audioUploaded) { setError("Upload the .wav first — the 19-track timeline is built from it."); return; }
     if (timelineApproval === "approved") return; // already approved
     setError("");
+    setAudioBusy(true);
+    setAudioProgressPct(0);
     try {
       // If nothing was derived yet (e.g. after a re-upload), run analysis now.
       const mt = await directorMasterTimeline(board.id);
       if (!mt.master) {
         const started = await startWhisperXAnalysis(board.id, {});
-        await waitForWhisperXJob(board.id, started.jobId);
+        await waitForWhisperXJob(board.id, started.jobId, setAudioProgressPct);
       }
-      await refreshTimelineFromServer();
+      const hasMaster = await refreshTimelineFromServer();
+      if (!hasMaster) throw new Error("Analysis completed but no master timeline was returned.");
+      setAudioProgressPct(100);
       setDirectorConsumption("consumed");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
       setTimelineValidation({ valid: false, warnings: [msg] });
       setTimelineApproval("revision_required");
+      setAudioAnalysisStatus("failed");
+    } finally {
+      setAudioBusy(false);
     }
   }, [board, audioUploaded, timelineApproval, refreshTimelineFromServer]);
 
@@ -1412,6 +1506,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     const input: DirectorInput = {
       title: title.trim(),
       story: story.trim(),
+      analyzerType, masterPrompt: masterPrompt.trim(),
       language, genre,
       // The source language for the meaning analysis (auto | hi | en | hinglish).
       semanticsLanguage,
@@ -1437,7 +1532,10 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       analyzeLiveIdRef.current = liveId;
       const b = await directorAnalyze(input, promptOverride?.trim() ? promptOverride : undefined, liveId);
       setBoard(b);
+      setActiveDirectorTab("storyboard");
       setSelectedScene(0);
+      setAssetProduction(null);
+      void loadAssetProduction(b.id);
       await refreshBoards();
     } catch (e) {
       reportError(e);
@@ -1446,6 +1544,66 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       setPlanPhase(null);
     }
   };
+
+  // ----- Generate Assets stage -------------------------------------------
+  const loadAssetProduction = useCallback(async (id: string) => {
+    try {
+      const a = await directorAssets(id);
+      setAssetProduction(a.production ?? null);
+    } catch { /* best effort — the stage simply stays unloaded */ }
+  }, []);
+
+  const doGenerateAssets = async (ids?: string[]) => {
+    if (!board || assetBusy || busy) return;
+    setAssetBusy(true);
+    setError("");
+    try {
+      const r = await directorGenerateAssets(board.id, ids?.length ? { ids } : {});
+      setAssetProduction(r.production);
+      if (r.no_prompt?.length) {
+        reportError(new Error(`No generation prompt saved for: ${r.no_prompt.join(", ")}. Open that asset and set one.`));
+      }
+    } catch (e) { reportError(e); }
+    finally { setAssetBusy(false); }
+  };
+  const doApproveAssets = async (ids?: string[]) => {
+    if (!board || assetBusy || busy) return;
+    setAssetBusy(true);
+    setError("");
+    try {
+      const r = await directorApproveAssets(board.id, ids);
+      setAssetProduction(r.production);
+    } catch (e) { reportError(e); }
+    finally { setAssetBusy(false); }
+  };
+  const doSkipAssets = async () => {
+    if (!board || assetBusy || busy) return;
+    setAssetBusy(true);
+    try {
+      const r = await directorSkipAssets(board.id);
+      setAssetProduction(r.production);
+    } catch (e) { reportError(e); }
+    finally { setAssetBusy(false); }
+  };
+  const doRegenerateAsset = async (assetId: string, prompt: string) => {
+    if (!board || assetBusy || busy) return;
+    setAssetBusy(true);
+    try {
+      const r = await directorRegenerateAsset(board.id, assetId, prompt);
+      setAssetProduction(r.production);
+    } catch (e) { reportError(e); }
+    finally { setAssetBusy(false); }
+  };
+
+  // Poll only while a render is actually in flight — never while idle.
+  const assetJobsActive = Boolean(assetProduction?.jobs?.some(
+    (j) => j.status === "PENDING" || j.status === "PROCESSING",
+  ));
+  useEffect(() => {
+    if (!board?.id || !assetJobsActive) return;
+    const timer = window.setInterval(() => { void loadAssetProduction(board.id); }, 3000);
+    return () => window.clearInterval(timer);
+  }, [board?.id, assetJobsActive, loadAssetProduction]);
 
   // Show Prompt popup (pre-directing): fetches the EXACT user prompt the
   // Generate Storyboard (bible) call will send — no model call — and lets the
@@ -1556,11 +1714,12 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     if (!stats || stats.boardId !== board.id) {
       planStatsRef.current = { boardId: board.id, sceneMs: 0, scenes: 0 };
     }
-    setPlanPhase({ kind: "scenes", startedAt: Date.now(), title: board.input.title, total: board.sceneCount });
+    setPlanPhase({ kind: "scenes", startedAt: Date.now(), title: board.input.title, total: directorSceneCap(board) });
     try {
       // Reload the freshest board first so a resume after Stop never re-plans
       // scenes the server already saved while we were away.
       let b = await directorBoard(board.id).catch(() => board);
+      if (!b.sceneCount && !b.scenes.length) b = { ...b, sceneCount: directorSceneCap(b) };
       setBoard(b);
       // Recovery pass: an early-finalized board (scenes == sceneCount but the
       // timeline still owes seconds) gets one forced server call, which
@@ -1722,6 +1881,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     try {
       const b = await directorAddEntry(board.id, kind);
       setBoard(b);
+      void loadAssetProduction(board.id);
       await refreshBoards();
     } catch (e) {
       reportError(e);
@@ -1740,6 +1900,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     try {
       const b = await directorRegenEntry(board.id, kind, index);
       setBoard(b);
+      void loadAssetProduction(board.id);
       await refreshBoards();
     } catch (e) {
       reportError(e);
@@ -1760,6 +1921,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     try {
       const b = await directorUpdateBoard(board.id, { characters: list.filter((_, i) => i !== index) });
       setBoard(b);
+      void loadAssetProduction(board.id);
       setEditingChar(null);
       await refreshBoards();
     } catch (e) {
@@ -1779,6 +1941,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     try {
       const b = await directorUpdateBoard(board.id, { locations: list.filter((_, i) => i !== index) });
       setBoard(b);
+      void loadAssetProduction(board.id);
       await refreshBoards();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1797,6 +1960,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     try {
       const b = await directorUpdateBoard(board.id, { objects: list.filter((_, i) => i !== index) });
       setBoard(b);
+      void loadAssetProduction(board.id);
       await refreshBoards();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1870,6 +2034,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     try {
       const b = await directorUpdateBoard(board.id, { characters: next });
       setBoard(b);
+      void loadAssetProduction(board.id);
       setEditingChar(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1899,6 +2064,13 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, [inputBoard]);
+  // Keep the asset prompt editor consistent with the other in-app dialogs.
+  useEffect(() => {
+    if (assetPromptEditor == null) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [assetPromptEditor]);
 
   const doRenameBoard = async () => {
     if (!board || !titleDraft.trim()) return;
@@ -1987,6 +2159,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
           sceneSeconds: Math.min(30, Math.max(1, Math.round(Number(inputDraft.sceneSeconds) || 3))),
           aspectRatio: inputDraft.aspectRatio,
           instructions: inputDraft.instructions.trim().slice(0, 2000),
+          analyzerType: inputBoard.input.analyzerType,
           includeDialogue: inputDraft.includeDialogue,
           chainContinuity: inputDraft.chainContinuity,
         },
@@ -2071,7 +2244,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       ? " Connected scenes are ON — each scene continues the previous shot's end state in its prompts (every clip still animates its own scene image)."
       : " Connected scenes are OFF — every scene generates as an independent fresh shot.";
     const beats = boardBeats(board.scenes);
-    const total = boardBeatsTotal(board.scenes, board.sceneCount);
+    const total = boardBeatsTotal(board.scenes, directorSceneCap(board));
     const shotNote = ` Multi-shot scenes flatten to ${beats} timed clips (one image + video per shot) — shots generate as scenes.`
     const qcWarn = validation
       ? (validation.score < 60 || validation.issues.length > 0
@@ -2351,8 +2524,19 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
         </p>
       )}
       <p className="muted shot-detail-line" style={{ margin: "2px 0", fontSize: 12 }}>
-        {[(sh.characters ?? []).join(", ") || null, sh.location || null].filter(Boolean).join(" · ") || "—"}
+        {(() => {
+          const names = (sh.characters ?? []).map((id, index) => {
+            const entry = (board?.blueprint?.characters ?? []).find((c) => String(c.character_id ?? c.id ?? "") === id);
+            const name = String(entry?.name || id);
+            const assetId = sh.asset_refs?.characters?.[index];
+            return `${name}${assetId ? ` [${assetId}]` : ""}`;
+          });
+          return [`Characters: ${names.join(", ") || "—"}`, sh.location ? `Location: ${sh.location}` : null].filter(Boolean).join(" · ");
+        })()}
         {(sh.dialogue ?? []).length ? ` · 🎙 ${(sh.dialogue ?? []).map((x) => `${x.speaker || "voice"}: ${x.line}`).join(" / ")}` : ""}
+      </p>
+      <p className="muted shot-detail-line" style={{ margin: "2px 0", fontSize: 12 }} title="Physical movement over the duration of this shot">
+        ↗ Motion: {str(sh.motion) || (str(sh.body_language) ? `from body language — ${str(sh.body_language)}` : str(sh.action) ? `from action — ${str(sh.action)}` : "—")}
       </p>
       <p className="muted shot-detail-line shot-detail-prompt" style={{ margin: "2px 0", fontSize: 12 }} title={sh.image_prompt || ""}>
         🖼 {str(sh.image_prompt).slice(0, 2000) || "—"}{str(sh.image_prompt).length > 2000 ? "…" : ""}
@@ -2432,6 +2616,21 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
           })}
         />
       </label>
+      <label style={{ marginTop: 6 }} title="Physical movement or change over the shot duration; do not describe appearance">
+        Motion
+        <input
+          value={str(sh.motion ?? "")}
+          maxLength={300}
+          placeholder="e.g. slowly raises his tail, then holds still"
+          onChange={(e) => setSceneDraft((x) => {
+            const cur = sceneShots({ ...d, ...x } as DirectorScene);
+            return {
+              ...x,
+              shots: cur.map((y, j) => (j === k ? { ...y, motion: e.target.value } : y)),
+            };
+          })}
+        />
+      </label>
       <label style={{ marginTop: 6 }} title="One per line as speaker: line — voiced + lip-synced on this shot's clip">
         Shot dialogue
         <textarea
@@ -2469,6 +2668,103 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   );
 
   const chars = (board?.blueprint?.characters ?? []) as Record<string, unknown>[];
+  const storedAnalyzerType = board?.input.analyzerType as AnalyzerType | undefined;
+  const storedAnalyzerLabel = storedAnalyzerType && ANALYZER_TYPES[storedAnalyzerType]
+    ? ANALYZER_TYPES[storedAnalyzerType].role
+    : (str(board?.input.masterPrompt).match(/^ROLE:\s*(.+)$/m)?.[1] || "Not recorded for this older board");
+  const masterAssets = assetProduction?.assets ?? [];
+  const masterAssetsReady = masterAssets.filter((asset) => asset.status === "review" && Boolean(asset.reference));
+  const masterAssetsApproved = masterAssets.filter((asset) => asset.status === "approved" && Boolean(asset.reference));
+  const masterAssetsRendering = Boolean(assetProduction?.jobs?.some((job) => job.status === "PENDING" || job.status === "PROCESSING"));
+  const masterAssetFor = (type: DirectorMasterAsset["type"], blueprintId: string) =>
+    blueprintId ? assetProduction?.assets?.find((asset) => asset.type === type
+      && (asset.blueprint_id === blueprintId || asset.id === blueprintId)) : undefined;
+  const masterAssetRendering = (asset: DirectorMasterAsset | undefined) => Boolean(asset && (
+    asset.status === "queued" || asset.status === "generating"
+    || assetProduction?.jobs?.some((job) => job.asset_id === asset.id && (job.status === "PENDING" || job.status === "PROCESSING"))
+  ));
+  const assetVersionKey = (asset: DirectorMasterAsset) => `${board?.id ?? "board"}:${asset.id}`;
+  const renderMasterAssetDetails = (asset: DirectorMasterAsset | undefined) => {
+    if (!asset) return null;
+    const rendering = masterAssetRendering(asset);
+    const versions = asset.image_versions?.length
+      ? asset.image_versions
+      : asset.reference ? [{ version: asset.version || 1, reference: asset.reference }] : [];
+    const chosenVersion = selectedAssetVersions[assetVersionKey(asset)];
+    const selectedImage = (typeof chosenVersion === "number"
+      ? versions.find((item) => item.version === chosenVersion)
+      : null) || versions[versions.length - 1] || null;
+    // Object/prop renders use the same versioned reference storage as
+    // characters and locations, so expose their saved stills in the picker too.
+    const showVersionPicker = true;
+    return (
+      <div className={`dir-master-asset-inline${rendering ? " is-generating" : ""}`} aria-busy={rendering}>
+        <div className="row dir-master-asset-heading">
+          <span className="section-label" style={{ margin: 0 }} title={`Stable asset: ${asset.id}`}>Master image · {asset.reference_id || asset.id} · {rendering ? "generating" : asset.status}{asset.reference ? ` · v${asset.version}` : ""}</span>
+          <span className="spacer" />
+          {rendering
+            ? <span className="dir-asset-rendering-badge" role="status"><span className="dir-asset-rendering-dot" /> Rendering image</span>
+            : asset.reference && <span className="pill" title="Generated reference still is linked to this asset">Image ready</span>}
+        </div>
+        {asset.error && <p className="hint err-text" style={{ margin: "4px 0" }}>{asset.error}</p>}
+        {asset.description && <p className="hint dir-master-asset-description">{asset.description}</p>}
+        {selectedImage ? (
+          <div className="dir-master-asset-preview-wrap">
+            <DirectorAssetPreview
+              key={selectedImage.reference}
+              name={asset.name}
+              reference={selectedImage.reference}
+              versions={versions.map((item) => ({
+                src: directorAssetFileUrl(item.reference),
+                kind: "image" as const,
+                alt: `${asset.name} v${item.version}`,
+              }))}
+            />
+            {rendering && <div className="dir-asset-rendering-overlay" aria-hidden="true"><span className="dir-asset-rendering-sweep" /><span className="dir-asset-rendering-label"><span className="dir-asset-rendering-spinner" /> Generating new image</span></div>}
+          </div>
+        ) : (
+          <div className={`dir-master-asset-empty${rendering ? " is-generating" : ""}`}>
+            {rendering ? <><span className="dir-asset-rendering-spinner" /> Generating image…</> : "No master image yet"}
+          </div>
+        )}
+        {showVersionPicker && versions.length > 0 && (
+          <div className="dir-asset-versions" role="group" aria-label={`${asset.name} image versions`}>
+            <span className="dir-asset-versions-label">Versions</span>
+            {versions.map((item) => (
+              <button
+                key={`${asset.id}-v${item.version}`}
+                type="button"
+                className={`dir-asset-version${selectedImage?.version === item.version ? " selected" : ""}`}
+                aria-pressed={selectedImage?.version === item.version}
+                title={`Show ${asset.name} image version ${item.version}`}
+                onClick={() => setSelectedAssetVersions((current) => ({ ...current, [assetVersionKey(asset)]: item.version }))}
+              >{item.reference_id || `v${item.version}`}</button>
+            ))}
+            <span className="dir-asset-latest-note">Latest selected by default</span>
+          </div>
+        )}
+        <details className="dir-master-asset-prompt">
+          <summary>Image generation prompt</summary>
+          <p>{asset.prompt || "No saved image prompt."}</p>
+        </details>
+        <div className="row dir-master-asset-actions">
+          <button
+            className="ghost shotlist-btn"
+            disabled={busy != null || assetBusy || asset.status === "queued" || asset.status === "generating"}
+            onClick={() => setAssetPromptEditor({ assetId: asset.id, name: asset.name, prompt: asset.prompt || "" })}
+            title="Edit the image prompt and generate a new master still"
+          >
+            {asset.reference ? "Edit prompt & regenerate" : "Set prompt & generate"}
+          </button>
+          {asset.status === "review" && (
+            <button className="btn-green" disabled={busy != null || assetBusy} onClick={() => void doApproveAssets([asset.id])}>
+              <IconCheck size={13} /> Approve image
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   // ---- Planning Time Remaining (total + per-scene) ----
   // Per-scene pace: live average from this plan's landed batches first, then
@@ -2485,7 +2781,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   // Shot-aware planning totals: shots flatten to one generation beat each,
   // so progress tracks beats (not just scene rows). Starts at sceneCount and
   // grows with the observed shots/scene average as multi-shot scenes land.
-  const planBeatsTotal = board ? boardBeatsTotal(board.scenes, board.sceneCount) : 0;
+  const sceneCap = directorSceneCap(board);
+  const planBeatsTotal = board ? boardBeatsTotal(board.scenes, sceneCap) : 0;
   const planBeatsDone = board ? boardBeats(board.scenes) : 0;
   const planTotal = planPhase
     ? planPhase.kind === "analyze" ? Math.max(1, planPhase.total) : Math.max(1, planBeatsTotal || planPhase.total)
@@ -2524,23 +2821,66 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     : emptyProgress;
   const planBoardId = board?.id ?? null;
   const planDoneCount = board?.scenes.length ?? 0;
-  const planCount = board?.sceneCount ?? 0;
+  const planCount = sceneCap;
   useEffect(() => {
     onPlanningProgress?.(planMenuProgress);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planPhase, planBoardId, planDoneCount, planCount, dirNow]);
   const locs = (board?.blueprint?.locations ?? []) as Record<string, unknown>[];
   const objs = (board?.blueprint?.objects ?? []) as Record<string, unknown>[];
+  const objectLabel = (id: string) => str(objs.find((o) => str(o.object_id) === id)?.name) || id;
   const beats = (board?.blueprint?.beats ?? []) as { n: number; title: string; summary: string }[];
   const analysis = (board?.blueprint?.analysis ?? {}) as Record<string, unknown>;
   // Timeline still open: an early-finalized board (scenes == sceneCount,
   // status ready) can still owe story seconds — Continue reopens it
   // server-side (cap extension), mirroring the server's DONE_TOL rule.
   const boardTarget = board ? Number(board.input.song?.durationSeconds ?? board.input.targetSeconds) : NaN;
+  const boardWhisperAudio = (board?.input as (DirectorInput & { whisperxAudio?: { file?: string } }) | null)?.whisperxAudio;
+  const hasSceneAudio = Boolean(board?.input.song?.file || board?.input.sourceAudio?.file || boardWhisperAudio?.file || audioUploaded);
   const boardPlanned = board ? boardPlannedSeconds(board.scenes) : 0;
   const boardTol = board ? Math.max(1, (Number(board.input.sceneSeconds) || 3) / 2) : 0;
   const timelineOpen = !!board && Number.isFinite(boardTarget) && boardTarget > 0
     && (boardTarget - boardPlanned) > boardTol;
+
+  const directorTabStatuses: Record<DirectorTabId, DirectorTabStatus> = {
+    brief: planPhase?.kind === "analyze" ? "running" : board?.blueprint ? "approved" : "pending",
+    audio: audioBusy ? "running"
+      : !board?.input.song && !audioUploaded ? "approved"
+        : timelineApproval === "approved" ? "approved" : "pending",
+    assets: assetBusy || assetJobsActive ? "running"
+      : assetProduction?.status === "approved" ? "approved" : "pending",
+    storyboard: board?.scenarioName || board?.status === "approved" ? "approved" : "pending",
+    review: intelBusy || semBusy || prodBusy || planBusy ? "running"
+      : validation && validation.errors.length === 0 && validation.issues.length === 0 ? "approved" : "pending",
+    scenes: busy ? "running"
+      : board && sceneCap > 0 && board.scenes.length >= sceneCap && !timelineOpen ? "approved" : "pending",
+    media: mediaProcessingStage === "media" ? "running" : mediaOutputsReady ? "approved" : "pending",
+    export: mediaProcessingStage === "export" ? "running" : finalOutputReady ? "approved" : "pending",
+  };
+  const clampProgress = (value: number) => Math.min(99, Math.max(0, Math.floor(Number.isFinite(value) ? value : 0)));
+  const activeAssetJobs = assetProduction?.jobs ?? [];
+  const assetProgressPct = activeAssetJobs.length
+    ? clampProgress((activeAssetJobs.filter((job) => job.status === "COMPLETED").length / activeAssetJobs.length) * 100)
+    : 0;
+  const directorTabProgress: Partial<Record<DirectorTabId, number>> = {
+    brief: clampProgress(planMenuProgress.pct),
+    audio: clampProgress(audioProgressPct),
+    assets: assetProgressPct,
+    review: 0,
+    scenes: clampProgress(planMenuProgress.pct),
+    media: clampProgress(generationProgressPct),
+    export: clampProgress(generationProgressPct),
+  };
+  const directorTabStatusText = (tab: DirectorTabId, status: DirectorTabStatus) => {
+    if (tab === "audio" && status === "approved" && !board?.input.song && !audioUploaded) return "Not required";
+    return status === "approved" ? "Approved" : status === "running" ? "Running" : "Pending";
+  };
+  const onDirectorGenerationStatus = useCallback((status: { mediaReady: boolean; exportReady: boolean; runningStage: "media" | "export" | null; progressPct: number }) => {
+    setMediaOutputsReady(status.mediaReady);
+    setFinalOutputReady(status.exportReady);
+    setMediaProcessingStage(status.runningStage);
+    setGenerationProgressPct(status.progressPct);
+  }, []);
 
   // Saved-storyboard rail content: the same board cards, always listed in
   // the right rail (even while a board is open) so every board stays one
@@ -2687,8 +3027,34 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       <Collapse open={!collapsed}>
         {error && <p className="hint err-text">{error}</p>}
 
+        <nav className="dir-flow-tabs" role="tablist" aria-label="Director workflow stages">
+          {DIRECTOR_TABS.map((tab) => {
+            const status = directorTabStatuses[tab.id];
+            const progressPct = directorTabProgress[tab.id] ?? 0;
+            const statusText = status === "running" ? `Processing ${progressPct}%` : directorTabStatusText(tab.id, status);
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeDirectorTab === tab.id}
+                aria-controls={`director-panel-${tab.id}`}
+                aria-label={`${tab.label}: ${statusText}`}
+                aria-current={activeDirectorTab === tab.id ? "page" : undefined}
+                className={`dir-flow-tab ${status === "approved" ? "approved" : status === "running" ? "processing" : "pending"}${activeDirectorTab === tab.id ? " active" : ""}`}
+                style={{ "--tab-progress": `${progressPct}%` } as CSSProperties}
+                onClick={() => setActiveDirectorTab(tab.id)}
+              >
+                <span className="dir-flow-tab-label">{tab.label}</span>
+                <span className={`dir-flow-tab-icon${status === "running" ? " spinning" : ""}`} aria-hidden="true">{status === "approved" ? "✓" : status === "running" ? "↻" : "◷"}</span>
+                {status === "running" && <span className="dir-flow-tab-progress">{progressPct}%</span>}
+              </button>
+            );
+          })}
+        </nav>
+
         {!board && (
-          <>
+          <div id="director-panel-brief" role="tabpanel" aria-label="Brief" hidden={activeDirectorTab !== "brief"}>
             <div className="row" style={{ marginTop: 8, gap: 10, alignItems: "flex-end" }}>
               <div style={{ flex: "2.2 1 150px" }}>
                 <label htmlFor="dir-title">Story title</label>
@@ -3076,27 +3442,35 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
               </div>
             )}
 
-          </>
+          </div>
+        )}
+
+        {!board && activeDirectorTab !== "brief" && (
+          <div id={`director-panel-${activeDirectorTab}`} role="tabpanel" aria-label={DIRECTOR_TABS.find((tab) => tab.id === activeDirectorTab)?.label ?? "Director stage"} className="dir-flow-empty">
+            <span>No data found</span>
+          </div>
         )}
 
         {board && (
           <>
-            <div className="section-label">Storyboard</div>
-            <AudioIntelligencePanel
-              boardId={board?.id}
-              uploaded={audioUploaded}
-              duration={audioDuration}
-              analysisStatus={audioAnalysisStatus}
-              timelineEvents={timelineEventsCount}
-              validation={timelineValidation}
-              approval={timelineApproval}
-              version={timelineVersion}
-              masterTimeline={masterTimeline}
-              audioFileName={audioMeta?.fileName}
-              onUpload={handleAudioUpload}
-              onAnalyze={handleAnalyzeTimeline}
-              onDirectorPlan={handleSendToDirector}
-            />
+            <div id="director-panel-audio" role="tabpanel" aria-label="Audio Analysis" hidden={activeDirectorTab !== "audio"}>
+              <AudioIntelligencePanel
+                boardId={board.id}
+                uploaded={audioUploaded}
+                duration={audioDuration}
+                analysisStatus={audioAnalysisStatus}
+                timelineEvents={timelineEventsCount}
+                validation={timelineValidation}
+                approval={timelineApproval}
+                version={timelineVersion}
+                masterTimeline={masterTimeline}
+                audioFileName={audioMeta?.fileName}
+                onUpload={handleAudioUpload}
+                onAnalyze={handleAnalyzeTimeline}
+                onDirectorPlan={handleSendToDirector}
+              />
+            </div>
+            <div id="director-panel-brief-board" hidden={activeDirectorTab !== "brief"}>
             <p className="card-desc">
               {editingTitle ? (
                 <span className="row" style={{ display: "inline-flex", gap: 6 }}>
@@ -3135,7 +3509,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 </>
               )}
               {" "}· {board.input.genre} · {board.input.language} · {board.input.aspectRatio} ·
-              {" "}{board.scenes.length}/{board.sceneCount} scenes · 🎞 {boardBeats(board.scenes)}/{boardBeatsTotal(board.scenes, board.sceneCount)} shots · ~{boardPlannedSeconds(board.scenes)}s/~{Math.round(Number(board.input.song?.durationSeconds ?? board.input.targetSeconds) || 0)}s
+              {" "}{board.scenes.length}/{sceneCap} scenes · 🎞 {boardBeats(board.scenes)}/{boardBeatsTotal(board.scenes, sceneCap)} shots · ~{boardPlannedSeconds(board.scenes)}s/~{Math.round(Number(board.input.song?.durationSeconds ?? board.input.targetSeconds) || 0)}s
               {board.scenarioName ? <> · approved → <b>{board.scenarioName}</b></> : null}
               {" "}· {board.input.includeDialogue === false ? "🔇 silent" : `🎙 ${board.scenes.filter((s) => (s.dialogue ?? []).length).length} dialogue`}
               {" "}· {board.input.chainContinuity === true ? "🔗 connected" : "▫️ independent"}
@@ -3162,6 +3536,45 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 {board.input.chainContinuity === true ? "🔗 Connected: on → off" : "▫️ Connected: off → on"}
               </button>
             </div>
+            <section className="dir-saved-brief" aria-label="Brief values saved for this Director board">
+              <div className="dir-saved-brief-head">
+                <div>
+                  <div className="section-label">Brief used to create this board</div>
+                  <p className="hint">Saved creation settings are shown here whenever you reopen this board.</p>
+                </div>
+                <button className="ghost shotlist-btn" onClick={() => openInputs(board)} title="View or edit the saved brief values">
+                  Edit brief values
+                </button>
+              </div>
+              <div className="dir-saved-brief-grid">
+                <div className="dir-saved-brief-field"><span>Story title</span><b>{board.input.title || "—"}</b></div>
+                <div className="dir-saved-brief-field"><span>Analyzer</span><b>{storedAnalyzerLabel}</b></div>
+                <div className="dir-saved-brief-field"><span>Language</span><b>{board.input.language || "—"}</b></div>
+                <div className="dir-saved-brief-field"><span>Source language</span><b>{{ auto: "Auto detect", hi: "Hindi", en: "English", hinglish: "Hinglish" }[str(board.input.semanticsLanguage)] || "Auto detect"}</b></div>
+                <div className="dir-saved-brief-field"><span>Genre</span><b>{board.input.genre || "—"}{board.input.genre === "Custom" && board.input.genreCustom ? ` · ${board.input.genreCustom}` : ""}</b></div>
+                <div className="dir-saved-brief-field"><span>Visual style</span><b>{board.input.visualStyle || "—"}{board.input.visualStyle === "Custom" && board.input.styleCustom ? ` · ${board.input.styleCustom}` : ""}</b></div>
+                <div className="dir-saved-brief-field"><span>Target duration</span><b>~{Math.round(Number(board.input.song?.durationSeconds ?? board.input.targetSeconds) || 0)} seconds{board.input.song?.durationSeconds ? " · locked to song" : ""}</b></div>
+                <div className="dir-saved-brief-field"><span>Scene duration</span><b>~{Math.round(Number(board.input.sceneSeconds) || 3)} seconds</b></div>
+                <div className="dir-saved-brief-field"><span>Aspect ratio</span><b>{board.input.aspectRatio || "—"}</b></div>
+                <div className="dir-saved-brief-field"><span>Dialogues</span><b>{board.input.includeDialogue === false ? "Off" : "On"}</b></div>
+                <div className="dir-saved-brief-field"><span>Connected scenes</span><b>{board.input.chainContinuity === true ? "On" : "Off"}</b></div>
+              </div>
+              <label className="dir-saved-brief-block-label" htmlFor={`saved-brief-story-${board.id}`}>Story / lyrics</label>
+              <textarea id={`saved-brief-story-${board.id}`} className="dir-saved-brief-story" readOnly value={board.input.story || ""} rows={6} />
+              {board.input.song?.fileName && (
+                <div className="dir-saved-brief-field dir-saved-brief-song"><span>Attached song</span><b>🎵 {board.input.song.fileName} · ~{board.input.song.durationSeconds}s · {board.input.song.hasLyrics === false ? "Instrumental" : "Lyrics"}</b></div>
+              )}
+              {board.input.sourceAudio?.fileName && (
+                <div className="dir-saved-brief-field dir-saved-brief-song"><span>Source audio</span><b>🎧 {board.input.sourceAudio.fileName} · ~{board.input.sourceAudio.durationSeconds}s</b></div>
+              )}
+              <details className="dir-saved-brief-details">
+                <summary>Master prompt and additional instructions</summary>
+                <div className="dir-saved-brief-detail-content">
+                  <div><span>Master prompt</span><p>{board.input.masterPrompt || board.styleLock || "Not recorded for this older board."}</p></div>
+                  <div><span>Additional director instructions</span><p>{board.input.instructions || "None"}</p></div>
+                </div>
+              </details>
+            </section>
             {board.blueprint?.logline ? <p className="hint">{board.blueprint.logline}</p> : null}
             {board.input.song?.file ? (
               <div className="beat-meta-box" style={{ marginBottom: 12 }}>
@@ -3173,24 +3586,82 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 </p>
               </div>
             ) : null}
+            </div>
+            <div hidden={activeDirectorTab !== "storyboard"}>
+            {(() => {
+              const ap = assetProduction;
+              const steps = [
+                { label: "Analyze story", done: Boolean(board.blueprint) },
+                { label: "Generate assets", done: Boolean(ap?.assets?.some((a) => Boolean(a.reference))) },
+                { label: "Approve & save assets", done: Boolean(ap?.status === "approved") },
+                { label: "Generate scenes", done: sceneCap > 0 && board.scenes.length >= sceneCap },
+                { label: "Approve", done: board.status === "approved" || Boolean(board.scenarioName) },
+                { label: "Video generation", done: false },
+              ];
+              const current = steps.findIndex((s) => !s.done);
+              return (
+                <div className="beat-meta-box" style={{ marginBottom: 12 }}>
+                  <div className="section-label">Production pipeline · Home › Director</div>
+                  <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                    {steps.map((s, i) => (
+                      <span
+                        key={s.label}
+                        className="pill"
+                        title={i === current ? "Current stage" : (s.done ? "Complete" : "Upcoming")}
+                        style={{
+                          background: s.done ? "#1f6b45" : (i === current ? "#8a5a00" : "#333"),
+                          color: "#fff", opacity: s.done || i === current ? 1 : 0.65,
+                        }}
+                      >
+                        {s.done ? "✓" : (i === current ? "▶" : "○")} {i + 1}. {s.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            </div>
+            <div id="director-panel-scenes-controls" hidden={activeDirectorTab !== "scenes"}>
+            <div className="beat-meta-box dir-scene-inputs" aria-label="Inputs used for scene planning">
+              <div className="section-label" style={{ marginBottom: 6 }}>Generate Scenes uses the processed project data</div>
+              <div className="dir-scene-inputs-grid">
+                <div><b>Storyboard</b><span>{chars.length} characters · {locs.length} locations · {objs.length} objects · {beats.length} beats</span></div>
+                <div><b>Audio timing</b><span>{!hasSceneAudio ? "No audio attached; no audio timeline is required"
+                  : timelineApproval === "approved" && !masterTimeline?.stale
+                    ? "Approved master audio timeline drives scene timing"
+                    : masterTimeline?.stale
+                      ? "Audio analysis is stale for the current source lines; scene timing falls back to estimates"
+                      : board.lyric_timeline?.lines?.length
+                        ? "Saved audio analysis is used; master timing is not locked until approved"
+                        : "Audio is attached; line timing is estimated until analysis is available"}</span></div>
+                <div><b>Visual references</b><span>{assetProduction?.skipped
+                  ? "Asset stage was skipped; bible identity prompts are used"
+                  : assetProduction?.status === "approved"
+                    ? `${masterAssetsApproved.length} approved assets are referenced by ID; full prompts resolve after planning`
+                    : "Storyboard bible identities and prompts ground the visuals"}</span></div>
+                <div><b>Meaning & coverage</b><span>Each batch analyzes its source lines, uses the character/location/object bible, and checks meaningful phrases against visible actions.</span></div>
+              </div>
+            </div>
             <BatchSizeSelect value={sceneBatch} onChange={setSceneBatch} disabled={busy != null} />
             <div className="row" style={{ marginBottom: 8 }}>
-              {board.scenes.length < board.sceneCount || timelineOpen ? (
+              {board.scenes.length < sceneCap || timelineOpen ? (
                 <button
                   className="primary"
                   onClick={() => void doScenes()}
-                  disabled={busy != null}
-                  title={timelineOpen && board.scenes.length >= board.sceneCount
-                    ? `The plan stopped early at ~${boardPlanned}s of ~${Math.round(boardTarget)}s — continue planning the rest of the timeline (the scene cap reopens automatically)`
-                    : "Plan the remaining scenes (resumes on retry)"}
+                  disabled={busy != null || (assetProduction != null && assetProduction.status !== "approved")}
+                  title={assetProduction != null && assetProduction.status !== "approved"
+                    ? "Generate and approve the master assets first (or explicitly skip the asset stage)"
+                    : (timelineOpen && board.scenes.length >= sceneCap
+                      ? `The plan stopped early at ~${boardPlanned}s of ~${Math.round(boardTarget)}s — continue planning the rest of the timeline (the scene cap reopens automatically)`
+                      : "Plan the remaining scenes (resumes on retry)")}
                 >
                   {busy ? <Spinner size={13} /> : <IconFilm size={13} />}
                   {busy
                     ? `Planning…${sceneProgress ? ` ${sceneProgress}` : ""}`
                     : board.scenes.length
-                      ? (timelineOpen && board.scenes.length >= board.sceneCount
+                      ? (timelineOpen && board.scenes.length >= sceneCap
                         ? `Continue planning (~${boardPlanned}s of ~${Math.round(boardTarget)}s · 🎞 ${boardBeats(board.scenes)} shots)`
-                        : `Continue scenes (${board.scenes.length}/${board.sceneCount} · 🎞 ${boardBeats(board.scenes)}/${boardBeatsTotal(board.scenes, board.sceneCount)})`)
+                        : `Continue scenes (${board.scenes.length}/${sceneCap} · 🎞 ${boardBeats(board.scenes)}/${boardBeatsTotal(board.scenes, sceneCap)})`)
                       : "Generate scenes"}
                 </button>
               ) : (
@@ -3199,7 +3670,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                   {busy ? "Approving…" : "Approve Storyboard"}
                 </button>
               )}
-              {!busy && timelineOpen && board.scenes.length >= board.sceneCount && (
+              {!busy && timelineOpen && board.scenes.length >= sceneCap && (
                 <button
                   className="ghost"
                   onClick={() => void doApprove()}
@@ -3265,7 +3736,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
               </button>
             </div>
             {busy && sceneProgress && <p className="hint">{sceneProgress}{planRemainingMs != null && ` · ⏳ ${formatDuration(planRemainingMs)} left`} · partial scenes are kept — Stop resumes from the next scene.</p>}
-            {!busy && stoppedNote && (board.scenes.length < board.sceneCount || timelineOpen) && (
+              {!busy && stoppedNote && (board.scenes.length < sceneCap || timelineOpen) && (
               <p className="hint">{stoppedNote} Or migrate what's planned so far with Migrate partial — the rest can follow later.</p>
             )}
             {!busy && board.warn && (
@@ -3282,11 +3753,14 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 ))}
               </div>
             )}
+            </div>
 
             {/* Chief Director Story Plan: the authoritative narrative source
                 every downstream stage traces to — outline, roster, stage
                 pipeline with approval checkpoints, uncertainties. Read-only
                 until a stage is approved; approvals persist as plan revisions. */}
+            <div id="director-panel-storyboard" hidden={activeDirectorTab !== "storyboard"}>
+            <StoryboardWorkspace boardId={board.id} board={board} livePhase={live?.phase} />
             {board.blueprint && (
               <div className="beat-meta-box" style={{ marginBottom: 12 }}>
                 <div className="row" style={{ alignItems: "center" }}>
@@ -3382,10 +3856,12 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 )}
               </div>
             )}
+            </div>
 
             {/* The MEANING layer: what every source line means and what can be
                 SEEN (the scenes are planned from this). The original text is
                 always shown next to its interpretation. */}
+            <div id="director-panel-review" hidden={activeDirectorTab !== "review"}>
             {board.blueprint && (
               <div className="beat-meta-box" style={{ marginBottom: 12 }}>
                 <div className="row" style={{ alignItems: "center" }}>
@@ -3689,8 +4165,51 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
               </div>
             )}
 
+            </div>
             {board.blueprint && (
-              <>
+              <div id="director-panel-assets" hidden={activeDirectorTab !== "assets"}>
+                <div className="dir-master-assets-toolbar">
+                  <div>
+                    <div className="section-label">Characters &amp; World · Master Assets</div>
+                    <p className="hint" style={{ margin: "3px 0 0" }}>
+                      Descriptions, consistency rules, image prompts, previews, and approvals stay together on each asset card.
+                    </p>
+                  </div>
+                  <span className="spacer" />
+                  <span className="pill">
+                    {assetProduction?.status === "approved"
+                      ? (assetProduction.skipped ? "skipped" : "approved")
+                      : masterAssetsRendering ? "rendering…" : `${masterAssetsReady.length}/${masterAssets.length} ready`}
+                  </span>
+                  <div className="row dir-master-assets-actions">
+                    <button
+                      className="primary"
+                      disabled={busy != null || assetBusy || masterAssetsRendering}
+                      onClick={() => void doGenerateAssets()}
+                      title="Queue master reference stills for assets with saved prompts"
+                    >
+                      {assetBusy || masterAssetsRendering ? <Spinner size={13} /> : <IconSparkles size={13} />}
+                      Generate assets
+                    </button>
+                    <button
+                      className="btn-green"
+                      disabled={busy != null || assetBusy || masterAssetsReady.length === 0}
+                      onClick={() => void doApproveAssets()}
+                      title="Approve all generated master stills"
+                    >
+                      {assetBusy ? <Spinner size={13} /> : <IconCheck size={13} />}
+                      Approve all
+                    </button>
+                    <button
+                      className="ghost"
+                      disabled={busy != null || assetBusy || assetProduction?.status === "approved"}
+                      onClick={() => void doSkipAssets()}
+                      title="Continue without master stills"
+                    >
+                      Skip stage
+                    </button>
+                  </div>
+                </div>
                 <div className="row" style={{ alignItems: "center", marginTop: 4 }}>
                   <div className="section-label" style={{ margin: 0 }}>Characters · {chars.length}</div>
                   <span className="spacer" />
@@ -3712,7 +4231,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                   style={{ gridTemplateColumns: `repeat(${Math.min(Math.max(chars.length, 1), 5)}, minmax(0, 1fr))` }}
                 >
                   {chars.map((c, i) => (
-                    <div className="shot" key={String(c.character_id ?? i)}>
+                    <div className={`shot dir-bible-asset-card${masterAssetRendering(masterAssetFor("character", str(c.character_id))) ? " is-generating" : ""}`} key={String(c.character_id ?? i)}>
                       <div className="shot-head" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span aria-hidden="true" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                           {str(c.name) || `Character ${i + 1}`} · {str(c.role) || "supporting"}
@@ -3746,6 +4265,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                           🔒 Consistency · {charRules(c).length}
                         </button>
                       </div>
+                      {renderMasterAssetDetails(masterAssetFor("character", str(c.character_id)))}
                     </div>
                   ))}
                 </div>
@@ -3844,10 +4364,11 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                     </div>
                   </div>
                 )}
-              </>
+              </div>
             )}
 
             {board.blueprint && (
+              <div hidden={activeDirectorTab !== "assets"}>
               <>
                 <div className="row" style={{ alignItems: "center", marginTop: 8 }}>
                   <div className="section-label" style={{ margin: 0 }}>World · {locs.length} location{locs.length === 1 ? "" : "s"} · {objs.length} object{objs.length === 1 ? "" : "s"}</div>
@@ -3876,7 +4397,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                   style={{ gridTemplateColumns: `repeat(${Math.min(Math.max(locs.length + objs.length, 1), 5)}, minmax(0, 1fr))` }}
                 >
                   {locs.map((l, i) => (
-                    <div className="shot" key={String(l.location_id ?? `l${i}`)}>
+                    <div className={`shot dir-bible-asset-card${masterAssetRendering(masterAssetFor("location", str(l.location_id))) ? " is-generating" : ""}`} key={String(l.location_id ?? `l${i}`)}>
                       <div className="shot-head" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span aria-hidden="true" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>📍 {str(l.name) || `Location ${i + 1}`}</span>
                         <button
@@ -3899,10 +4420,11 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                         </button>
                       </div>
                       <p className="hint" style={{ margin: 0 }}>{str(l.visual_identity_prompt) || str(l.description) || "—"}</p>
+                      {renderMasterAssetDetails(masterAssetFor("location", str(l.location_id)))}
                     </div>
                   ))}
                   {objs.map((o, i) => (
-                    <div className="shot" key={String(o.object_id ?? `o${i}`)}>
+                    <div className={`shot dir-bible-asset-card${masterAssetRendering(masterAssetFor("object", str(o.object_id))) ? " is-generating" : ""}`} key={String(o.object_id ?? `o${i}`)}>
                       <div className="shot-head" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span aria-hidden="true" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>🧭 {str(o.name) || `Object ${i + 1}`}</span>
                         <button
@@ -3925,14 +4447,16 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                         </button>
                       </div>
                       <p className="hint" style={{ margin: 0 }}>{str(o.visual_identity_prompt) || str(o.description) || "—"}</p>
+                      {renderMasterAssetDetails(masterAssetFor("object", str(o.object_id)))}
                     </div>
                   ))}
                 </div>
               </>
+              </div>
             )}
 
             {beats.length > 0 && (
-              <>
+              <div hidden={activeDirectorTab !== "storyboard"}>
                 <div className="row" style={{ alignItems: "center" }}>
                   <div className="section-label" style={{ margin: 0 }}>Story beats · {beats.length}</div>
                   <span className="spacer" />
@@ -3949,16 +4473,17 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                     </div>
                   ))}
                 </div>
-              </>
+              </div>
             )}
 
-            {(board.scenes.length > 0 || board.sceneCount > 0) && (
+            {(board.scenes.length > 0 || sceneCap > 0 || busy != null || live?.active) && (
               <>
+                <div hidden={activeDirectorTab !== "scenes"}>
                 <div className="row" style={{ alignItems: "center" }}>
-                  <div className="section-label" style={{ margin: 0 }}>Scenes · {board.scenes.length}/{board.sceneCount} · Shots {boardBeats(board.scenes)}/{boardBeatsTotal(board.scenes, board.sceneCount)}</div>
+                  <div className="section-label" style={{ margin: 0 }}>Scenes · {board.scenes.length}/{sceneCap} · Shots {boardBeats(board.scenes)}/{boardBeatsTotal(board.scenes, sceneCap)}</div>
                   {(() => {
                     const beats = boardBeats(board.scenes);
-                    const total = boardBeatsTotal(board.scenes, board.sceneCount);
+                    const total = boardBeatsTotal(board.scenes, sceneCap);
                     return (
                       <span className="pill" title="Shots ARE scenes at generation time — each shot flattens to one image + video clip at approve time, so this shot total is the real generation total">
                         🎞 {beats}/{total} timed shots
@@ -4022,10 +4547,10 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                       return cur;
                     };
                     return (
-                      <div className={`dir-scene-row${selected ? " selected" : ""}${typing ? " typing" : ""}`} key={s.scene_number} id={`dir-scene-${s.scene_number}`}>
+                      <div className={`dir-scene-row shot-count-${Math.min(shots.length, 4)}${selected ? " selected" : ""}${typing ? " typing" : ""}`} key={s.scene_number} id={`dir-scene-${s.scene_number}`}>
                         <div className="dir-scene-row-head">
-                          <span className="pill" aria-hidden="true" title={`Scene ${s.scene_number} of ${board.sceneCount}`}>
-                            {s.scene_number}/{board.sceneCount}
+                          <span className="pill" aria-hidden="true" title={`Scene ${s.scene_number} of ${sceneCap}`}>
+                            {s.scene_number}/{sceneCap}
                           </span>
                           <span className="dir-scene-row-title" title={s.title}>
                             <TypedText text={s.title} animate={typing} delayMs={typeDelay(str(s.title).length)} />
@@ -4118,6 +4643,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                                 </div>
                                 <span className="dir-shot-meta">
                                   {sh.camera?.shot_type ?? ""}{sh.camera?.movement ? ` · ${sh.camera.movement}` : ""} · {fmtT(sh.duration_seconds)}
+                                  {sh.objects?.length ? ` · 🧺 ${sh.objects.map(objectLabel).join(", ")}` : ""}
                                   {dlg ? ` · 🎙 ${dlg}` : ""}
                                 </span>
                                 <div className="row" style={{ marginTop: 4, gap: 4 }}>
@@ -4150,6 +4676,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                               </div>
                               <span className="dir-shot-meta">
                                 {s.camera?.shot_type ?? ""}{s.camera?.movement ? ` · ${s.camera.movement}` : ""} · {fmtT(s.duration_seconds)}
+                                {s.objects?.length ? ` · 🧺 ${s.objects.map(objectLabel).join(", ")}` : ""}
                                 {Array.isArray(s.dialogue) && s.dialogue.length ? ` · 🎙 ${s.dialogue.length}` : ""}
                               </span>
                             </div>
@@ -4179,6 +4706,12 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                           Scenes {live.batchFrom ?? "…"}–{live.batchTo ?? "…"}{" "}
                           {live.thinking && !live.tail ? "thinking…" : "writing…"}
                           {live.scenes.length > 0 && ` · ${live.scenes.length} scene${live.scenes.length === 1 ? "" : "s"} complete in stream`}
+                        </span>
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          {live.llmElapsedMs != null
+                            ? `LLM ${formatDuration(live.llmElapsedMs)}${live.currentAttempt && live.currentAttempt > 1 ? ` · attempt ${live.currentAttempt}` : ""}`
+                            : `${live.llmAttempts?.length ? "Post-processing" : "Preparing"} · ${formatDuration(live.elapsedMs || 0)}`}
+                          {live.elapsedMs != null && live.llmElapsedMs != null && ` · batch ${formatDuration(live.elapsedMs)}`}
                         </span>
                         <span className="muted" style={{ fontSize: 11 }}>read-only · planning unaffected</span>
                       </div>
@@ -4215,7 +4748,16 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                       )}
                     </div>
                   )}
-                  {Array.from({ length: Math.max(0, board.sceneCount - board.scenes.length) }, (_, k) => {
+                  {!live?.active && board.scenePlanningMetrics?.batches?.length ? (() => {
+                    const latest = board.scenePlanningMetrics.batches[board.scenePlanningMetrics.batches.length - 1];
+                    const retryCount = Math.max(0, latest.attempts.length - 1);
+                    return (
+                      <p className="hint" style={{ margin: "8px 0", fontSize: 11 }} title="Scene planning timing for the most recently completed batch">
+                        Last batch · prep {formatDuration(latest.preparationMs)} · LLM {formatDuration(latest.llmMs)} · post-process {formatDuration(latest.postLlmMs)} · total {formatDuration(latest.totalMs)} · {latest.accepted}/{latest.requested} scenes accepted{retryCount ? ` · ${retryCount} retry` : ""}
+                      </p>
+                    );
+                  })() : null}
+                  {Array.from({ length: Math.max(0, sceneCap - board.scenes.length) }, (_, k) => {
                     const num = board.scenes.length + 1 + k;
                     const isGen = generatingRange != null && num >= generatingRange.from && num <= generatingRange.to;
                     const eta = planSceneEta(num);
@@ -4227,7 +4769,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                         aria-label={`Scene ${num} ${isGen ? "generating" : "to be generated"}${eta != null ? `, about ${formatDuration(eta)} remaining` : ""}`}
                       >
                         <div className="dir-scene-row-head">
-                          <span className="pill" aria-hidden="true">Scene {num}/{board.sceneCount}</span>
+                          <span className="pill" aria-hidden="true">Scene {num}/{sceneCap}</span>
                           {isGen ? (
                             <p className="hint" style={{ margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
                               <Spinner size={11} /> Generating…{eta != null && ` · ~${formatDuration(eta)} left`}
@@ -4239,6 +4781,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                       </div>
                     );
                   })}
+                </div>
                 </div>
                 {sceneModal && (() => {
                   const d = board.scenes[sceneModal.index];
@@ -4349,6 +4892,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                             <input value={str(sceneDraft.title ?? "")} maxLength={80} onChange={(e) => setSceneDraft((x) => ({ ...x, title: e.target.value }))} />
                             <label style={{ marginTop: 6 }}>Action (visible behavior)</label>
                             <textarea rows={3} value={str(sceneDraft.action ?? "")} onChange={(e) => setSceneDraft((x) => ({ ...x, action: e.target.value }))} />
+                            <label style={{ marginTop: 6 }} title="Physical movement or change over the scene duration; do not describe appearance">Motion</label>
+                            <textarea rows={2} value={str(sceneDraft.motion ?? "")} placeholder="e.g. slowly raises his tail, then holds still" onChange={(e) => setSceneDraft((x) => ({ ...x, motion: e.target.value }))} />
                             <label style={{ marginTop: 6 }}>Emotion</label>
                             <input value={str(sceneDraft.emotion ?? "")} maxLength={60} onChange={(e) => setSceneDraft((x) => ({ ...x, emotion: e.target.value }))} />
                             <label style={{ marginTop: 6 }} title="Exact lyric words this shot visualizes (song boards)">Lyric segment</label>
@@ -4465,6 +5010,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                             )}
                             <div className="shotlist-detail-label">Expression / body language</div>
                             <p>{[d.expression, d.body_language].filter(Boolean).join(" · ") || "—"}</p>
+                            <div className="shotlist-detail-label">Motion</div>
+                            <p>{str(d.motion) || (str(d.action) ? `From action: ${str(d.action)}` : "—")}</p>
                             <div className="shotlist-detail-label">Camera</div>
                             <p>{[d.camera?.shot_type, d.camera?.angle, d.camera?.movement].filter(Boolean).join(" · ") || "—"}</p>
                             <div className="shotlist-detail-grid">
@@ -4577,13 +5124,16 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
         flattened shot-beats (one beat per shot). Rendered only when a board
         is open so planning flow is untouched. */}
     {board && (
-      board.scenarioName ? (
+      <div hidden={activeDirectorTab !== "media" && activeDirectorTab !== "export"}>
+      {board.scenarioName ? (
         <DirectorGeneration
           projectName={board.scenarioName}
           boardScenes={board.scenes}
           onOpenProject={onOpenProject}
           imageMode={imageMode}
           onImageMode={onImageMode}
+          activeSection={activeDirectorTab === "export" ? "export" : "media"}
+          onStatus={onDirectorGenerationStatus}
         />
       ) : (
         <section className="card" aria-label="Generation" style={{ marginTop: 12 }}>
@@ -4591,7 +5141,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
             <h2>🎬 Generation</h2>
             <span className="spacer" />
             <span className="pill" title="Approve or migrate the storyboard to create its project first">
-              {board.scenes.length}/{board.sceneCount} scenes planned
+              {board.scenes.length}/{sceneCap} scenes planned
             </span>
           </div>
           <p className="hint" style={{ margin: "8px 0 0" }}>
@@ -4601,6 +5151,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
           </p>
         </section>
       )
+      }
+      </div>
     )}
     {/* 🔍 Prompt preview popup: the exact system + user messages the next
         Continue would send to the LLM (dry run — no model call, nothing
@@ -4676,6 +5228,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
               <div className="shotlist-detail-label">Story{inputBoard.input.song ? " / lyrics" : ""}</div>
               <p style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflowY: "auto" }}>{str(inputBoard.input.story) || "—"}</p>
               <div className="dir-scene-row-head" style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                <span><span className="shotlist-detail-label">Analyzer</span><p style={{ margin: "2px 0 0" }}>{inputBoard.input.analyzerType && ANALYZER_TYPES[inputBoard.input.analyzerType as AnalyzerType] ? ANALYZER_TYPES[inputBoard.input.analyzerType as AnalyzerType].role : (str(inputBoard.input.masterPrompt).match(/^ROLE:\s*(.+)$/m)?.[1] || "Not recorded for this older board")}</p></span>
                 <span><span className="shotlist-detail-label">Language</span><p style={{ margin: "2px 0 0" }}>{str(inputBoard.input.language) || "—"}</p></span>
                 <span><span className="shotlist-detail-label">Genre</span><p style={{ margin: "2px 0 0" }}>{str(inputBoard.input.genre) || "—"}{inputBoard.input.genre === "Custom" && inputBoard.input.genreCustom ? ` (${inputBoard.input.genreCustom})` : ""}</p></span>
                 <span><span className="shotlist-detail-label">Visual style</span><p style={{ margin: "2px 0 0" }}>{str(inputBoard.input.visualStyle) || "—"}{inputBoard.input.visualStyle === "Custom" && inputBoard.input.styleCustom ? ` (${inputBoard.input.styleCustom})` : ""}</p></span>
@@ -4825,6 +5378,50 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
               </div>
             </>
           )}
+        </div>
+      </div>
+    )}
+    {assetPromptEditor && (
+      <div className="dlg-overlay dir-asset-prompt-overlay" role="dialog" aria-modal="true" aria-labelledby="dir-asset-prompt-title">
+        <div className="dlg-box dir-asset-prompt-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="dir-asset-prompt-mark" aria-hidden="true">✦</div>
+          <div className="section-label dir-asset-prompt-eyebrow">MASTER REFERENCE IMAGE</div>
+          <h2 className="dir-asset-prompt-title" id="dir-asset-prompt-title">
+            {assetPromptEditor.prompt ? "Refine image prompt" : "Create image prompt"}
+          </h2>
+          <p className="dir-asset-prompt-subtitle">
+            For <strong>{assetPromptEditor.name}</strong>. This prompt is sent verbatim to the image model.
+          </p>
+          <label className="dir-asset-prompt-label" htmlFor="dir-asset-prompt-input">Generation prompt</label>
+          <textarea
+            id="dir-asset-prompt-input"
+            className="dir-asset-prompt-input"
+            autoFocus
+            rows={9}
+            value={assetPromptEditor.prompt}
+            onChange={(e) => setAssetPromptEditor((current) => current ? { ...current, prompt: e.target.value } : current)}
+            placeholder="Describe the subject, appearance, clothing, pose, and visual details…"
+          />
+          <div className="dir-asset-prompt-footer">
+            <span className="hint">Keep identity and appearance details consistent with the story bible.</span>
+            <span className="dir-asset-prompt-count">{assetPromptEditor.prompt.length} characters</span>
+          </div>
+          <div className="dlg-actions dir-asset-prompt-actions">
+            <button className="ghost" onClick={() => setAssetPromptEditor(null)} disabled={assetBusy}>Cancel</button>
+            <button
+              className="primary dir-asset-prompt-submit"
+              disabled={!assetPromptEditor.prompt.trim() || assetBusy || busy != null}
+              onClick={() => {
+                const edit = assetPromptEditor;
+                if (!edit?.prompt.trim()) return;
+                setSelectedAssetVersions((current) => ({ ...current, [`${board?.id ?? "board"}:${edit.assetId}`]: null }));
+                setAssetPromptEditor(null);
+                void doRegenerateAsset(edit.assetId, edit.prompt.trim());
+              }}
+            >
+              ✨ {assetPromptEditor.prompt ? "Save & regenerate" : "Generate image"}
+            </button>
+          </div>
         </div>
       </div>
     )}

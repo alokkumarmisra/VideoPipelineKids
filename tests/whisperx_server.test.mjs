@@ -72,7 +72,7 @@ describe("WhisperX server wiring", () => {
   test("the panel still consumes the REAL upload → job → master-timeline flow", () => {
     assert.match(directorSrc, /uploadLyricAudio\(board\.id, dataUrl, name\)/);
     assert.match(directorSrc, /startWhisperXAnalysis\(board\.id/);
-    assert.match(directorSrc, /waitForWhisperXJob\(board\.id, started\.jobId\)/);
+    assert.match(directorSrc, /waitForWhisperXJob\(board\.id, started\.jobId(?:,\s*setAudioProgressPct)?\)/);
     assert.match(directorSrc, /directorMasterTimeline\(board\.id\)/);
   });
 });

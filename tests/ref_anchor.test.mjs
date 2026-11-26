@@ -72,6 +72,13 @@ describe("sequence wiring", () => {
     assert.match(src, /buildKeyframe\(kfPrompt, i, refInput\)/);
   });
 
+  it("approved Director asset references override the global Flux anchor per scene", () => {
+    const src = read("lib/sequence.mjs");
+    assert.match(src, /imageMode === "flux" \? String\(seq\[i\]\.reference_image_path/);
+    assert.match(src, /approved scene asset/);
+    assert.match(src, /setKeyframeRefFrom\(outDir, n, refMain\)/);
+  });
+
   it("switching the main ref regenerates stale keyframes + clips", () => {
     const src = read("lib/sequence.mjs");
     assert.match(src, /getKeyframeRefFrom/);
