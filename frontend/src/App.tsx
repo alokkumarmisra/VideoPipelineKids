@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listScenarios, getScenario, getDashboard, saveScenario, deleteScenario, renameScenario, setFavorite, comfyStatus, getHealth, outScenario, folderOf, slugFolder, me, logout, fmtDateTime, listRuns, getTheme, saveTheme, DEFAULT_PRESET_ID, type Engine, type AuthUser, type ImageMode, type RegenSpec, type RunRequest, type VideoFormat, type VideoType } from "./api";
+import { listScenarios, getScenario, getDashboard, saveScenario, deleteScenario, renameScenario, setFavorite, comfyStatus, getHealth, outScenario, folderOf, slugFolder, me, logout, fmtDateTime, listRuns, directorBoards, getTheme, saveTheme, DEFAULT_PRESET_ID, type DirectorBoardMeta, type Engine, type AuthUser, type ImageMode, type RegenSpec, type RunRequest, type VideoFormat, type VideoType } from "./api";
 import type { Beat, Scenario, ScenarioInfo, ComfyStatus, AssetKind, DashboardProject, HealthResponse, Run } from "./types";
 import ScenarioEditor from "./components/ScenarioEditor";
 import GenerateReference from "./components/GenerateReference";
@@ -14,9 +14,6 @@ import SceneTools from "./components/SceneTools";
 import HomePage from "./components/HomePage";
 import ResourcePage from "./components/ResourcePage";
 import DirectorPage from "./components/DirectorPage";
-import KidsDirectorPage from "./components/KidsDirectorPage";
-import SanskritiKidsPage from "./components/SanskritiKidsPage";
-import StoryPage from "./components/StoryPage";
 import CreateSongPage from "./components/CreateSongPage";
 import DocumentaryPage from "./components/DocumentaryPage";
 import DatabasePage from "./components/DatabasePage";
@@ -26,7 +23,7 @@ import ViewBoundary from "./components/ViewBoundary";
 import Login from "./components/Login";
 import { DialogProvider, useDialog } from "./components/Dialog";
 import { installGlobalDialogDrag } from "./components/draggableDialogs";
-import { IconCheck, IconChevronDown, IconBlocks, IconClapper, IconClipboard, IconDatabase, IconFilm, IconFolder, IconLayers, IconLogOut, IconMic, IconMoon, IconMusic, IconPanel, IconRefresh, IconSearch, IconSparkles, IconStar, IconSun, IconTrash, IconUser, Spinner } from "./components/Icons";
+import { IconCheck, IconChevronDown, IconBlocks, IconClapper, IconClipboard, IconDatabase, IconFilm, IconFolder, IconLogOut, IconMic, IconMoon, IconMusic, IconPanel, IconRefresh, IconSearch, IconSparkles, IconStar, IconSun, IconTrash, IconUser, Spinner } from "./components/Icons";
 
 export type Theme = "dark" | "light";
 
@@ -352,7 +349,11 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
   const boxBgFallback = theme === "dark" ? DEFAULT_BG_DARK : DEFAULT_BG_LIGHT;
   const boxBtnFallback = theme === "dark" ? DEFAULT_BTN_DARK : DEFAULT_BTN_LIGHT;
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
-  const [view, setView] = useState<"home" | "workspace" | "resource" | "director" | "kids_director" | "sanskriti_kids" | "story_song" | "song" | "documentary" | "database" | "components" | "settings">("home");
+  const [directorHoverOpen, setDirectorHoverOpen] = useState(false);
+  const [directorHoverBoards, setDirectorHoverBoards] = useState<DirectorBoardMeta[]>([]);
+  const [directorBoardRequest, setDirectorBoardRequest] = useState<{ id: string; nonce: number } | null>(null);
+  const [directorSelectedBoardId, setDirectorSelectedBoardId] = useState<string | null>(null);
+  const [view, setView] = useState<"home" | "workspace" | "resource" | "director" | "song" | "documentary" | "database" | "components" | "settings">("home");
   const [name, setName] = useState("");
   const [cfg, setCfg] = useState<Scenario | null>(null);
   const [cfgLoading, setCfgLoading] = useState(false);
@@ -361,6 +362,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
   // `shown` — so clicking another project never blanks/flashes the page: the
   // old project stays mounted until the new config has arrived.
   const [shownName, setShownName] = useState("");
+  const [projectLastUsedAt, setProjectLastUsedAt] = useState<number | null>(null);
   // Last project that FAILED to load ({ name, message }). Rendered as an
   // error banner with Retry — loading used to fail silently (the old content
   // just stayed on screen with no explanation).
@@ -719,6 +721,14 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
       localStorage.setItem("ss-sidebar", o ? "closed" : "open");
       return !o;
     });
+  const openSidebar = () => {
+    setSidebarOpen(true);
+    localStorage.setItem("ss-sidebar", "open");
+  };
+  const openDirectorBoards = () => {
+    setDirectorHoverOpen(true);
+    void directorBoards().then(setDirectorHoverBoards).catch(() => setDirectorHoverBoards([]));
+  };
   // Main vertical menu: icon rail by default, full labels on hover. Pinning
   // keeps it expanded; the choice persists like the other panel toggles.
   const [navPinned, setNavPinned] = useState<boolean>(() => {
@@ -1090,6 +1100,9 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
   // uses a stale list (a slug fallback could otherwise point at another
   // project's output dir and show its images/videos on a fresh project).
   const openProject = useCallback((n: string) => {
+    const usedAt = Date.now();
+    setProjectLastUsedAt(usedAt);
+    try { localStorage.setItem(`ss-project-last-used:${n}`, String(usedAt)); } catch { /* storage is optional */ }
     const t = scenarios.find((s) => s.name === n)?.project_type;
     if (t === "AUDIO") {
       setSongProject({ name: n, nonce: Date.now() });
@@ -1448,21 +1461,6 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                 { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
                 { key: "cur", label: "Director", icon: <IconFilm size={13} aria-hidden="true" />, tone: "ci-director", current: true },
               ];
-            } else if (view === "kids_director") {
-              crumbs = [
-                { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
-                { key: "cur", label: "Sanskriti Kids", icon: <IconSparkles size={13} aria-hidden="true" />, tone: "ci-director", current: true },
-              ];
-            } else if (view === "sanskriti_kids") {
-              crumbs = [
-                { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
-                { key: "cur", label: "Sanskriti Kids", icon: <IconSparkles size={13} aria-hidden="true" />, tone: "ci-director", current: true },
-              ];
-            } else if (view === "story_song") {
-              crumbs = [
-                { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
-                { key: "cur", label: "Story/Song", icon: <IconLayers size={13} aria-hidden="true" />, tone: "ci-story", current: true },
-              ];
             } else if (view === "song") {
               crumbs = [
                 { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
@@ -1713,7 +1711,11 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
             </button>
             <button
               className={`sidenav-btn nav-projects ${view === "workspace" ? "on" : ""}`}
-              onClick={() => draft || name ? setView("workspace") : setView("home")}
+              onMouseEnter={openSidebar}
+              onClick={() => {
+                draft || name ? setView("workspace") : setView("home");
+                openSidebar();
+              }}
               aria-current={view === "workspace" ? "page" : undefined}
               title={draft ? `Workspace: ${draft.name} (unsaved)` : name ? `Workspace: ${name}` : "Open a project from Home first"}
             >
@@ -1731,30 +1733,13 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
             </button>
             <button
               className={`sidenav-btn nav-director ${view === "director" ? "on" : ""}`}
+              onMouseEnter={openDirectorBoards}
               onClick={() => setView("director")}
               aria-current={view === "director" ? "page" : undefined}
               title="Open the Director view"
             >
               <span className="sidenav-icon"><IconFilm size={16} aria-hidden="true" /></span>
               <span className="sidenav-label">Director</span>
-            </button>
-            <button
-              className={`sidenav-btn nav-sanskriti-kids ${view === "sanskriti_kids" ? "on" : ""}`}
-              onClick={() => setView("sanskriti_kids")}
-              aria-current={view === "sanskriti_kids" ? "page" : undefined}
-              title="Sanskriti Kids — the children's production studio (Director, Story, Song, Audio, Library, Storyboard, Quality Control, Feedback)"
-            >
-              <span className="sidenav-icon"><IconSparkles size={16} aria-hidden="true" /></span>
-              <span className="sidenav-label">Sanskriti Kids</span>
-            </button>
-            <button
-              className={`sidenav-btn nav-story ${view === "story_song" ? "on" : ""}`}
-              onClick={() => setView("story_song")}
-              aria-current={view === "story_song" ? "page" : undefined}
-              title="Open the Story/Song view"
-            >
-              <span className="sidenav-icon"><IconLayers size={16} aria-hidden="true" /></span>
-              <span className="sidenav-label">Story/Song</span>
             </button>
             <button
               className={`sidenav-btn nav-song ${view === "song" ? "on" : ""}`}
@@ -1815,27 +1800,48 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
             <span className="sidenav-label">{navPinned ? "Collapse" : "Pin"}</span>
           </button>
         </nav>
+        {directorHoverOpen && (
+          <aside
+            className={`director-hover-panel${navPinned ? " pinned" : ""}`}
+            aria-label="Saved Director storyboards"
+            onMouseEnter={() => setDirectorHoverOpen(true)}
+            onMouseLeave={() => setDirectorHoverOpen(false)}
+          >
+            <div className="director-hover-head">
+              <div><strong>Saved Storyboards</strong><small>Director boards and linked projects</small></div>
+              <span>{directorHoverBoards.length}</span>
+            </div>
+            {directorHoverBoards.length === 0 ? (
+              <div className="director-hover-empty">No saved storyboards found</div>
+            ) : directorHoverBoards.map((board) => (
+              <button
+                className="director-hover-item"
+                data-selected={directorSelectedBoardId === board.id ? "true" : undefined}
+                key={board.id}
+                type="button"
+                title={`Open ${board.title} in Director`}
+                aria-pressed={directorSelectedBoardId === board.id}
+                onClick={() => {
+                  setView("director");
+                  setDirectorSelectedBoardId(board.id);
+                  setDirectorBoardRequest({ id: board.id, nonce: Date.now() });
+                  setDirectorHoverOpen(false);
+                }}
+              >
+                <span className="director-hover-item-title"><strong>{board.title}</strong><span className={`director-hover-status ${board.status === "approved" ? "approved" : ""}`}>{board.status}</span></span>
+                <span className="director-hover-project">{board.scenarioName ? (scenarios.find((project) => project.name === board.scenarioName)?.display_name || board.scenarioName) : "Project not linked"}</span>
+                <span className="director-hover-detail">{board.scenes}/{board.sceneCount} scenes <i /> {board.genre || "Genre not set"}</span>
+                {board.updatedAt && <time className="director-hover-time">Updated {fmtDateTime(Date.parse(board.updatedAt))}</time>}
+              </button>
+            ))}
+          </aside>
+        )}
       {/* Both views stay mounted — the inactive one is hidden, not unmounted —
           so a running generation keeps its live log, progress bar and SSE tail
           (and Craft keeps its spinner) when flipping between Home and the
           workspace. Workspace content renders from the last loaded project,
           so switching projects never unmounts/remounts the page. */}
-        <div className={`shell${rightCollapsed ? " no-right" : ""}${view === "resource" ? " is-resource" : ""}${view === "director" ? " is-director" : ""}${view === "kids_director" ? " is-kids-director" : ""}${view === "sanskriti_kids" ? " is-sanskriti-kids" : ""}${view === "story_song" ? " is-story" : ""}${view === "song" ? " is-song" : ""}${view === "documentary" ? " is-documentary" : ""}${view === "database" ? " is-database" : ""}${view === "components" ? " is-components" : ""}`}>
-        {/* Projects rail tab — always visible (except Home): clicking slides
-            only the container out over the content, clicking again collapses
-            it. Nothing ever shrinks (same pattern as the Scene Tools dock). */}
-        {view !== "home" && view !== "settings" && (
-          <button
-            className="sidebar-show"
-            onClick={toggleSidebar}
-            aria-expanded={sidebarOpen}
-            title={sidebarOpen ? "Collapse Projects" : "Show projects panel"}
-            aria-label={sidebarOpen ? "Collapse Projects" : "Show projects panel"}
-          >
-            <IconPanel size={15} />
-            <span className="sidebar-show-label">Projects</span>
-          </button>
-        )}
+        <div className={`shell${rightCollapsed ? " no-right" : ""}${view === "resource" ? " is-resource" : ""}${view === "director" ? " is-director" : ""}${view === "song" ? " is-song" : ""}${view === "documentary" ? " is-documentary" : ""}${view === "database" ? " is-database" : ""}${view === "components" ? " is-components" : ""}`}>
         <div className="home-wrap" style={view !== "home" ? { display: "none" } : undefined}>
           <HomePage
             active={view === "home"}
@@ -1858,39 +1864,14 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
         <div className="col" style={view !== "director" ? { display: "none" } : undefined}>
           <ViewBoundary name="Director">
             <DirectorPage
+              requestedBoard={directorBoardRequest}
+              onSelectedBoardChange={setDirectorSelectedBoardId}
               onOpenProject={openProject}
               onProjectsChanged={() => {
                 refreshScenarios();
                 refresh();
               }}
               onPlanningProgress={setDirectorProgress}
-              imageMode={imageMode}
-              onImageMode={setImageMode}
-            />
-          </ViewBoundary>
-        </div>
-        <div className="col" style={view !== "kids_director" ? { display: "none" } : undefined}>
-          <ViewBoundary name="Kids Director">
-            <KidsDirectorPage onOpenProject={openProject} />
-          </ViewBoundary>
-        </div>
-        <div className="col" style={view !== "sanskriti_kids" ? { display: "none" } : undefined}>
-          <ViewBoundary name="Sanskriti Kids">
-            <SanskritiKidsPage
-              onOpenProject={openProject}
-              imageMode={imageMode}
-              onImageMode={setImageMode}
-            />
-          </ViewBoundary>
-        </div>
-        <div className="col" style={view !== "story_song" ? { display: "none" } : undefined}>
-          <ViewBoundary name="Story">
-            <StoryPage
-              onOpenProject={openProject}
-              onProjectsChanged={() => {
-                refreshScenarios();
-                refresh();
-              }}
               imageMode={imageMode}
               onImageMode={setImageMode}
             />
@@ -1935,7 +1916,13 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
           </ViewBoundary>
         </div>
         {sidebarOpen && view !== "settings" && (
-        <aside className="sidebar" style={view === "home" ? { display: "none" } : undefined}>
+        <aside
+          className="sidebar"
+          onMouseLeave={() => {
+            setSidebarOpen(false);
+            localStorage.setItem("ss-sidebar", "closed");
+          }}
+        >
           <div className="sidebar-head">
             <span>Projects</span>
             <span className="muted sidebar-count">
@@ -2120,6 +2107,8 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
           <RunPanel
             scenario={draft ? "" : contentName}
             folder={draft ? "" : contentFolder}
+            projectDisplayName={draft ? draft.name : (scenarios.find((s) => s.name === contentName)?.display_name || contentName)}
+            projectLastUsedAt={projectLastUsedAt ?? (scenarios.find((s) => s.name === contentName)?.mtimeMs ?? null)}
             engine={engine}
             onEngine={setEngine}
             imageMode={imageMode}

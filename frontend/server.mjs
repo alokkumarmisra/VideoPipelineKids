@@ -1563,8 +1563,8 @@ function mainsFor(dirName, cfg) {
 // ('IMAGE' is valid for ad-hoc stills; this pipeline writes KEYFRAME.)
 // Each row has its own prompt/status/file_path/model/workflow/attempts/
 // metadata/started_at/completed_at. Size/dims live inside metadata JSONB.
-const REF_MODEL = "flux-2-klein-9b-fp8";
-const IMG_MODEL = "flux-2-klein-9b-fp8";
+const REF_MODEL = "flux-2-klein-9b";
+const IMG_MODEL = "flux-2-klein-9b";
 const LTX_MODEL = "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot";
 const WAN_MODEL = "wan2.1-i2v-14b-480p-Q4_K_M.gguf";
 const REF_WORKFLOW = "flux-t2i";

@@ -763,7 +763,7 @@ function deriveTrackCounts(mt: MasterTimelineResponse): TimelineTrackCounts {
   };
 }
 
-export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlanningProgress, imageMode, onImageMode }: {
+export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlanningProgress, imageMode, onImageMode, requestedBoard, onSelectedBoardChange }: {
   onOpenProject: (name: string) => void;
   onProjectsChanged: () => void;
   /** Lifts AI planning progress (analyze + scene batches) to the menu's
@@ -771,6 +771,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   onPlanningProgress?: (p: GenerationProgress) => void;
   imageMode?: ImageMode;
   onImageMode?: (mode: ImageMode) => void;
+  requestedBoard?: { id: string; nonce: number } | null;
+  onSelectedBoardChange?: (id: string | null) => void;
 }) {
   const dialog = useDialog();
   // Story form.
@@ -1171,6 +1173,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   };
 
   const openBoard = async (id: string) => {
+    onSelectedBoardChange?.(id);
     setActiveDirectorTab("storyboard");
     setError("");
     setStoppedNote(null);
@@ -1226,6 +1229,12 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
+
+  useEffect(() => {
+    if (requestedBoard?.id) void openBoard(requestedBoard.id);
+    // The nonce intentionally retriggers when the same board is selected again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedBoard?.nonce]);
 
   // Intelligent Director check (spec §12/§13): lyric coverage map + 0–100
   // validation in one pass. Read-only — no LLM call, no board mutation.

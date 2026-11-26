@@ -372,6 +372,7 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
       <div id="director-panel-media" hidden={activeSection !== "media"}>
       <RunPanel
         scenario={projectName}
+        projectDisplayName={displayName || cfg?.display_name || projectName || undefined}
         folder={folder}
         engine={engine}
         onEngine={setEngine}

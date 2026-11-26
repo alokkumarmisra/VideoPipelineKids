@@ -29,8 +29,6 @@ import { buildScenesPrompt } from "../lib/director.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverSrc = fs.readFileSync(path.join(ROOT, "frontend", "server.mjs"), "utf8");
-const storySrc = fs.readFileSync(path.join(ROOT, "frontend", "src", "components", "StoryPage.tsx"), "utf8");
-const apiSrc = fs.readFileSync(path.join(ROOT, "frontend", "src", "api.ts"), "utf8");
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -269,12 +267,6 @@ describe("server wiring — the approved timeline drives the REAL workflow", () 
     assert.ok(serverSrc.indexOf("boardToScenario(generationBoard)", before) > before, "the enriched generation board must be assembled after timing snap");
     assert.ok(serverSrc.includes("timing_corrections: timingCorrections"), "the approve response must report the snaps");
     assert.ok(/applyApprovedTimelineToScenes,\s*\}\s*from\s*"\.\.\/lib\/master_timeline\.mjs"/.test(serverSrc), "the import is missing");
-  });
-
-  test("the UI surfaces the approved timeline in the planning step + the approve report", () => {
-    assert.ok(storySrc.includes("🎼 Approved timeline drives timing"), "the plan header pill is missing");
-    assert.ok(storySrc.includes("approveRes.timing_corrections"), "the approve dialog must report snapped windows");
-    assert.ok(apiSrc.includes("timing_corrections?:"), "the api client type must carry the approve corrections");
   });
 
   test("the master-timeline approve gate stays the ONLY door to generation (no bypass)", () => {
