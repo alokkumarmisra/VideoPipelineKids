@@ -1,10 +1,10 @@
 // Scene-planning batch size (the AI Story Director plans scenes in LLM
-// batches). lib/director.mjs defaults to SCENE_BATCH = 8 and caps a
-// user-chosen batch at SCENE_BATCH_MAX (12) — the dropdown below offers the
+// batches). lib/director.mjs defaults to SCENE_BATCH = 20 and caps a
+// user-chosen batch at SCENE_BATCH_MAX (20) — the dropdown below offers the
 // user-selectable range 1..SCENE_BATCH_MAX, defaulting to the server default
-// batch (8) until the user picks one.
-export const SCENE_BATCH = 8;
-export const SCENE_BATCH_OPTIONS = [1, 2, 4, 6, 8, 12];
+// batch (20) until the user picks one.
+export const SCENE_BATCH = 20;
+export const SCENE_BATCH_OPTIONS = [1, 2, 4, 6, 8, 12, 16, 20];
 
 export default function BatchSizeSelect({
   value,
@@ -26,7 +26,7 @@ export default function BatchSizeSelect({
         disabled={disabled}
         style={{ width: 76, flex: "none" }}
         aria-label="Scene planning batch size"
-        title="Scenes per AI Director planning batch (1–12) — sent as the batch scene count when Generate scenes / Continue scenes run"
+        title="Scenes per AI Director planning batch (1–20) — sent as the batch scene count when Generate scenes / Continue scenes run"
       >
         {SCENE_BATCH_OPTIONS.map((n) => (
           <option key={n} value={n}>{n}</option>

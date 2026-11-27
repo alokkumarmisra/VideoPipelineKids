@@ -236,7 +236,7 @@ export function recordSongPaceDuration(ms: number): void {
 
 // ---- Historical director scene-planning pace (localStorage, separate key) ----
 // Running-mean MILLISECONDS PER SCENE for AI Story Director planning batches
-// (LLM calls planning up to 12 scenes each), so the Director's Time Remaining
+// (LLM calls planning up to 20 scenes each), so the Director's Time Remaining
 // can count down from the first second. Deliberately a SEPARATE key — LLM
 // planning batches and ComfyUI generations have nothing in common, and the
 // existing image/video/song pace storage is left byte-identical.

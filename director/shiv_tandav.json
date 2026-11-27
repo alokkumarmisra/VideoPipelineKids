@@ -24479,41 +24479,64 @@
     {
       "scene_number": 1,
       "title": "महादेव की ध्यान-स्थिति",
-      "story_beat": "Beat 1: कैलाश की शांति — शिव कैलाश पर्वत पर योग तपस्या में बैठे हैं।",
+      "story_beat": "पहला बीट: कैलाश की शांति — शिव कैलाश पर्वत पर योग तपस्या में बैठे हैं।",
       "duration_seconds": 5,
-      "characters": [
-        "shiv"
+      "characters": [],
+      "asset_refs": {
+        "characters": [
+          "SHIV_03"
+        ],
+        "locations": [
+          "KAIL_01"
+        ],
+        "objects": [
+          "VYAG_01",
+          "VIBH_01"
+        ]
+      },
+      "characters_detailed": [
+        {
+          "character_id": "shiv_03",
+          "role": "",
+          "emotion": "",
+          "gaze_target": "",
+          "starting_state": "",
+          "action": "",
+          "ending_state": "",
+          "expression": ""
+        }
       ],
-      "characters_detailed": [],
-      "dramatic_purpose": "",
+      "dramatic_purpose": "पर्वत के शिखर पर शिव की गहरी ध्यान स्थिति को स्थापित करना और उनकी आंतरिक शक्ति का संकेत देना।",
       "location": "kailash",
       "objects": [],
       "time_of_day": "Eternal Twilight",
-      "action": "Lord Shiva sits in a meditative yoga pose (Padmasana), eyes slightly closed, breathing slowly. A subtle divine aura ripples around his form.",
-      "emotion": "Reverence and Serenity",
-      "expression": "Serene, eyes half-closed in deep meditation",
-      "body_language": "Upright spine, hands resting gently on knees in Dhyana Mudra, slight rhythmic breathing causing chest expansion",
+      "action": "शिव पैडमासन में बैठे हैं, आँखें आधी बंद, गहरी सांसें ले रहे हैं। उनके शरीर के चारों ओर एक सूक्ष्म दिव्य ज्योति का संचार होता है।",
+      "motion": "",
+      "emotion": "सम्मान और शांतता",
+      "expression": "शांत, गहरे ध्यान में आँखें आधी बंद",
+      "body_language": "सीधा कंधा, हाथ घुटनों पर द्यान मुद्रा में, हल्का सा सांस का उतार-चढ़ाव जिससे छाती फैलती है",
+      "narration": "",
       "camera": {
         "shot_type": "Medium Close-Up",
         "angle": "Eye Level",
         "movement": "Slow Push-In"
       },
-      "lighting": "Soft volumetric divine light filtering through mist, highlighting the ash texture on skin.",
-      "environment": "Snow-capped jagged peaks of Kailash in background, swirling white clouds, cold blue ambient lighting.",
-      "continuity_from_previous_scene": "Fresh establishing shot for Line 1 invocation.",
-      "transition_to_next_scene": "Camera holds steady as internal light effects begin to emanate from the eyes for Line 2.",
+      "lighting": "धुंध से छनकर आ रही कोमल वॉल्यूमेट्रिक दिव्य रोशनी, त्वचा पर भस्म के ढीठ को हाईलाइट करती है।",
+      "environment": "कैलाश की पृष्ठभूमि में बर्फ से ढकी चट्टानी चोटियाँ, घूमती हुई सफेद बादल, ठंडी नीली पर्यावरण रोशनी।",
+      "continuity_from_previous_scene": "ताज़ा स्थापनात्मक शॉट लाइन 1 की आवाहन के लिए।",
+      "transition_to_next_scene": "कैमरा स्थिर रहता है जब आँखों से आंतरिक प्रकाश प्रभाव शुरू होते हैं लाइन 2 के लिए।",
       "dialogue": [],
-      "image_prompt": "Action: Lord Shiva sits in a meditative yoga pose (Padmasana), eyes slightly closed, breathing slowly. A subtle divine aura ripples around his form.; Emotion: Reverence and Serenity; Expression: Serene, eyes half-closed in deep meditation; Body language: Upright spine, hands resting gently on knees in Dhyana Mudra, slight rhythmic breathing causing chest expansion; Setting: Snow-capped jagged peaks of Kailash in background, swirling white clouds, cold blue ambient lighting.; Lighting: Soft volumetric divine light filtering through mist, highlighting the ash texture on skin.; Medium Close-Up, Eye Level, Slow Push-In",
-      "video_prompt": "Animate: Lord Shiva sits in a meditative yoga pose (Padmasana), eyes slightly closed, breathing slowly. A subtle divine aura ripples around his form.; Upright spine, hands resting gently on knees in Dhyana Mudra, slight rhythmic breathing causing chest expansion; Serene, eyes half-closed in deep meditation; Slow Push-In camera move",
+      "image_prompt": "Action: शिव पैडमासन में बैठे हैं, आँखें आधी बंद, गहरी सांसें ले रहे हैं। उनके शरीर के चारों ओर एक सूक्ष्म दिव्य ज्योति का संचार होता है।; Emotion: सम्मान और शांतता; Expression: शांत, गहरे ध्यान में आँखें आधी बंद; Body language: सीधा कंधा, हाथ घुटनों पर द्यान मुद्रा में, हल्का सा सांस का उतार-चढ़ाव जिससे छाती फैलती है; Setting: कैलाश की पृष्ठभूमि में बर्फ से ढकी चट्टानी चोटियाँ, घूमती हुई सफेद बादल, ठंडी नीली पर्यावरण रोशनी।; Lighting: धुंध से छनकर आ रही कोमल वॉल्यूमेट्रिक दिव्य रोशनी, त्वचा पर भस्म के ढीठ को हाईलाइट करती है।; Medium Close-Up, Eye Level, Slow Push-In",
+      "video_prompt": "Animate: शिव पैडमासन में बैठे हैं, आँखें आधी बंद, गहरी सांसें ले रहे हैं। उनके शरीर के चारों ओर एक सूक्ष्म दिव्य ज्योति का संचार होता है।; सीधा कंधा, हाथ घुटनों पर द्यान मुद्रा में, हल्का सा सांस का उतार-चढ़ाव जिससे छाती फैलती है; शांत, गहरे ध्यान में आँखें आधी बंद; Slow Push-In camera move",
       "lyric_line_id": null,
       "parent_line_id": null,
       "lyric_text": "",
       "lyric_segment": "",
-      "semantic_meaning": "Powerful...",
+      "semantic_meaning": "शक्तिशाली...",
       "visual_event": "",
       "shot_id": null,
       "shot_number": 1,
-      "song_start_time": null,
+      "song_start_time": 0,
       "song_end_time": null,
       "continuity_required": false,
       "reference_source": "NONE",
@@ -24526,7 +24549,7 @@
       "line_kind": "emotion",
       "action_plan": [
         {
-          "action": "standing majestically with a powerful, grounded posture",
+          "action": "पवित्र और स्थिर ध्यान की अवस्था में बैठना",
           "body_part": "whole body",
           "start_pose": "calm, upright stance",
           "end_pose": "calm, upright stance",
@@ -24534,19 +24557,14 @@
           "grounded": true
         }
       ],
-      "camera_rationale": "to visually convey the immense strength and divine aura mentioned in the line",
+      "camera_rationale": "लाइन में उल्लिखित विशाल शक्ति और दिव्य ज्योति को दृश्य रूप से व्यक्त करने के लिए",
       "beats": [
         {
           "start_seconds": 0,
-          "end_seconds": 4,
-          "action": "standing majestically with a powerful, grounded posture",
+          "end_seconds": 5,
+          "action": "पैडमासन में बैठकर शांत ध्यान की अवस्था का निर्माण करना",
           "start_pose": "calm, upright stance",
           "end_pose": "calm, upright stance",
-          "camera": {
-            "shot_type": "low-angle wide shot",
-            "angle": "looking up at the bull to emphasize power",
-            "movement": "slow push-in"
-          },
           "secondary": "whole body movement carries the detail",
           "estimated": true
         }
@@ -24557,20 +24575,39 @@
           "shot_id": "1-A",
           "shot_number": 1,
           "lyric_segment": "महादेव...",
-          "semantic_meaning": "Invocation of Lord Shiva, the Great God.",
-          "visual_event": "",
-          "characters": [
-            "shiv"
+          "semantic_meaning": "महादेव की आवाहन।",
+          "visual_event": "कैलाश के शिखर पर शिव का शांत रूप।",
+          "characters": [],
+          "objects": [],
+          "asset_refs": {
+            "characters": [
+              "SHIV_03"
+            ],
+            "locations": [
+              "KAIL_01"
+            ],
+            "objects": [
+              "VYAG_01",
+              "VIBH_01"
+            ]
+          },
+          "characters_detailed": [
+            {
+              "character_id": "shiv_03",
+              "role": "",
+              "emotion": "",
+              "gaze_target": "",
+              "starting_state": "",
+              "action": "",
+              "ending_state": "",
+              "expression": ""
+            }
           ],
-          "objects": [
-            "vyaghra_charma",
-            "vibhuti"
-          ],
-          "characters_detailed": [],
-          "dramatic_purpose": "",
+          "dramatic_purpose": "महादेव के रूप को स्थापित करना।",
           "location": "kailash",
-          "time_of_day": "",
-          "action": "Lord Shiva sits in a meditative yoga pose, eyes slightly closed, breathing slowly.",
+          "time_of_day": "Eternal Twilight",
+          "action": "Lord Shiva sits in a meditative yoga pose (Padmasana), eyes slightly closed, breathing slowly.",
+          "motion": "",
           "emotion": "Reverence and Serenity",
           "expression": "Serene, eyes half-closed in deep meditation",
           "body_language": "Upright spine, hands resting gently on knees in Dhyana Mudra, slight rhythmic breathing causing chest expansion",
@@ -24584,8 +24621,8 @@
           "continuity_from_previous_scene": "",
           "transition_to_next_scene": "",
           "dialogue": [],
-          "image_prompt": "Action: Lord Shiva sits in a meditative yoga pose, eyes slightly closed, breathing slowly.; Emotion: Reverence and Serenity; Expression: Serene, eyes half-closed in deep meditation; Body language: Upright spine, hands resting gently on knees in Dhyana Mudra, slight rhythmic breathing causing chest expansion; Setting: Snow-capped jagged peaks of Kailash in background, swirling white clouds, cold blue ambient lighting.; Lighting: Soft volumetric divine light filtering through mist, highlighting the ash texture on skin.; Medium Close-Up, Eye Level, Slow Push-In",
-          "video_prompt": "Animate: Lord Shiva sits in a meditative yoga pose, eyes slightly closed, breathing slowly.; Upright spine, hands resting gently on knees in Dhyana Mudra, slight rhythmic breathing causing chest expansion; Serene, eyes half-closed in deep meditation; Slow Push-In camera move",
+          "image_prompt": "Action: Lord Shiva sits in a meditative yoga pose (Padmasana), eyes slightly closed, breathing slowly.; Emotion: Reverence and Serenity; Expression: Serene, eyes half-closed in deep meditation; Body language: Upright spine, hands resting gently on knees in Dhyana Mudra, slight rhythmic breathing causing chest expansion; Setting: Snow-capped jagged peaks of Kailash in background, swirling white clouds, cold blue ambient lighting.; Lighting: Soft volumetric divine light filtering through mist, highlighting the ash texture on skin.; Medium Close-Up, Eye Level, Slow Push-In",
+          "video_prompt": "Animate: Lord Shiva sits in a meditative yoga pose (Padmasana), eyes slightly closed, breathing slowly.; Upright spine, hands resting gently on knees in Dhyana Mudra, slight rhythmic breathing causing chest expansion; Serene, eyes half-closed in deep meditation; Slow Push-In camera move",
           "duration_seconds": 0.8,
           "start_time": 0,
           "end_time": 0.8,
@@ -24596,38 +24633,45 @@
           "song_end_time": null,
           "continuity_required": false,
           "reference_source": "NONE",
-          "continuity_refs": [],
-          "asset_refs": {
-            "characters": [
-              "CHAR_001"
-            ],
-            "locations": [
-              "LOC_001"
-            ],
-            "objects": [
-              "OBJ_003",
-              "OBJ_004"
-            ]
-          }
+          "continuity_refs": []
         },
         {
           "shot_id": "1-B",
           "shot_number": 2,
           "lyric_segment": "एक ऐसा नाम, जिसे सुनते ही मन में एक साथ कई भाव जाग उठते हैं।",
-          "semantic_meaning": "A name that awakens multiple emotions simultaneously in the mind upon hearing it.",
-          "visual_event": "",
-          "characters": [
-            "shiv"
+          "semantic_meaning": "मन में एक साथ कई भावों की जागरूकता।",
+          "visual_event": "शिव के बंद आँखों से प्रकाश का संचार, आंतरिक विचारों को दर्शाता है।",
+          "characters": [],
+          "objects": [],
+          "asset_refs": {
+            "characters": [
+              "SHIV_03"
+            ],
+            "locations": [
+              "KAIL_01"
+            ],
+            "objects": [
+              "VYAG_01",
+              "VIBH_01"
+            ]
+          },
+          "characters_detailed": [
+            {
+              "character_id": "shiv_03",
+              "role": "",
+              "emotion": "",
+              "gaze_target": "",
+              "starting_state": "",
+              "action": "",
+              "ending_state": "",
+              "expression": ""
+            }
           ],
-          "objects": [
-            "vyaghra_charma",
-            "vibhuti"
-          ],
-          "characters_detailed": [],
-          "dramatic_purpose": "",
+          "dramatic_purpose": "आंतरिक ज्ञान और भावनाओं के प्रवाह को दर्शाना।",
           "location": "kailash",
-          "time_of_day": "",
+          "time_of_day": "Eternal Twilight",
           "action": "Light ripples emanate from Shiva's closed eyes, symbolizing thoughts awakening within the mind.",
+          "motion": "",
           "emotion": "Awe and Complexity",
           "expression": "Eyes reflecting internal light, subtle micro-movement of eyelids as if seeing inner visions",
           "body_language": "Stillness maintained, but a faint pulse of energy radiates from the forehead area",
@@ -24653,30 +24697,9 @@
           "song_end_time": null,
           "continuity_required": false,
           "reference_source": "NONE",
-          "continuity_refs": [],
-          "asset_refs": {
-            "characters": [
-              "CHAR_001"
-            ],
-            "locations": [
-              "LOC_001"
-            ],
-            "objects": [
-              "OBJ_003",
-              "OBJ_004"
-            ]
-          }
+          "continuity_refs": []
         }
-      ],
-      "asset_refs": {
-        "characters": [
-          "CHAR_001"
-        ],
-        "locations": [
-          "LOC_001"
-        ],
-        "objects": []
-      }
+      ]
     },
     {
       "scene_number": 2,
@@ -38863,7 +38886,7 @@
   "scenarioName": "shiv_tandav",
   "error": null,
   "createdAt": "2026-11-24T13:00:57.275Z",
-  "updatedAt": "2026-11-26T12:12:29.137Z",
+  "updatedAt": "2026-11-27T14:17:55.360Z",
   "lyric_timeline": {
     "schema_version": 1,
     "language": "hi",

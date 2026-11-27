@@ -30,7 +30,7 @@ const SECTIONS: Section[] = [
     rows: [
       {
         name: "llama-server (OpenAI-compatible)",
-        detail: "Chat completions at LLM_BASE /v1/chat/completions — AI Craft scenarios, Director bible + ≤12-scene batches, resource captions.",
+        detail: "Chat completions at LLM_BASE /v1/chat/completions — AI Craft scenarios, Director bible + ≤20-scene batches, resource captions.",
         tag: "LLM",
         source: "llm",
       },

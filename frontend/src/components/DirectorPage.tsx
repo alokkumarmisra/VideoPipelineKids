@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
-  alertServiceError, directorAddEntry, directorAnalyze, directorAnalyzeLive, directorApprove, directorApproveStage, directorAssets, directorBiblePreview, directorBoard, directorBoards, directorCinematography, directorCoverage, directorDeleteBoard, directorOptimizePrompt,
-  directorDuplicateBoard, directorLive, directorMotionAudio, directorPlan, directorPromptPreview, directorRegenEntry, directorRegenScene, directorRepair, directorScenes, directorSemantics, directorAnalyzeSemantics, directorShotPrompts, directorSongUrl, directorUpdateBoard, directorValidate, fmtRelative, saveScenario, suggestDirectorInstructions,
-  uploadLyricAudio, startWhisperXAnalysis, getWhisperXJobStatus, directorMasterTimeline, approveMasterTimeline,
+  alertServiceError, directorAddEntry, directorAnalyze, directorAnalyzeLive, directorApprove, directorAssets, directorBiblePreview, directorBoard, directorBoards, directorDeleteBoard, directorOptimizePrompt,
+  directorDuplicateBoard, directorLive, directorPromptPreview, directorRegenEntry, directorRegenScene, directorScenes, directorSongUrl, directorUpdateBoard, fmtRelative, saveScenario, suggestDirectorInstructions,
+  uploadLyricAudio, startWhisperXAnalysis, getWhisperXJobStatus, directorMasterTimeline, approveMasterTimeline, listScenarios,
   directorGenerateAssets, directorApproveAssets, directorSkipAssets, directorRegenerateAsset, directorAssetFileUrl,
-  type DirectorAssetMap, type DirectorAssetProduction, type DirectorMasterAsset, type DirectorBoard, type DirectorBoardMeta, type DirectorCinematography, type DirectorCoverage, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorMotionAudio, type DirectorPlan, type DirectorPromptPreview, type DirectorScene, type DirectorShotPrompts, type DirectorShot, type DirectorValidation, type DirectorSemantics, type ImageMode, type MasterTimelineResponse,
+  type DirectorAssetProduction, type DirectorMasterAsset, type DirectorBoard, type DirectorBoardMeta, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorPromptPreview, type DirectorScene, type DirectorShot, type ImageMode, type MasterTimelineResponse,
 } from "../api";
+import type { ScenarioInfo } from "../types";
 import { useDialog } from "./Dialog";
 import { IconCheck, IconClapper, IconFilm, IconFolder, IconPanel, IconRefresh, IconSparkles, IconTrash, Spinner } from "./Icons";
 import Collapse from "./Collapse";
 import AudioIntelligencePanel from "./AudioIntelligencePanel";
 import BatchSizeSelect, { SCENE_BATCH } from "./BatchSizeSelect";
 import DirectorGeneration from "./DirectorGeneration";
-import StoryboardWorkspace from "./StoryboardWorkspace";
 import Lightbox, { type PreviewItem } from "./Lightbox";
 import { useIdleFollow } from "./useIdleFollow";
 import {
@@ -20,18 +20,42 @@ import {
   type GenerationProgress,
 } from "./GenerationProgressBar";
 
-type DirectorTabId = "brief" | "audio" | "assets" | "storyboard" | "review" | "scenes" | "media" | "export";
+type DirectorTabId = "brief" | "audio" | "assets" | "scenes" | "media" | "export";
 type DirectorTabStatus = "approved" | "pending" | "running";
+type DirectorImportTabId = "brief" | "audio" | "assets" | "scenes";
+const DIRECTOR_IMPORT_TABS: { id: DirectorImportTabId; label: string }[] = [
+  { id: "brief", label: "Brief" },
+  { id: "audio", label: "Audio Analysis" },
+  { id: "assets", label: "Characters & World" },
+  { id: "scenes", label: "Generate Scenes" },
+];
 const DIRECTOR_TABS: { id: DirectorTabId; label: string }[] = [
   { id: "brief", label: "Brief" },
   { id: "audio", label: "Audio Analysis" },
   { id: "assets", label: "Characters & World" },
-  { id: "storyboard", label: "Storyboard" },
-  { id: "review", label: "Review & Quality" },
   { id: "scenes", label: "Generate Scenes" },
   { id: "media", label: "Generate Media" },
   { id: "export", label: "Export" },
 ];
+
+function processedDirectorImports(source: DirectorBoard | null): DirectorImportTabId[] {
+  if (!source) return [];
+  const blueprint = source.blueprint;
+  const input = source.input as DirectorInput & {
+    songAnalysis?: unknown;
+    whisperxAudio?: unknown;
+  };
+  const raw = source as DirectorBoard & { audioTimeline?: unknown; assetProduction?: { status?: string } };
+  const hasAssets = Boolean(blueprint && (
+    blueprint.characters?.length || blueprint.locations?.length || blueprint.objects?.length
+  ));
+  const done: DirectorImportTabId[] = [];
+  if (input.story?.trim() && blueprint) done.push("brief");
+  if (input.songAnalysis || raw.audioTimeline || source.lyric_timeline?.lines?.length) done.push("audio");
+  if (hasAssets) done.push("assets");
+  if (source.scenes?.length) done.push("scenes");
+  return done;
+}
 
 function DirectorAssetPreview({ name, reference, versions = [] }: { name: string; reference: string; versions?: PreviewItem[] }) {
   const src = directorAssetFileUrl(reference);
@@ -103,14 +127,14 @@ const ANALYZER_TYPES = {
       "Identify the plot, beginning, middle, climax, ending, characters, relationships, events, locations, and props.",
       "Register every important character, including speaking characters and animals, with a unique ID, species, accurate anatomy, appearance, and reusable static visual_identity_prompt.",
       "Register all important locations and props with unique IDs and reusable visual identity prompts.",
-      "Divide the story into chronological visual beats covering every important event.",
-      "Give each beat exactly one primary, clearly readable action.",
-      "Specify the characters, location, visible props, action, narration or dialogue, shot composition, camera movement, lighting, and transition for each beat.",
+      "Analyze the story and identify the characters, locations, objects, and source details needed for direct scene planning.",
+      "Plan scenes directly from the supplied source lines, grouping only adjacent lines that describe the same visual moment.",
+      "Specify the characters, location, visible props, action, narration or dialogue, shot composition, camera movement, lighting, and transition for each scene.",
       "Preserve the source's meaning, event order, and character relationships. Do not invent unnecessary characters or events.",
       "Maintain consistent character designs, clothing, proportions, props, locations, and visual style across scenes.",
       "Use the supplied video duration as the target runtime. Allocate scene durations according to narrative importance and supplied timing cues. Do not invent audio timestamps.",
-      "Ensure every beat references valid character, location, and prop IDs.",
-      "Return valid JSON using the application's required schema, including story analysis, registered assets, and chronological beats."
+      "Ensure every scene reference uses valid character, location, and prop IDs.",
+      "Return valid JSON using the application's required schema, including story analysis and registered assets."
     ]
   },
   // Song Director: a full 16-section directive (asset-library-driven scene
@@ -221,16 +245,16 @@ const ANALYZER_TYPES = {
       {
         title: "Scene Segmentation and Lyric Synchronization",
         body: [
-          "1. Divide the song into chronological visual beats based on lyric meaning and supplied timing cues.",
+          "1. Plan scenes directly from the chronological lyrics and supplied timing cues.",
           "2. Group related lines when they describe one coherent action; split them when the visual meaning changes.",
-          "3. For every beat, specify the corresponding lyric or lyric range, start and end times when known, characters, location, visible props, and exactly one primary visual action.",
+          "3. For every scene, specify the corresponding lyric lines, start and end times when known, characters, location, visible props, and one primary visual action.",
           "4. Translate lyrics into literal or appropriately symbolic visuals that a viewer can understand.",
           "5. Do not create unrelated scenes just to fill the song.",
           "6. Use the existing song duration as the fixed runtime.",
-          "7. Ensure all beats together cover the complete supplied duration without unexplained gaps or overlaps.",
+          "7. Ensure the scene plan covers the supplied duration without unexplained gaps or overlaps.",
           "8. Preserve the existing scene-duration constraints and clip segmentation rules.",
           "9. Align scene changes with lyric changes, vocal phrases, musical transitions, and instrumental breaks when the supplied metadata supports them.",
-          "10. Avoid changing a scene's primary action midway unless the beat is deliberately split into separate scenes.",
+          "10. Avoid changing a scene's primary action midway; split it into separate scenes when the visual meaning changes.",
         ].join("\n"),
       },
       {
@@ -298,7 +322,7 @@ const ANALYZER_TYPES = {
       {
         title: "Cinematic Direction",
         body: [
-          "For each beat, specify:",
+          "For each scene, specify:",
           "",
           "- One primary visual action.",
           "- Character expression and body language.",
@@ -387,7 +411,7 @@ const ANALYZER_TYPES = {
         title: "Output and Schema Compliance",
         body: [
           "1. Return valid JSON using the existing required schema.",
-          "2. Include registered characters, locations, props, and chronological beats.",
+          "2. Include registered characters, locations, and props; plan scenes directly from the source lines.",
           "3. Preserve existing field names, data types, required properties, and downstream compatibility.",
           "4. Do not introduce new top-level fields or change the schema unless explicitly permitted.",
           "5. Include selected asset IDs in every scene using the existing supported field structure.",
@@ -421,15 +445,15 @@ const ANALYZER_TYPES = {
       "Identify the protagonist, supporting characters, goals, relationships, important events, setting, turning points, climax, and ending.",
       "Register all characters, locations, and props with stable IDs and reusable visual identity prompts.",
       "Preserve the narrative's chronological order and causal relationships.",
-      "Divide the narrative into visual beats that communicate the story clearly while following the supplied lyric sequence.",
-      "Each beat must contain exactly one primary visible action and reference its characters, location, and visible props.",
-      "Use the actual lyric range associated with each beat. Use supplied timestamps when available; otherwise label estimated timings.",
+      "Plan scenes directly from the source lyrics in order, grouping adjacent lines only when they describe the same visual moment.",
+      "Each scene must contain one clear primary visible action and reference its characters, location, and visible props.",
+      "Use the exact lyric lines assigned to each scene. Use supplied timestamps when available; otherwise keep timing marked as estimated.",
       "Let musical repetition influence visual motifs and transitions, but do not force every repeated line to introduce a new event.",
       "During instrumental passages, continue the story with relevant actions, reactions, travel, environmental shots, or transitions consistent with the narrative.",
       "Preserve character designs, clothing, anatomy, props, and location continuity.",
       "Specify image composition, video action, camera movement, lighting, and transitions.",
       "Use the supplied total audio duration as the fixed runtime. Cover the complete song without changing its audio.",
-      "Return valid JSON containing narrative analysis, registered assets, and time-aligned visual beats."
+      "Return valid JSON containing narrative analysis, registered assets, and the required scene-planning context."
     ]
   },
   kids_director: {
@@ -439,16 +463,16 @@ const ANALYZER_TYPES = {
       "Understand the complete source and preserve its meaning.",
       "Register every important singer, speaker, and character with a unique species, accurate anatomy, and reusable visual identity prompt.",
       "Register relevant locations and props with unique IDs.",
-      "Give every beat exactly one simple, clearly readable primary action.",
+      "Give every scene one simple, clearly readable primary action.",
       "Match song actions to the corresponding lyrics, or story actions to the narrative events.",
       "Use bright colors, warm lighting, soft materials, expressive faces, large gestures, and gentle camera movement.",
       "Avoid frightening faces, violence, harsh lighting, startling entrances, and dangerous actions children might imitate.",
       "Apply correct anatomy and skin covering to every species. Cats, dogs, and rabbits have fur; birds have feathers; reptiles and fish have scales.",
       "Keep character colors, markings, proportions, and accessories identical across scenes.",
       "Use repetition to reinforce recognizable actions while varying the composition appropriately.",
-      "Specify the action, characters, location, visible props, image composition, video movement, and transition for every beat.",
+      "Specify the action, characters, location, visible props, image composition, video movement, and transition for every scene.",
       "Use the supplied song duration or story runtime. Do not regenerate lyrics or audio.",
-      "Return valid JSON with registered assets and chronological beats, using the application's required schema."
+      "Return valid JSON with registered assets and source-grounded scene-planning context, using the application's required schema."
     ]
   },
   devotional_director: {
@@ -460,13 +484,13 @@ const ANALYZER_TYPES = {
       "Preserve appropriate iconography, complexion where specified, clothing, ornaments, number of arms, sacred attributes, and associated symbols according to the source or selected tradition.",
       "Register temples, sacred landscapes, locations, and props with unique IDs and reusable visual descriptions.",
       "For devotional songs, follow the lyric sequence and supplied song duration. For mythological stories, follow narrative chronology.",
-      "Create visual beats that communicate the meaning of the relevant lyric or story event.",
-      "Give every beat exactly one primary action and specify characters, location, visible props, composition, camera movement, lighting, and transition.",
+      "Plan scenes directly from the lyrics or narration in source order, showing the meaning of each assigned passage.",
+      "Give every scene one primary action and specify characters, location, visible props, composition, camera movement, lighting, and transition.",
       "Use devotional atmosphere, meaningful symbolism, and appropriate visual effects without obscuring the subject.",
       "Do not fabricate sacred quotations, unsupported scriptural events, or arbitrary divine attributes.",
       "Maintain deity identity, iconography, costume, props, and location continuity across all scenes.",
       "Preserve the supplied lyrics and audio. Use supplied timestamps where available and label estimated timings when they are not.",
-      "Return valid JSON with devotional analysis, registered assets, and chronological beats, using the application's required schema."
+      "Return valid JSON with devotional analysis and registered assets, using the application's required schema."
     ]
   }
 } as const;
@@ -547,7 +571,7 @@ const sourceLinesOf = (board: DirectorBoard | null): string[] => {
     .map((l) => l.trim()).filter((l) => l && !/^\[.*\]$/.test(l));
 };
 // Human-readable source coverage for a scene box: the lyric/story lines it
-// covers ("L2–3: …"), falling back to the lyric text or story beat.
+// covers ("L2–3: …"), falling back to the lyric text.
 const sceneCoverage = (s: DirectorScene, lines: string[]): string | null => {
   if (str(s.lyric_text)) return `\u201c${str(s.lyric_text).slice(0, 120)}\u201d`;
   const a = Number(s.line_from);
@@ -561,8 +585,7 @@ const sceneCoverage = (s: DirectorScene, lines: string[]): string | null => {
       return `${label}: \u201c${slice.join(" / ").slice(0, 140)}\u201d`;
     }
   }
-  const beat = str(s.story_beat);
-  return beat ? beat.slice(0, 140) : null;
+  return null;
 };
 
 // --- Line-by-line live typing for newly planned storyboard scenes ---
@@ -666,7 +689,7 @@ function Elapsed({ since }: { since: number | null }) {
 }
 
 // AI Story Director — Story-to-Video workflow. Authors a storyboard
-// (analysis -> bibles -> beats -> scenes) via the local LLM; APPROVE hands
+// (analysis -> bibles -> source-grounded scenes) via the local LLM; APPROVE hands
 // a standard scenario to the EXISTING save/generation pipeline, so image /
 // video / merge / progress / resume are all reused, never reimplemented.
 
@@ -809,6 +832,15 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   // Boards.
   const [boards, setBoards] = useState<DirectorBoardMeta[]>([]);
   const [board, setBoard] = useState<DirectorBoard | null>(null);
+  const [addNewOpen, setAddNewOpen] = useState(false);
+  const [addNewProjects, setAddNewProjects] = useState<{ name: string; label: string; boardId: string }[]>([]);
+  const [addNewSourceBoard, setAddNewSourceBoard] = useState<DirectorBoard | null>(null);
+  const [addNewSourceId, setAddNewSourceId] = useState("");
+  const [addNewName, setAddNewName] = useState("");
+  const [addNewTabs, setAddNewTabs] = useState<DirectorImportTabId[]>([]);
+  const [addNewLoading, setAddNewLoading] = useState(false);
+  const [addNewSaving, setAddNewSaving] = useState(false);
+  const [addNewError, setAddNewError] = useState("");
   const [activeDirectorTab, setActiveDirectorTab] = useState<DirectorTabId>("brief");
   const [mediaOutputsReady, setMediaOutputsReady] = useState(false);
   const [finalOutputReady, setFinalOutputReady] = useState(false);
@@ -876,7 +908,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   }, [characterConsistent]);
   // Scene-planning batch size (scenes per AI Director LLM batch) — chosen
   // from the Batch Size dropdown before Generate scenes / Continue scenes and
-  // sent as the batch count (server default when unset = SCENE_BATCH = 10).
+  // sent as the batch count (server default when unset = SCENE_BATCH = 20).
   const [sceneBatch, setSceneBatch] = useState<number>(SCENE_BATCH);
   // Character consistency toggle UI
   const characterConsistentToggle = (
@@ -890,32 +922,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       Consistent
     </label>
   );
-  // Intelligent Director panels (spec §13): lyric coverage map + 0–100
-  // quality-control validation for the open board. Fetched on demand (no LLM,
-  // no board mutation); cleared whenever another board opens.
-  const [coverage, setCoverage] = useState<DirectorCoverage | null>(null);
-  const [validation, setValidation] = useState<DirectorValidation | null>(null);
-  // The MEANING layer: the per-line semantic analysis of the open board.
-  const [semantics, setSemantics] = useState<DirectorSemantics | null>(null);
-  const [semBusy, setSemBusy] = useState<null | "load" | "model">(null);
-  const [semError, setSemError] = useState("");
-  const [intelBusy, setIntelBusy] = useState<"check" | "repair" | null>(null);
-  const [intelOpen, setIntelOpen] = useState<{ coverage: boolean; quality: boolean }>({ coverage: true, quality: true });
-  // Chief Director Story Plan + stage pipeline: the authoritative narrative
-  // source with per-stage status and explicit approval checkpoints.
-  // Read-only fetch (no LLM); approvals persist via the board PUT route.
-  const [plan, setPlan] = useState<DirectorPlan | null>(null);
-  const [planBusy, setPlanBusy] = useState<"load" | string | null>(null);
-  const [planOpen, setPlanOpen] = useState(true);
-  // Production dashboard (Phase 6): asset/cine/motion/prompt read-only plans
-  // for the open board. Loaded on demand alongside plan/coverage/validate;
-  // cleared whenever another board opens.
-  const [assetMap, setAssetMap] = useState<DirectorAssetMap | null>(null);
-  const [cine, setCine] = useState<DirectorCinematography | null>(null);
-  const [motion, setMotion] = useState<DirectorMotionAudio | null>(null);
-  const [shotPrompts, setShotPrompts] = useState<DirectorShotPrompts | null>(null);
-  const [prodBusy, setProdBusy] = useState(false);
-  const [prodOpen, setProdOpen] = useState(true);
   // ----- Audio Intelligence state (Part 5 & 6) -----
   const [audioUploaded, setAudioUploaded] = useState(false);
   const [audioDuration, setAudioDuration] = useState(0);
@@ -1097,6 +1103,83 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   };
   useEffect(() => { void refreshBoards(); }, []);
 
+  const openAddNew = async () => {
+    setAddNewOpen(true);
+    setAddNewLoading(true);
+    setAddNewError("");
+    setAddNewSourceBoard(null);
+    setAddNewSourceId("");
+    setAddNewTabs([]);
+    setAddNewName("");
+    try {
+      const [projects, metas] = await Promise.all([listScenarios(), directorBoards()]);
+      const eligible = projects.flatMap((project) => {
+        const linked = metas
+          .filter((meta) => (project.project_id != null && meta.project_id === project.project_id)
+            || meta.scenarioName === project.name)
+          .sort((a, b) => Date.parse(String(b.updatedAt || "")) - Date.parse(String(a.updatedAt || "")));
+        const source = linked[0];
+        return source ? [{
+          name: project.name,
+          label: project.display_name || project.name,
+          boardId: source.id,
+        }] : [];
+      });
+      setAddNewProjects(eligible);
+      if (eligible.length) {
+        setAddNewSourceId(eligible[0].name);
+        setAddNewName(`${eligible[0].label} — New Story`);
+        const source = await directorBoard(eligible[0].boardId);
+        setAddNewSourceBoard(source);
+        setAddNewTabs(processedDirectorImports(source));
+      }
+    } catch (e) {
+      setAddNewError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddNewLoading(false);
+    }
+  };
+
+  const selectAddNewProject = async (name: string) => {
+    const option = addNewProjects.find((project) => project.name === name);
+    setAddNewSourceId(name);
+    setAddNewSourceBoard(null);
+    setAddNewTabs([]);
+    setAddNewName(option ? `${option.label} — New Story` : "");
+    if (!option) return;
+    setAddNewLoading(true);
+    setAddNewError("");
+    try {
+      const source = await directorBoard(option.boardId);
+      setAddNewSourceBoard(source);
+      setAddNewTabs(processedDirectorImports(source));
+    } catch (e) {
+      setAddNewError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddNewLoading(false);
+    }
+  };
+
+  const createFromImportedTabs = async () => {
+    const option = addNewProjects.find((project) => project.name === addNewSourceId);
+    if (!option || !addNewName.trim() || !addNewTabs.length || addNewSaving) return;
+    setAddNewSaving(true);
+    setAddNewError("");
+    try {
+      const created = await directorDuplicateBoard(option.boardId, {
+        title: addNewName.trim(),
+        imports: addNewTabs,
+      });
+      setAddNewOpen(false);
+      await refreshBoards();
+      await openBoard(created.id);
+    } catch (e) {
+      setAddNewError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddNewSaving(false);
+    }
+  };
+
   // Build the Master Prompt from the selected Analyzer + Visual Style + Additional Director Instructions
   const buildMasterPrompt = (analyzer: AnalyzerType, style: string, styleCustomVal: string, additionalInstructions: string) => {
     const a = ANALYZER_TYPES[analyzer];
@@ -1174,12 +1257,9 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
 
   const openBoard = async (id: string) => {
     onSelectedBoardChange?.(id);
-    setActiveDirectorTab("storyboard");
+    setActiveDirectorTab("scenes");
     setError("");
     setStoppedNote(null);
-    setCoverage(null);
-    setValidation(null);
-    setPlan(null);
     // Reset the .wav / 19-track panel — reloaded from the server below when
     // the board already carries an uploaded audio.
     setAudioUploaded(false); setAudioDuration(0); setAudioMeta(null);
@@ -1188,7 +1268,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     setTimelineValidation({ valid: true, warnings: [] });
     setTimelineApproval("pending"); setTimelineVersion(0);
     setDirectorConsumption("idle"); setDirectorBusy("load");
-    setAssetMap(null); setCine(null); setMotion(null); setShotPrompts(null);
     setAssetProduction(null); setAssetBusy(false);
     try {
       const b = await directorBoard(id);
@@ -1236,80 +1315,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedBoard?.nonce]);
 
-  // Intelligent Director check (spec §12/§13): lyric coverage map + 0–100
-  // validation in one pass. Read-only — no LLM call, no board mutation.
-  const doIntelCheck = async () => {
-    if (!board || intelBusy) return;
-    setIntelBusy("check");
-    setError("");
-    try {
-      const [cov, val] = await Promise.all([directorCoverage(board.id), directorValidate(board.id)]);
-      setCoverage(cov);
-      setValidation(val);
-    }
-    catch (e) { reportError(e); }
-    finally { setIntelBusy(null); }
-  };
-
-  // Intelligent Director staged repair (spec §15.9): re-plans ONLY the
-  // flagged scenes via the reasoning engine; approved neighbours are kept.
-  const doIntelRepair = async () => {
-    if (!board || intelBusy) return;
-    setIntelBusy("repair");
-    setError("");
-    try {
-      const r = await directorRepair(board.id);
-      setBoard(r.board);
-      await refreshBoards();
-      const [cov, val, pl] = await Promise.all([directorCoverage(board.id), directorValidate(board.id), plan ? directorPlan(board.id) : Promise.resolve(null)]);
-      setCoverage(cov);
-      setValidation(val);
-      if (pl) setPlan(pl);
-    }
-    catch (e) { reportError(e); }
-    finally { setIntelBusy(null); }
-  };
-
-  // The MEANING layer: read the per-line analysis of the open board
-  // (read-only, no LLM) and the deep model-assisted pass.
-  const doLoadSemantics = async () => {
-    if (!board || semBusy) return;
-    setSemBusy("load");
-    setSemError("");
-    try {
-      const sem = await directorSemantics(board.id);
-      setSemantics(sem);
-    }
-    catch (e) { setSemError(e instanceof Error ? e.message : String(e)); }
-    finally { setSemBusy(null); }
-  };
-  const doAnalyzeSemantics = async () => {
-    if (!board || semBusy) return;
-    setSemBusy("model");
-    setSemError("");
-    try {
-      const sem = await directorAnalyzeSemantics(board.id, { useModel: true });
-      setSemantics(sem);
-      // The scenes now carry the meaning — reload them.
-      const b = await directorBoard(board.id);
-      setBoard(b);
-    }
-    catch (e) { setSemError(e instanceof Error ? e.message : String(e)); }
-    finally { setSemBusy(null); }
-  };
-
-  // Chief Director Story Plan: load the authoritative plan + stage pipeline
-  // (read-only, no LLM). Falls back to the bible-derived plan for old boards.
-  const doPlanLoad = async () => {
-    if (!board || planBusy) return;
-    setPlanBusy("load");
-    setError("");
-    try {
-      setPlan(await directorPlan(board.id));
-    }
-    catch (e) { reportError(e); }
-    finally { setPlanBusy(null); }
-  };
 
   // ----- Audio Intelligence handlers (Part 5 & 6): real backend flow -----
   // .wav upload → POST audio-upload → POST whisperx/analyze → poll job →
@@ -1448,68 +1453,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     }
   }, [board, audioUploaded, refreshTimelineFromServer]);
 
-  // Production dashboard (Phase 6): one pass loads every read-only plan for
-  // the open board (story plan + coverage + quality + assets + cinematography
-  // + motion/audio + prompt preview). No LLM, no mutation; selective
-  // regeneration stays on the existing Repair / regen-scene buttons.
-  const doProdLoad = async () => {
-    if (!board || prodBusy) return;
-    setProdBusy(true);
-    setError("");
-    try {
-      const [pl, cov, val, am, ci, mo, sp] = await Promise.all([
-        directorPlan(board.id),
-        board.scenes.length ? directorCoverage(board.id) : Promise.resolve(null),
-        board.scenes.length ? directorValidate(board.id) : Promise.resolve(null),
-        directorAssets(board.id),
-        directorCinematography(board.id),
-        directorMotionAudio(board.id),
-        directorShotPrompts(board.id),
-      ]);
-      setPlan(pl); setCoverage(cov); setValidation(val);
-      setAssetMap(am); setCine(ci); setMotion(mo); setShotPrompts(sp);
-    }
-    catch (e) { reportError(e); }
-    finally { setProdBusy(false); }
-  };
-
-  // Jump from a coverage phrase to its shot (lyric -> shot navigation).
-  const jumpToShot = (sceneNumber: number | string, shotId: string | null) => {
-    if (!board) return;
-    const si = board.scenes.findIndex((s) => s.scene_number === Number(sceneNumber));
-    if (si < 0) return;
-    if (shotId) {
-      const shots = sceneShots(board.scenes[si]);
-      const ki = shots.findIndex((sh) => String(sh.shot_id) === String(shotId));
-      if (ki >= 0) { openShotDetails(si, ki); return; }
-    }
-    openSceneDetails(si);
-  };
-
-  // Validation text is authored by helpers/server and may mention any scene
-  // number. Turn those references into navigation links without hard-coding
-  // a particular scene or changing the rest of the diagnostic text.
-  const linkSceneReferences = (message: string) => {
-    const parts = message.split(/(Scene\s+\d+)/gi);
-    return parts.map((part, i) => {
-      const match = part.match(/^Scene\s+(\d+)$/i);
-      return match
-        ? <button key={`${i}-${part}`} type="button" className="ghost" style={{ padding: 0, border: 0, color: "var(--accent)", textDecoration: "underline", minHeight: 0 }} onClick={() => jumpToShot(Number(match[1]), null)} title={`Open ${part}`}>{part}</button>
-        : part;
-    });
-  };
-  const groupSceneMessages = (messages: string[]) => {
-    const groups = new Map<string, string[]>();
-    messages.forEach((message) => {
-      const sceneMatch = message.match(/\bScene\s+(\d+)\b/i);
-      const key = sceneMatch ? sceneMatch[1] : `other-${groups.size}`;
-      const rows = groups.get(key) ?? [];
-      rows.push(message);
-      groups.set(key, rows);
-    });
-    return [...groups.entries()];
-  };
-
   const doAnalyze = async (promptOverride?: string) => {
     if (busy) return;
     const input: DirectorInput = {
@@ -1541,7 +1484,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       analyzeLiveIdRef.current = liveId;
       const b = await directorAnalyze(input, promptOverride?.trim() ? promptOverride : undefined, liveId);
       setBoard(b);
-      setActiveDirectorTab("storyboard");
+      setActiveDirectorTab("scenes");
       setSelectedScene(0);
       setAssetProduction(null);
       void loadAssetProduction(b.id);
@@ -2241,6 +2184,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     }
   };
 
+
   const doApprove = async () => {
     if (!board || busy || !board.scenes.length) return;
     const songNote = board.input.song
@@ -2255,13 +2199,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     const beats = boardBeats(board.scenes);
     const total = boardBeatsTotal(board.scenes, directorSceneCap(board));
     const shotNote = ` Multi-shot scenes flatten to ${beats} timed clips (one image + video per shot) — shots generate as scenes.`
-    const qcWarn = validation
-      ? (validation.score < 60 || validation.issues.length > 0
-        ? ` WARNING: quality ${validation.score}/100 with ${validation.issues.length} open issue${validation.issues.length === 1 ? "" : "s"}${coverage ? ` (coverage ${coverage.summary.coveredPhrases}/${coverage.summary.totalPhrases})` : ""} — Run "Check coverage & quality" and Repair flagged shots first, or approve anyway to shoot with gaps.`
-        : "")
-      : " (Tip: run Check coverage & quality before rolling — no LLM call, nothing is changed.)";
     const ok = await dialog.confirm(
-      `Creates project "${board.input.title}" with ${board.scenes.length} scenes (${beats}/${total} shots), then opens it in the workspace for generation (images → videos → final cut).${shotNote}${songNote}${dlgNote}${chainNote}${qcWarn}`,
+      `Creates project "${board.input.title}" with ${board.scenes.length} scenes (${beats}/${total} shots), then opens it in the workspace for generation (images → videos → final cut).${shotNote}${songNote}${dlgNote}${chainNote}`,
       { title: `Approve storyboard for "${board.input.title}"?`, tone: "info", okText: "Approve", cancelText: "Keep editing" }
     );
     if (!ok) return;
@@ -2279,19 +2218,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     }
   };
 
-  // Chief Director sign-off for one pipeline stage (recorded on the Story Plan).
-  const doApproveStage = async (stage: string) => {
-    if (!board || planBusy) return;
-    setPlanBusy(stage);
-    setError("");
-    try {
-      setPlan(await directorApproveStage(board.id, stage));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPlanBusy(null);
-    }
-  };
 
   // Partial migration: after Stop (or anytime while scenes are still being
   // planned), migrate the scenes planned so far into a project now; the rest
@@ -2362,14 +2288,14 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   };
 
   // Duplicate the open board as a fresh version (exact copy of characters,
-  // locations, objects, beats + scenes prompts; no linked project so Approve
+  // locations, objects + scenes prompts; no linked project so Approve
   // mints a new project and images/videos regenerate from scratch). The
   // server auto-versions the title (v2, then v3, …).
   const [duplicating, setDuplicating] = useState(false);
   const doDuplicateBoard = async () => {
     if (!board || duplicating || busy) return;
     const ok = await dialog.confirm(
-      `Copies characters, locations, objects, beats and all ${board.scenes.length}/${board.sceneCount} scene prompts (🎞 ${boardBeats(board.scenes)} shots) exactly into a new versioned board (v2, then v3…). The copy starts with no linked project, so approving it generates fresh images/videos. The original board and its project are untouched.`,
+      `Copies characters, locations, objects and all ${board.scenes.length}/${board.sceneCount} scene prompts (🎞 ${boardBeats(board.scenes)} shots) exactly into a new versioned board (v2, then v3…). The copy starts with no linked project, so approving it generates fresh images/videos. The original board and its project are untouched.`,
       { title: `Duplicate "${board.input.title}" as a new version?`, tone: "info", okText: "Duplicate", cancelText: "Cancel" }
     );
     if (!ok) return;
@@ -2395,7 +2321,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   const doDuplicateBoardById = async (id: string, title: string) => {
     if (duplicatingId) return;
     const ok = await dialog.confirm(
-      "Copies characters, locations, objects, beats and scene prompts exactly into a new versioned board (v2, then v3…). The copy starts with no linked project, so approving it generates fresh images/videos.",
+      "Copies characters, locations, objects and scene prompts exactly into a new versioned board (v2, then v3…). The copy starts with no linked project, so approving it generates fresh images/videos.",
       { title: `Duplicate "${title}" as a new version?`, tone: "info", okText: "Duplicate", cancelText: "Cancel" }
     );
     if (!ok) return;
@@ -2838,7 +2764,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   const locs = (board?.blueprint?.locations ?? []) as Record<string, unknown>[];
   const objs = (board?.blueprint?.objects ?? []) as Record<string, unknown>[];
   const objectLabel = (id: string) => str(objs.find((o) => str(o.object_id) === id)?.name) || id;
-  const beats = (board?.blueprint?.beats ?? []) as { n: number; title: string; summary: string }[];
   const analysis = (board?.blueprint?.analysis ?? {}) as Record<string, unknown>;
   // Timeline still open: an early-finalized board (scenes == sceneCount,
   // status ready) can still owe story seconds — Continue reopens it
@@ -2852,17 +2777,15 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     && (boardTarget - boardPlanned) > boardTol;
 
   const directorTabStatuses: Record<DirectorTabId, DirectorTabStatus> = {
-    brief: planPhase?.kind === "analyze" ? "running" : board?.blueprint ? "approved" : "pending",
+    brief: planPhase?.kind === "analyze" ? "running" : board?.processedTabs?.includes("brief") || board?.blueprint ? "approved" : "pending",
     audio: audioBusy ? "running"
+      : board?.processedTabs?.includes("audio") ? "approved"
       : !board?.input.song && !audioUploaded ? "approved"
         : timelineApproval === "approved" ? "approved" : "pending",
     assets: assetBusy || assetJobsActive ? "running"
-      : assetProduction?.status === "approved" ? "approved" : "pending",
-    storyboard: board?.scenarioName || board?.status === "approved" ? "approved" : "pending",
-    review: intelBusy || semBusy || prodBusy || planBusy ? "running"
-      : validation && validation.errors.length === 0 && validation.issues.length === 0 ? "approved" : "pending",
+      : board?.processedTabs?.includes("assets") || assetProduction?.status === "approved" ? "approved" : "pending",
     scenes: busy ? "running"
-      : board && sceneCap > 0 && board.scenes.length >= sceneCap && !timelineOpen ? "approved" : "pending",
+      : board?.processedTabs?.includes("scenes") || (board && sceneCap > 0 && board.scenes.length >= sceneCap && !timelineOpen) ? "approved" : "pending",
     media: mediaProcessingStage === "media" ? "running" : mediaOutputsReady ? "approved" : "pending",
     export: mediaProcessingStage === "export" ? "running" : finalOutputReady ? "approved" : "pending",
   };
@@ -2875,7 +2798,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     brief: clampProgress(planMenuProgress.pct),
     audio: clampProgress(audioProgressPct),
     assets: assetProgressPct,
-    review: 0,
     scenes: clampProgress(planMenuProgress.pct),
     media: clampProgress(generationProgressPct),
     export: clampProgress(generationProgressPct),
@@ -3009,14 +2931,14 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
         )}
         <span className="spacer" />
         {board && (
-          <span className="pill pending" title="Audio Intelligence lives in the storyboard sections below">
+          <span className="pill pending" title="Audio Intelligence lives in the Director workflow sections below">
             🎧 Audio panel below
           </span>
         )}
         {board && (
           <span style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
-            <button className="ghost" onClick={() => { setBoard(null); setError(""); void refreshBoards(); }} title="Back to the story form and saved boards">
-              Boards
+            <button className="ghost" onClick={() => void openAddNew()} title="Create a new story by importing processed tabs from an existing project">
+              Add New
             </button>
             <button className="ghost" onClick={() => void onShowPrompt()} disabled={promptLoading} title="Show the exact prompt the next Continue would send to the LLM (no planning, nothing saved)">
               {promptLoading ? "Loading…" : "Show prompt"}
@@ -3116,6 +3038,9 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 {sceneOpt === -1 && (
                   <input type="number" min={1} max={30} value={sceneCustom} onChange={(e) => setSceneCustom(e.target.value)} style={{ marginTop: 6 }} />
                 )}
+              </div>
+              <div className="muted" style={{ flex: "1 0 100%", fontSize: 11, marginTop: -4 }}>
+                About {plannedScenes} scenes across {Math.ceil(plannedScenes / sceneBatch)} batches of up to {sceneBatch}. The runtime and scene length estimate the count; the story determines each scene’s content and boundaries.
               </div>
               <label
                 style={{ display: "flex", gap: 4, alignItems: "center", fontWeight: 400, paddingBottom: 6, flexShrink: 0, cursor: "pointer", opacity: includeDialogue ? 1 : 0.45 }}
@@ -3358,7 +3283,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 {biblePromptLoading ? <Spinner size={13} /> : "👁"}
                 {biblePromptLoading ? "Loading…" : "Show Prompt"}
               </button>
-              <button className="primary" onClick={() => void doAnalyze()} disabled={busy != null || !title.trim() || story.trim().length < 20} title="Analyze the story into characters, locations, beats (no images/videos yet)">
+              <button className="primary" onClick={() => void doAnalyze()} disabled={busy != null || !title.trim() || story.trim().length < 20} title="Analyze the story and build its character, location, and object bible">
                 {busy ? <Spinner size={13} /> : <IconSparkles size={13} />}
                 {busy ? "Directing…" : "Generate Storyboard"}
               </button>
@@ -3596,45 +3521,11 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
               </div>
             ) : null}
             </div>
-            <div hidden={activeDirectorTab !== "storyboard"}>
-            {(() => {
-              const ap = assetProduction;
-              const steps = [
-                { label: "Analyze story", done: Boolean(board.blueprint) },
-                { label: "Generate assets", done: Boolean(ap?.assets?.some((a) => Boolean(a.reference))) },
-                { label: "Approve & save assets", done: Boolean(ap?.status === "approved") },
-                { label: "Generate scenes", done: sceneCap > 0 && board.scenes.length >= sceneCap },
-                { label: "Approve", done: board.status === "approved" || Boolean(board.scenarioName) },
-                { label: "Video generation", done: false },
-              ];
-              const current = steps.findIndex((s) => !s.done);
-              return (
-                <div className="beat-meta-box" style={{ marginBottom: 12 }}>
-                  <div className="section-label">Production pipeline · Home › Director</div>
-                  <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-                    {steps.map((s, i) => (
-                      <span
-                        key={s.label}
-                        className="pill"
-                        title={i === current ? "Current stage" : (s.done ? "Complete" : "Upcoming")}
-                        style={{
-                          background: s.done ? "#1f6b45" : (i === current ? "#8a5a00" : "#333"),
-                          color: "#fff", opacity: s.done || i === current ? 1 : 0.65,
-                        }}
-                      >
-                        {s.done ? "✓" : (i === current ? "▶" : "○")} {i + 1}. {s.label}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-            </div>
             <div id="director-panel-scenes-controls" hidden={activeDirectorTab !== "scenes"}>
             <div className="beat-meta-box dir-scene-inputs" aria-label="Inputs used for scene planning">
               <div className="section-label" style={{ marginBottom: 6 }}>Generate Scenes uses the processed project data</div>
               <div className="dir-scene-inputs-grid">
-                <div><b>Storyboard</b><span>{chars.length} characters · {locs.length} locations · {objs.length} objects · {beats.length} beats</span></div>
+                <div><b>Story source</b><span>{chars.length} characters · {locs.length} locations · {objs.length} objects · scenes planned directly from narration or lyrics</span></div>
                 <div><b>Audio timing</b><span>{!hasSceneAudio ? "No audio attached; no audio timeline is required"
                   : timelineApproval === "approved" && !masterTimeline?.stale
                     ? "Approved master audio timeline drives scene timing"
@@ -3734,7 +3625,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 className="ghost shotlist-btn"
                 onClick={() => void doDuplicateBoard()}
                 disabled={busy != null || duplicating}
-                title="Copy characters, locations, objects, beats + scene prompts exactly into a new versioned board (v2, then v3…) with no linked project — approve the copy to generate fresh images/videos"
+                title="Copy characters, locations, objects + scene prompts exactly into a new versioned board (v2, then v3…) with no linked project — approve the copy to generate fresh images/videos"
               >
                 {duplicating ? <Spinner size={11} /> : <span aria-hidden="true">⧉</span>}
                 {duplicating ? "Duplicating…" : "Duplicate as v2+"}
@@ -3764,417 +3655,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
             )}
             </div>
 
-            {/* Chief Director Story Plan: the authoritative narrative source
-                every downstream stage traces to — outline, roster, stage
-                pipeline with approval checkpoints, uncertainties. Read-only
-                until a stage is approved; approvals persist as plan revisions. */}
-            <div id="director-panel-storyboard" hidden={activeDirectorTab !== "storyboard"}>
-            <StoryboardWorkspace boardId={board.id} board={board} livePhase={live?.phase} />
-            {board.blueprint && (
-              <div className="beat-meta-box" style={{ marginBottom: 12 }}>
-                <div className="row" style={{ alignItems: "center" }}>
-                  <button
-                    className="ghost shotlist-btn"
-                    onClick={() => setPlanOpen((o) => !o)}
-                    aria-expanded={planOpen}
-                    title="Story Plan: narrative outline, roster, stage pipeline, uncertainties"
-                  >
-                    {planOpen ? "▾" : "▸"} 📋 Story Plan
-                  </button>
-                  <span className="spacer" />
-                  {plan != null && plan.stages.map((s) => (
-                    <span
-                      key={s.stage}
-                      className="pill"
-                      title={`${s.stage}: ${s.status}${s.approvedAt ? ` (approved ${s.approvedAt})` : ""}${s.detail ? ` — ${s.detail}` : ""}`}
-                    >
-                      {s.status === "approved" ? "✅" : s.status === "done" ? "🟢" : s.status === "ready" ? "🟡" : "⚪"} {s.stage}
-                    </span>
-                  ))}
-                  <button
-                    className="ghost shotlist-btn"
-                    onClick={() => void doPlanLoad()}
-                    disabled={planBusy != null || busy != null}
-                    title="Load the Story Plan + stage pipeline (no LLM call, nothing is changed)"
-                  >
-                    {planBusy === "load" ? <Spinner size={11} /> : <span aria-hidden="true">📋</span>}
-                    {planBusy === "load" ? "Loading…" : plan ? "Refresh plan" : "Show story plan"}
-                  </button>
-                </div>
-                {planOpen && plan != null && (
-                  <div style={{ marginTop: 8 }}>
-                    {(plan.storyPlan.logline || plan.storyPlan.theme) && (
-                      <p className="hint" style={{ margin: "4px 0 0" }}>
-                        {plan.storyPlan.logline}{plan.storyPlan.theme ? ` — ${plan.storyPlan.theme}` : ""}
-                      </p>
-                    )}
-                    <div className="row" style={{ flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                      {(["beginning", "development", "climax", "resolution"] as const).map((k) => (
-                        plan.storyPlan.structure[k] ? (
-                          <span key={k} className="pill" title={`${k}: ${plan.storyPlan.structure[k]}`}>
-                            {k}: {plan.storyPlan.structure[k].slice(0, 60)}{plan.storyPlan.structure[k].length > 60 ? "…" : ""}
-                          </span>
-                        ) : null
-                      ))}
-                    </div>
-                    {plan.storyPlan.characterRoster.length > 0 && (
-                      <div style={{ marginTop: 6 }}>
-                        <div className="shotlist-detail-label">Roster · {plan.storyPlan.characterRoster.length}</div>
-                        <div className="row" style={{ flexWrap: "wrap", gap: 4, marginTop: 2 }}>
-                          {plan.storyPlan.characterRoster.map((r) => (
-                            <span key={r.character_id} className="pill" title={r.motivation ? `${r.name} — ${r.role}: ${r.motivation}` : `${r.name}${r.role ? ` — ${r.role}` : ""}`}>
-                              🎭 {r.name}{r.role ? ` · ${r.role}` : ""}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {plan.storyPlan.uncertainties.length > 0 && (
-                      <div style={{ marginTop: 6 }}>
-                        <div className="shotlist-detail-label">Open questions · {plan.storyPlan.uncertainties.length}</div>
-                        {plan.storyPlan.uncertainties.map((u, i) => (
-                          <p key={i} className="hint warn-text" style={{ margin: "2px 0 0" }}>❓ {u}</p>
-                        ))}
-                      </div>
-                    )}
-                    <div style={{ marginTop: 6 }}>
-                      <div className="shotlist-detail-label">Pipeline · rev {plan.storyPlan.revisions}</div>
-                      {plan.stages.map((s) => (
-                        <div key={s.stage} className="row" style={{ alignItems: "center", gap: 6, marginTop: 2 }}>
-                          <span className="pill" title={s.detail || s.stage}>
-                            {s.status === "approved" ? "✅" : s.status === "done" ? "🟢" : s.status === "ready" ? "🟡" : "⚪"} {s.stage}
-                          </span>
-                          <span className="hint" style={{ margin: 0, flex: 1, minWidth: 0 }}>
-                            {s.status === "approved" ? `approved ${s.approvedAt}` : s.status === "done" ? (s.detail || "artefact ready") : s.status === "ready" ? "ready to work" : "waiting on the previous stage"}
-                          </span>
-                          {(s.status === "ready" || s.status === "done") && (
-                            <button
-                              className="ghost shotlist-btn"
-                              onClick={() => void doApproveStage(s.stage)}
-                              disabled={planBusy != null || busy != null}
-                              title={`Chief Director sign-off for ${s.stage} (recorded on the Story Plan)`}
-                            >
-                              {planBusy === s.stage ? <Spinner size={11} /> : <span aria-hidden="true">✓</span>}
-                              {planBusy === s.stage ? "Approving…" : "Approve"}
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            </div>
-
-            {/* The MEANING layer: what every source line means and what can be
-                SEEN (the scenes are planned from this). The original text is
-                always shown next to its interpretation. */}
-            <div id="director-panel-review" hidden={activeDirectorTab !== "review"}>
-            {board.blueprint && (
-              <div className="beat-meta-box" style={{ marginBottom: 12 }}>
-                <div className="row" style={{ alignItems: "center" }}>
-                  <div className="section-label" style={{ margin: 0 }}>🧠 Meaning</div>
-                  <span className="spacer" />
-                  {semantics && (
-                    <span className="pill" title="The meaning analysis of every source line">
-                      {semantics.lines.length} line(s) · {semantics.language}
-                    </span>
-                  )}
-                  <button
-                    className="ghost shotlist-btn"
-                    onClick={() => void doLoadSemantics()}
-                    disabled={semBusy != null || busy != null}
-                    title="Read the meaning of every source line (no LLM call, nothing is changed)"
-                  >
-                    {semBusy === "load" ? <Spinner size={11} /> : <span aria-hidden="true">🔎</span>}
-                    {semBusy === "load" ? "Reading…" : "Read the meaning"}
-                  </button>
-                  <button
-                    className="ghost shotlist-btn"
-                    onClick={() => void doAnalyzeSemantics()}
-                    disabled={semBusy != null || busy != null}
-                    title="Ask the local model to read every line in depth (slow on a local model)"
-                  >
-                    {semBusy === "model" ? <Spinner size={11} /> : <span aria-hidden="true">✨</span>}
-                    {semBusy === "model" ? "Reading deeply…" : "Deep meaning analysis"}
-                  </button>
-                </div>
-                {semError && <p className="hint err-text" style={{ margin: "6px 0 0" }}>{semError}</p>}
-                {semantics && semantics.warning && (
-                  <p className="hint warn-text" style={{ margin: "6px 0 0" }}>{semantics.warning}</p>
-                )}
-                {semantics && semantics.issues.length > 0 && (
-                  <p className="hint warn-text" style={{ margin: "6px 0 0" }}>
-                    {semantics.issues.length} scene(s) do not show their line yet — use “Repair flagged shots”.
-                  </p>
-                )}
-                {semantics && semantics.lines.length > 0 && (
-                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-                    {semantics.lines.map((l) => (
-                      <details key={l.line_id} className="dir-meaning-line">
-                        <summary style={{ cursor: "pointer", fontSize: 12 }}>
-                          <span className="pill" style={{ marginRight: 6 }}>{l.line_id}</span>
-                          <span className="pill" style={{ marginRight: 6 }}>{l.language}</span>
-                          <b style={{ fontSize: 12 }}>{str(l.source_text).slice(0, 90)}</b>
-                          {l.interpretation ? <span className="muted" style={{ fontSize: 11 }}> → {str(l.interpretation).slice(0, 90)}</span> : null}
-                        </summary>
-                        <div style={{ fontSize: 12, padding: "6px 0 2px" }}>
-                          {l.action_plan.length > 0 && (
-                            <p className="muted" style={{ margin: "0 0 4px" }}>
-                              🎬 {l.action_plan.map((a) => `${a.action}${a.body_part ? ` (${a.body_part})` : ""}`).join(" · ")}
-                            </p>
-                          )}
-                          {l.camera && (
-                            <p className="muted" style={{ margin: "0 0 4px" }}>
-                              📷 {l.camera.shot_type} / {l.camera.angle} / {l.camera.movement}
-                              {l.camera.rationale ? ` — ${l.camera.rationale}` : ""}
-                            </p>
-                          )}
-                          {l.warnings.length > 0 && (
-                            <p className="warn-text" style={{ margin: 0, fontSize: 11 }}>{l.warnings.join(" · ")}</p>
-                          )}
-                        </div>
-                      </details>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Intelligent Director (spec §13): story understanding, lyric
-                coverage view, validation panel, staged repair. Read-only
-                until Repair — approved scenes are never touched otherwise. */}
-            {board.blueprint && (
-              <div className="beat-meta-box" style={{ marginBottom: 12 }}>
-                <div className="row" style={{ alignItems: "center" }}>
-                  <div className="section-label" style={{ margin: 0 }}>🎬 Intelligent Director</div>
-                  <span className="spacer" />
-                  {validation != null && (
-                    <span
-                      className="pill"
-                      title={`Quality score: ${Object.entries(validation.breakdown).map(([k, v]) => `${k} ${v}`).join(" · ")}`}
-                    >
-                      {validation.score >= 80 ? "🟢" : validation.score >= 60 ? "🟡" : "🔴"} Quality {validation.score}/100
-                    </span>
-                  )}
-                  {coverage != null && (
-                    <span className="pill" title="Meaningful lyric phrases with a visible shot">
-                      📖 Coverage {coverage.summary.coveredPhrases}/{coverage.summary.totalPhrases} ({coverage.summary.pct}%)
-                    </span>
-                  )}
-                  <button
-                    className="ghost shotlist-btn"
-                    onClick={() => void doIntelCheck()}
-                    disabled={intelBusy != null || busy != null || !board.scenes.length}
-                    title="Lyric coverage map + 0–100 quality check (no LLM call, nothing is changed)"
-                  >
-                    {intelBusy === "check" ? <Spinner size={11} /> : <span aria-hidden="true">✓</span>}
-                    {intelBusy === "check" ? "Checking…" : "Check coverage & quality"}
-                  </button>
-                  <button
-                    className="ghost shotlist-btn"
-                    onClick={() => void doIntelRepair()}
-                    disabled={intelBusy != null || busy != null || validation == null || !validation.issues.length}
-                    title="Re-plan ONLY the flagged scenes with the AI — approved neighbours are kept"
-                  >
-                    {intelBusy === "repair" ? <Spinner size={11} /> : <span aria-hidden="true">🛠</span>}
-                    {intelBusy === "repair" ? "Repairing…" : "Repair flagged shots"}
-                  </button>
-                </div>
-                {validation != null && (
-                  <p className="hint" style={{ margin: "6px 0 0" }} title="Genre directing register">
-                    🎭 {validation.genreNote}
-                  </p>
-                )}
-                {board.blueprint.logline && (
-                  <p className="hint" style={{ margin: "6px 0 0" }} title="Story understanding — the single source of truth for all downstream shots">
-                    📜 {board.blueprint.logline}
-                  </p>
-                )}
-                {validation != null && (
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      className="ghost shotlist-btn"
-                      onClick={() => setIntelOpen((o) => ({ ...o, quality: !o.quality }))}
-                      aria-expanded={intelOpen.quality}
-                    >
-                      {intelOpen.quality ? "▾" : "▸"} Validation {validation.issues.length ? `· ${validation.issues.length} issue${validation.issues.length === 1 ? "" : "s"}` : "· clean"}
-                      {validation.errors.length ? ` · ⛔ ${validation.errors.length} blocking` : ""}
-                    </button>
-                    {intelOpen.quality && (
-                      <div style={{ marginTop: 6 }}>
-                        <div className="row" style={{ flexWrap: "wrap", gap: 4 }}>
-                          {Object.entries(validation.breakdown).map(([k, v]) => (
-                            <span key={k} className="pill" title={`${k}: ${v}/100`}>
-                              {k.replace(/([A-Z])/g, " $1").trim()} {v}
-                            </span>
-                          ))}
-                        </div>
-                        {validation.errors.length > 0 && (
-                          <div style={{ marginTop: 6 }}>
-                            <div className="shotlist-detail-label">Blocking (approve gate)</div>
-                            {groupSceneMessages(validation.errors).slice(0, 8).map(([scene, messages], i) => (
-                              <p key={`${scene}-${i}`} className="hint err-text" style={{ display: "block", margin: "2px 0 0" }}>⛔ {messages.map((m, mi) => <span key={mi}>{mi > 0 ? " · " : ""}{linkSceneReferences(m)}</span>)}</p>
-                            ))}
-                          </div>
-                        )}
-                        {validation.issues.length > 0 ? (
-                          <div style={{ marginTop: 6 }}>
-                            <div className="shotlist-detail-label">Actionable issues</div>
-                            {groupSceneMessages(validation.issues).slice(0, 12).map(([scene, messages], i) => (
-                              <p key={`${scene}-${i}`} className="hint err-text" style={{ display: "block", margin: "2px 0 0" }}>• {messages.map((m, mi) => <span key={mi}>{mi > 0 ? " · " : ""}{linkSceneReferences(m)}</span>)}</p>
-                            ))}
-                            {validation.issues.length > 12 && (
-                              <p className="hint" style={{ margin: "2px 0 0" }}>…and {validation.issues.length - 12} more.</p>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="hint" style={{ margin: "6px 0 0" }}>✅ No issues — every check passes.</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {coverage != null && coverage.lines.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      className="ghost shotlist-btn"
-                      onClick={() => setIntelOpen((o) => ({ ...o, coverage: !o.coverage }))}
-                      aria-expanded={intelOpen.coverage}
-                    >
-                      {intelOpen.coverage ? "▾" : "▸"} Lyric coverage · {coverage.lines.length} lines
-                    </button>
-                    {intelOpen.coverage && (
-                      <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
-                        {coverage.lines.map((l) => (
-                          <div key={l.lyric_line_id}>
-                            <div className="row" style={{ alignItems: "baseline", gap: 6 }}>
-                              <span className="pill" title="Lyric line id">L{l.lyric_line_id}</span>
-                              <span style={{ flex: 1, minWidth: 0 }}>“{l.lyric_text}”</span>
-                              <span
-                                className="pill"
-                                title={l.status === "covered" ? "Every meaningful phrase has a visible shot" : l.status === "partial" ? "Some phrases still need a shot" : "No shot covers this line yet"}
-                              >
-                                {l.status === "covered" ? "🟢 covered" : l.status === "partial" ? "🟡 partial" : l.status === "empty" ? "⚪ empty" : "🔴 uncovered"}
-                              </span>
-                            </div>
-                            <div className="row" style={{ flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                              {l.phrases.map((p, pi) => (
-                                <button
-                                  key={pi}
-                                  className="ghost shotlist-btn"
-                                  disabled={!p.shotIds.length && !p.sceneIds.length}
-                                  onClick={() => p.sceneIds.length && jumpToShot(p.sceneIds[0], p.shotIds[0] ?? null)}
-                                  title={p.coveredByShot
-                                    ? `“${p.text}” → ${(p.shotIds.length ? p.shotIds : p.sceneIds.map((s) => `scene ${s}`)).join(", ")} (click to open the shot)`
-                                    : `“${p.text}” has no visible shot yet`}
-                                >
-                                  {p.coveredByShot ? "🎬" : "⚪"} {p.text.slice(0, 42)}{p.text.length > 42 ? "…" : ""}
-                                  {p.shotIds.length ? ` → ${p.shotIds[0]}` : p.sceneIds.length ? ` → scene ${p.sceneIds[0]}` : ""}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Production Dashboard (Phase 6): stages + approvals, asset refs,
-                cinematography / motion / prompt summaries. All read-only
-                except Approve (dependency-checked) and the existing
-                Repair / regen-scene selective regeneration. */}
-            {board.blueprint && (
-              <div className="beat-meta-box" style={{ marginBottom: 12 }}>
-                <div className="row" style={{ alignItems: "center" }}>
-                  <div className="section-label" style={{ margin: 0 }}>🏭 Production Dashboard</div>
-                  <span className="spacer" />
-                  <button
-                    className="ghost shotlist-btn"
-                    onClick={() => void doProdLoad()}
-                    disabled={prodBusy || busy != null}
-                    title="Load every production plan at once (story plan, coverage, quality, assets, camera, motion, prompts)"
-                  >
-                    {prodBusy ? <Spinner size={11} /> : <span aria-hidden="true">📊</span>}
-                    {prodBusy ? "Loading…" : "Load dashboard"}
-                  </button>
-                  <button
-                    className="ghost shotlist-btn"
-                    onClick={() => setProdOpen((o) => !o)}
-                    aria-expanded={prodOpen}
-                  >
-                    {prodOpen ? "▾" : "▸"} Details
-                  </button>
-                </div>
-                {prodOpen && plan && (
-                  <div style={{ marginTop: 8 }}>
-                    <div className="shotlist-detail-label">Stages & approvals (rev {plan.storyPlan.revisions})</div>
-                    <div className="row" style={{ flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                      {plan.stages.map((s) => (
-                        <span key={s.stage} className="pill" title={s.detail || s.stage}>
-                          {s.status === "approved" ? "✅" : s.status === "done" ? "🟢" : s.status === "ready" ? "🟡" : "⛔"} {s.stage}
-                          {s.approvedAt ? ` ${s.approvedAt.slice(0, 10)}` : ""}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="row" style={{ flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                      {plan.stages.filter((s) => s.status === "ready" || s.status === "done").slice(0, 3).map((s) => (
-                        <button
-                          key={s.stage}
-                          className="ghost shotlist-btn"
-                          onClick={() => void doApproveStage(s.stage)}
-                          disabled={planBusy != null}
-                          title={`Chief Director sign-off for ${s.stage} (blocked stages reject without force)`}
-                        >
-                          Approve {s.stage}
-                        </button>
-                      ))}
-                    </div>
-                    {plan.storyPlan.productionTasks.length > 0 && (
-                      <p className="hint" style={{ margin: "6px 0 0" }}>
-                        🗂 {plan.storyPlan.productionTasks.filter((t) => t.status !== "pending").length}/{plan.storyPlan.productionTasks.length} tasks active
-                        {plan.storyPlan.uncertainties.length ? ` · ❓ ${plan.storyPlan.uncertainties.length} open questions` : " · ✅ no open questions"}
-                      </p>
-                    )}
-                  </div>
-                )}
-                {prodOpen && (assetMap || cine || motion || shotPrompts) && (
-                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-                    {assetMap && (
-                      <p className="hint" style={{ margin: 0 }}>
-                        🧍 {assetMap.map.characters.length} cast · 📍 {assetMap.map.locations.length} locations · 🧺 {assetMap.map.props.length} props
-                        {assetMap.duplicates.length ? ` · ⚠️ ${assetMap.duplicates.length} duplicates to merge` : ""}
-                        {assetMap.issues.length ? ` · 🟡 ${assetMap.issues.length} asset issues` : " · ✅ assets clean"}
-                      </p>
-                    )}
-                    {cine && (
-                      <p className="hint" style={{ margin: 0 }}>
-                        🎥 {cine.shots.length} shots
-                        {cine.issues.length ? ` · 🟡 ${cine.issues.length} cinematography notes` : " · ✅ coverage varied"}
-                      </p>
-                    )}
-                    {motion && (
-                      <p className="hint" style={{ margin: 0 }}>
-                        🎙 {motion.lipsync.length} voice lines · ⏱ {motion.audioTiming.filter((a) => a.timing_confidence === "measured").length}/{motion.audioTiming.length} measured timing
-                        {motion.issues.length ? ` · 🟡 ${motion.issues.length} motion notes` : ""}
-                      </p>
-                    )}
-                    {shotPrompts && (
-                      <p className="hint" style={{ margin: 0 }}>
-                        🖼 {shotPrompts.shots.length} prompt pairs ·{" "}
-                        {shotPrompts.shots.filter((s) => !s.image_issues.length && !s.video_issues.length).length} clean
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            </div>
             {board.blueprint && (
               <div id="director-panel-assets" hidden={activeDirectorTab !== "assets"}>
                 <div className="dir-master-assets-toolbar">
@@ -4226,7 +3706,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                     className="ghost shotlist-btn"
                     onClick={() => void doAddEntry("character")}
                     disabled={addingEntry != null || busy != null}
-                    title="AI reads the story/lyrics + master settings + existing bible, appends one new character, and refreshes the story beats to include it"
+                    title="AI reads the story/lyrics + master settings + existing bible, then appends one new character"
                   >
                     {addingEntry === "character" ? <Spinner size={11} /> : <span aria-hidden="true">＋</span>}
                     {addingEntry === "character" ? "Adding…" : "Add character"}
@@ -4386,7 +3866,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                     className="ghost shotlist-btn"
                     onClick={() => void doAddEntry("location")}
                     disabled={addingEntry != null || busy != null}
-                    title="AI reads the story/lyrics + master settings + existing bible, appends one new location, and refreshes the story beats to include it"
+                    title="AI reads the story/lyrics + master settings + existing bible, then appends one new location"
                   >
                     {addingEntry === "location" ? <Spinner size={11} /> : <span aria-hidden="true">＋</span>}
                     {addingEntry === "location" ? "Adding…" : "Add location"}
@@ -4395,7 +3875,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                     className="ghost shotlist-btn"
                     onClick={() => void doAddEntry("object")}
                     disabled={addingEntry != null || busy != null}
-                    title="AI reads the story/lyrics + master settings + existing bible, appends one new object, and refreshes the story beats to include it"
+                    title="AI reads the story/lyrics + master settings + existing bible, then appends one new object"
                   >
                     {addingEntry === "object" ? <Spinner size={11} /> : <span aria-hidden="true">＋</span>}
                     {addingEntry === "object" ? "Adding…" : "Add object"}
@@ -4461,27 +3941,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                   ))}
                 </div>
               </>
-              </div>
-            )}
-
-            {beats.length > 0 && (
-              <div hidden={activeDirectorTab !== "storyboard"}>
-                <div className="row" style={{ alignItems: "center" }}>
-                  <div className="section-label" style={{ margin: 0 }}>Story beats · {beats.length}</div>
-                  <span className="spacer" />
-                  <span className="pill" title={`${beats.length} story beats drive the scene plan`}>🎬 {beats.length} beats</span>
-                </div>
-                <div className="dir-beats">
-                  {beats.map((b) => (
-                    <div className="dir-beat" key={b.n} title={`Beat ${b.n}: ${b.title}`}>
-                      <span className="dir-beat-num" aria-hidden="true">{b.n}</span>
-                      <span className="dir-beat-body">
-                        <span className="dir-beat-title" title={b.title}>{b.title}</span>
-                        <span className="dir-beat-text" title={b.summary}>{b.summary || "—"}</span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
 
@@ -4772,7 +4231,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                     const eta = planSceneEta(num);
                     return (
                       <div
-                        className={`dir-scene-row${isGen ? " generating" : " is-queued"}`}
+                        className={`dir-scene-row shot-count-1 pending${isGen ? " generating" : " is-queued"}`}
                         key={`pending-${num}`}
                         id={`dir-scene-pending-${num}`}
                         aria-label={`Scene ${num} ${isGen ? "generating" : "to be generated"}${eta != null ? `, about ${formatDuration(eta)} remaining` : ""}`}
@@ -4911,6 +4370,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                             <input value={str(sceneDraft.visual_event ?? "")} maxLength={300} placeholder="Visible event on screen…" onChange={(e) => setSceneDraft((x) => ({ ...x, visual_event: e.target.value }))} />
                             <label style={{ marginTop: 6 }}>Duration (sec)</label>
                             <input type="number" min={1} max={30} value={Number(sceneDraft.duration_seconds ?? d.duration_seconds)} onChange={(e) => setSceneDraft((x) => ({ ...x, duration_seconds: Number(e.target.value) }))} />
+                            <label style={{ marginTop: 6 }}>Source narration (verbatim)</label>
+                            <textarea rows={3} value={str(sceneDraft.narration ?? d.narration ?? "")} placeholder="Exact narration lines covered by this scene" onChange={(e) => setSceneDraft((x) => ({ ...x, narration: e.target.value }))} />
                             {sceneShots({ ...d, ...sceneDraft } as DirectorScene).length > 0 && (
                               <>
                                 <label style={{ marginTop: 8 }} title="Each shot renders its own image + video clip; widths in the scene row follow these durations">
@@ -4938,8 +4399,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                           <>
                             <div className="shotlist-detail-grid">
                               <div>
-                                <div className="shotlist-detail-label">Story beat</div>
-                                <p>{d.story_beat || "—"}</p>
+                                {d.narration && <><div className="shotlist-detail-label">Source narration</div><p>{d.narration}</p></>}
                               </div>
                               <div>
                                 <div className="shotlist-detail-label">Duration</div>
@@ -5166,6 +4626,65 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     {/* 🔍 Prompt preview popup: the exact system + user messages the next
         Continue would send to the LLM (dry run — no model call, nothing
         saved). Built server-side by the same batch planner as the real call. */}
+    {addNewOpen && (
+      <div className="dlg-overlay" role="dialog" aria-modal="true" aria-label="Add new AI story">
+        <div className="dlg-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620, width: "min(620px, 94vw)" }}>
+          <h3 className="dlg-title">＋ Add New AI Story</h3>
+          <p className="dlg-message">Choose an existing project, select its processed Director tabs to import, and name the new story.</p>
+          <label htmlFor="director-import-project">Existing project</label>
+          <select
+            id="director-import-project"
+            value={addNewSourceId}
+            onChange={(e) => void selectAddNewProject(e.target.value)}
+            disabled={addNewLoading || addNewSaving || addNewProjects.length === 0}
+          >
+            {addNewProjects.length === 0
+              ? <option value="">No projects with a saved Director board</option>
+              : addNewProjects.map((project) => <option key={project.name} value={project.name}>{project.label}</option>)}
+          </select>
+          <label htmlFor="director-import-name" style={{ marginTop: 12 }}>New project / story name</label>
+          <input
+            id="director-import-name"
+            value={addNewName}
+            maxLength={120}
+            placeholder="Enter a name for the new story"
+            onChange={(e) => setAddNewName(e.target.value)}
+            disabled={addNewLoading || addNewSaving}
+          />
+          <div className="section-label" style={{ marginTop: 14 }}>Processed tabs available to import</div>
+          {addNewLoading ? <p className="muted">Loading the selected project…</p> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 6, marginTop: 8 }}>
+              {DIRECTOR_IMPORT_TABS.filter((tab) => processedDirectorImports(addNewSourceBoard).includes(tab.id)).map((tab) => (
+                <label key={tab.id} style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 400, padding: "6px 8px", border: "1px solid var(--line, rgba(255,255,255,.12))", borderRadius: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={addNewTabs.includes(tab.id)}
+                    onChange={(e) => setAddNewTabs((current) => e.target.checked
+                      ? [...new Set([...current, tab.id])]
+                      : current.filter((id) => id !== tab.id))}
+                    disabled={addNewSaving}
+                  />
+                  <span>{tab.label}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 11 }}>Processed</span>
+                </label>
+              ))}
+              {!processedDirectorImports(addNewSourceBoard).length && addNewSourceId && (
+                <p className="muted">This project has no processed Director tabs to import.</p>
+              )}
+            </div>
+          )}
+          <p className="hint" style={{ margin: "8px 0 0", fontSize: 11 }}>
+            Imported scenes also bring their story bible and source-grounded scene plan. Generated media and exports stay with the source project.
+          </p>
+          {addNewError && <p className="error" role="alert" style={{ marginTop: 10 }}>{addNewError}</p>}
+          <div className="dlg-actions" style={{ marginTop: 18 }}>
+            <button className="ghost" onClick={() => setAddNewOpen(false)} disabled={addNewSaving}>Cancel</button>
+            <button className="primary" onClick={() => void createFromImportedTabs()} disabled={addNewLoading || addNewSaving || !addNewSourceBoard || !addNewName.trim() || !addNewTabs.length}>
+              {addNewSaving ? <><Spinner size={13} /> Creating…</> : "Create new story"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     {promptPreview && (
       <div className="dlg-overlay" role="dialog" aria-modal="true" aria-label="Next LLM prompt preview">
         <div className="dlg-box scene-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 860 }}>

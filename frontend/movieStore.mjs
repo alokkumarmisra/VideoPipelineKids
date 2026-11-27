@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS movie_scenes (
 CREATE TABLE IF NOT EXISTS movie_shots (
   shot_id TEXT PRIMARY KEY, scene_id TEXT NOT NULL REFERENCES movie_scenes(scene_id) ON DELETE CASCADE,
   shot_number INTEGER NOT NULL, character_ids_json TEXT NOT NULL DEFAULT '[]', costume_ids_json TEXT NOT NULL DEFAULT '[]',
+  location_ids_json TEXT NOT NULL DEFAULT '[]', object_ids_json TEXT NOT NULL DEFAULT '[]',
   action TEXT NOT NULL DEFAULT '', body_movement TEXT NOT NULL DEFAULT '', expression TEXT NOT NULL DEFAULT '', emotion TEXT NOT NULL DEFAULT '',
   dialogue TEXT NOT NULL DEFAULT '', camera_angle TEXT NOT NULL DEFAULT '', camera_movement TEXT NOT NULL DEFAULT '', shot_size TEXT NOT NULL DEFAULT '',
   lighting TEXT NOT NULL DEFAULT '', composition TEXT NOT NULL DEFAULT '', duration_seconds REAL NOT NULL DEFAULT 0,
@@ -98,6 +99,8 @@ CREATE INDEX IF NOT EXISTS movie_shot_assets_shot_idx ON movie_shot_assets(shot_
 try { movieDb.exec("ALTER TABLE movie_character_references ADD COLUMN identity_version INTEGER NOT NULL DEFAULT 1"); } catch { /* already migrated */ }
 try { movieDb.exec("ALTER TABLE movie_character_references ADD COLUMN source_board_id TEXT"); } catch { /* already migrated */ }
 try { movieDb.exec("ALTER TABLE movie_character_references ADD COLUMN source_asset_id TEXT"); } catch { /* already migrated */ }
+try { movieDb.exec("ALTER TABLE movie_shots ADD COLUMN location_ids_json TEXT NOT NULL DEFAULT '[]'"); } catch { /* already migrated */ }
+try { movieDb.exec("ALTER TABLE movie_shots ADD COLUMN object_ids_json TEXT NOT NULL DEFAULT '[]'"); } catch { /* already migrated */ }
 
 function characterRow(row) {
   if (!row) return null;
@@ -117,7 +120,8 @@ export function getMovieProject(id) {
   const scenes = movieDb.prepare("SELECT * FROM movie_scenes WHERE movie_id=? ORDER BY scene_number").all(id).map((scene) => ({
     ...scene, continuity_start: JSON.parse(scene.continuity_start_json), continuity_end: JSON.parse(scene.continuity_end_json),
     shots: movieDb.prepare("SELECT * FROM movie_shots WHERE scene_id=? ORDER BY shot_number").all(scene.scene_id).map((shot) => ({
-      ...shot, character_ids: JSON.parse(shot.character_ids_json), costume_ids: JSON.parse(shot.costume_ids_json), continuity: JSON.parse(shot.continuity_json),
+      ...shot, character_ids: JSON.parse(shot.character_ids_json), costume_ids: JSON.parse(shot.costume_ids_json),
+      location_ids: JSON.parse(shot.location_ids_json || "[]"), object_ids: JSON.parse(shot.object_ids_json || "[]"), continuity: JSON.parse(shot.continuity_json),
     })),
     state_snapshots: movieDb.prepare("SELECT * FROM movie_character_state_snapshots WHERE scene_id=? ORDER BY character_id,version").all(scene.scene_id).map((row) => ({ ...row, state: JSON.parse(row.state_json), approved: !!row.approved })),
   }));
@@ -136,9 +140,9 @@ export function saveMovieProduction(movieId, screenplay, scenes) {
       VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(movie_id,scene_number) DO UPDATE SET scene_id=excluded.scene_id,title=excluded.title,location=excluded.location,
       time_of_day=excluded.time_of_day,duration_seconds=excluded.duration_seconds,summary=excluded.summary,status=excluded.status,
       continuity_start_json=excluded.continuity_start_json,continuity_end_json=excluded.continuity_end_json`);
-    const shotInsert = movieDb.prepare(`INSERT INTO movie_shots(shot_id,scene_id,shot_number,character_ids_json,costume_ids_json,action,body_movement,expression,emotion,dialogue,camera_angle,camera_movement,shot_size,lighting,composition,duration_seconds,continuity_json,status)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shot_id) DO UPDATE SET scene_id=excluded.scene_id,shot_number=excluded.shot_number,
-      character_ids_json=excluded.character_ids_json,costume_ids_json=excluded.costume_ids_json,action=excluded.action,body_movement=excluded.body_movement,
+    const shotInsert = movieDb.prepare(`INSERT INTO movie_shots(shot_id,scene_id,shot_number,character_ids_json,costume_ids_json,location_ids_json,object_ids_json,action,body_movement,expression,emotion,dialogue,camera_angle,camera_movement,shot_size,lighting,composition,duration_seconds,continuity_json,status)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shot_id) DO UPDATE SET scene_id=excluded.scene_id,shot_number=excluded.shot_number,
+      character_ids_json=excluded.character_ids_json,costume_ids_json=excluded.costume_ids_json,location_ids_json=excluded.location_ids_json,object_ids_json=excluded.object_ids_json,action=excluded.action,body_movement=excluded.body_movement,
       expression=excluded.expression,emotion=excluded.emotion,dialogue=excluded.dialogue,camera_angle=excluded.camera_angle,camera_movement=excluded.camera_movement,
       shot_size=excluded.shot_size,lighting=excluded.lighting,composition=excluded.composition,duration_seconds=excluded.duration_seconds,continuity_json=excluded.continuity_json,status=excluded.status`);
     const stateInsert = movieDb.prepare(`INSERT INTO movie_character_state_snapshots(snapshot_id,movie_id,scene_id,character_id,version,state_json,approved)
@@ -146,7 +150,7 @@ export function saveMovieProduction(movieId, screenplay, scenes) {
     for (const scene of scenes) {
       sceneInsert.run(scene.scene_id, movieId, scene.scene_number, scene.title, scene.location||"",scene.time_of_day||"",Number(scene.duration_seconds)||0,
         scene.summary||"",scene.status||"draft",JSON.stringify(scene.continuity_start||{}),JSON.stringify(scene.continuity_end||{}));
-      for (const shot of scene.shots||[]) shotInsert.run(shot.shot_id,scene.scene_id,shot.shot_number,JSON.stringify(shot.character_ids||[]),JSON.stringify(shot.costume_ids||[]),
+      for (const shot of scene.shots||[]) shotInsert.run(shot.shot_id,scene.scene_id,shot.shot_number,JSON.stringify(shot.character_ids||[]),JSON.stringify(shot.costume_ids||[]),JSON.stringify(shot.location_ids||[]),JSON.stringify(shot.object_ids||[]),
         shot.action||"",shot.body_movement||"",shot.expression||"",shot.emotion||"",shot.dialogue||"",shot.camera_angle||"",shot.camera_movement||"",shot.shot_size||"",
         shot.lighting||"",shot.composition||"",Number(shot.duration_seconds)||0,JSON.stringify(shot.continuity||{}),shot.status||"draft");
       for (const snapshot of scene.state_snapshots||[]) stateInsert.run(snapshot.snapshot_id,movieId,scene.scene_id,snapshot.character_id,Number(snapshot.version)||1,
@@ -332,6 +336,12 @@ export function listMovieJobs(movieId) {
   };
 }
 export function getMovieShotAsset(assetId) { return movieDb.prepare("SELECT * FROM movie_shot_assets WHERE asset_id=?").get(assetId); }
+export function deleteMovieShotAsset(assetId) {
+  const asset = getMovieShotAsset(assetId);
+  if (!asset) return null;
+  movieDb.prepare("DELETE FROM movie_shot_assets WHERE asset_id=?").run(assetId);
+  return asset;
+}
 export function reviewMovieShotAsset(assetId, status) {
   if (!new Set(["approved","rejected"]).has(status)) throw new Error("Invalid review status");
   movieDb.prepare("UPDATE movie_shot_assets SET status=? WHERE asset_id=?").run(status,assetId);

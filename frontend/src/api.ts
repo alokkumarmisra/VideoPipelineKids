@@ -1005,6 +1005,8 @@ export interface DirectorScene {
   emotion: string;
   expression: string;
   body_language: string;
+  /** Exact source narration assigned to this scene, when the input is narrated. */
+  narration?: string;
   camera: { shot_type: string; angle: string; movement: string };
   lighting: string;
   environment: string;
@@ -1139,6 +1141,8 @@ export interface DirectorBoard {
   scenarioName?: string | null;
   /** Approved storyboard -> generated project link (integer projects id). */
   project_id?: number | null;
+  /** Director stages intentionally carried into a new project from another board. */
+  processedTabs?: string[];
   // Scenes already migrated into scenarioName (partial-migration flow).
   migratedScenes?: number | null;
   error?: string | null;
@@ -1392,225 +1396,6 @@ export const saveDirectorPromptSettings = async (settings: DirectorPromptSetting
   return d as DirectorPromptSettingsResponse;
 };
 
-// Intelligent Director: Lyric Coverage Map (read-only) — every lyric line
-// with its meaningful phrases, assigned scenes/shots and coverage status.
-export interface DirectorCoveragePhrase {
-  text: string;
-  meaning: string;
-  startMs: number | null;
-  endMs: number | null;
-  coveredByShot: boolean;
-  coverage: "covered" | "uncovered";
-  sceneIds: (number | string)[];
-  shotIds: string[];
-}
-export interface DirectorCoverageLine {
-  lyric_line_id: number;
-  lyric_text: string;
-  phrases: DirectorCoveragePhrase[];
-  status: "covered" | "partial" | "uncovered" | "empty";
-}
-export interface DirectorCoverage {
-  board_id: string;
-  lines: DirectorCoverageLine[];
-  summary: { totalPhrases: number; coveredPhrases: number; pct: number };
-}
-export const directorCoverage = (id: string) =>
-  get<DirectorCoverage>(`/api/director/boards/${encodeURIComponent(id)}/coverage`);
-
-// Intelligent Director: quality-control validation pass (read-only) — 0–100
-// rule-based score with breakdown, actionable issues, continuity findings and
-// the structural story-board gate.
-export interface DirectorValidation {
-  board_id: string;
-  score: number;
-  breakdown: {
-    lyricCoverage: number;
-    actionClarity: number;
-    continuity: number;
-    timing: number;
-    promptCompleteness: number;
-  };
-  issues: string[];
-  coverage: { totalPhrases: number; coveredPhrases: number; pct: number };
-  errors: string[];
-  warnings: string[];
-  continuity: string[];
-  genreNote: string;
-}
-export const directorValidate = (id: string) =>
-  get<DirectorValidation>(`/api/director/boards/${encodeURIComponent(id)}/validate`);
-
-// ---------------------------------------------------------------------------
-// Storyboard Planner 2.0 — READ-ONLY cinematic workspace views. Every route
-// reads the same board + approved timeline; none writes or starts a run.
-// ---------------------------------------------------------------------------
-export interface StoryboardEvent {
-  id: string;
-  trackId?: string;
-  track?: string;
-  start: number;
-  end: number;
-  label: string;
-  [key: string]: unknown;
-}
-export interface StoryboardShot {
-  shot_id: string;
-  parent_scene: number;
-  start: number | null;
-  end: number | null;
-  shot_type: string;
-  angle: string;
-  movement: string;
-  characters: string[];
-  action: string;
-  expression: string;
-  emotion: string;
-  lighting: string;
-  environment: string;
-  visual_focus: string;
-  image_prompt: string;
-  video_prompt: string;
-  source_line_ids: number[];
-  lip_sync_required: boolean;
-}
-export interface StoryboardScene {
-  scene_number: number;
-  title: string;
-  start: number | null;
-  end: number | null;
-  duration: number;
-  characters: string[];
-  location: string;
-  objects: string[];
-  action: string;
-  emotion: string;
-  expression: string;
-  camera: Record<string, unknown> | null;
-  lighting: string;
-  environment: string;
-  source_line_ids: number[];
-  audio_timing_references: { id: string; start: number; end: number }[];
-  image_prompt: string;
-  video_prompt: string;
-  continuity: { from_previous: string; to_next: string; instructions: string };
-  transition: string;
-  timing_source: string | null;
-  shots: StoryboardShot[];
-}
-export interface StoryboardCoverage {
-  complete: boolean;
-  coveragePercent: number;
-  durationCoveragePercent: number;
-  totalAudioDuration: number;
-  plannedDuration: number;
-  unplannedDuration: number;
-  sceneCount: number;
-  shotCount: number;
-  uncoveredLyricEvents: { id: string; lineId?: number | null; start: number; end: number; label: string }[];
-  uncoveredNarrativeEvents: { id: string; start: number; end: number; label: string }[];
-  instrumentalCoverage: {
-    total: number;
-    covered: number;
-    coveredWindows: { id: string; start: number; end: number; label: string }[];
-    uncoveredWindows: { id: string; start: number; end: number; label: string }[];
-  };
-  gaps: { from: number; to: number; seconds: number; intentional: boolean }[];
-  overlaps: { scene: number; start: number; end: number }[];
-  continuityWarnings: string[];
-  endingCovered: boolean;
-}
-export interface StoryboardView {
-  schema: string;
-  board_id: string;
-  status: string;
-  title: string;
-  sceneCount: number;
-  phases: string[];
-  timeline: {
-    source: string;
-    id: string | null;
-    version: number | null;
-    approvedAt: string | null;
-    durationSec: number;
-    approved: boolean;
-    available: boolean;
-    readOnly: boolean;
-    trackCounts: Record<string, number>;
-    tracks: Record<string, StoryboardEvent[]>;
-  };
-  scenes: StoryboardScene[];
-  coverage: StoryboardCoverage;
-  note: string;
-}
-export interface StoryboardValidation {
-  board_id: string;
-  canApprove: boolean;
-  errors: { code: string; message: string }[];
-  warnings: { code: string; message: string }[];
-  checks: Record<string, boolean>;
-  coverage: StoryboardCoverage;
-  note?: string;
-}
-export interface StoryboardTimeline {
-  board_id: string;
-  source: string;
-  id: string | null;
-  version: number | null;
-  approvedAt: string | null;
-  durationSec: number;
-  approved: boolean;
-  available: boolean;
-  readOnly: boolean;
-  trackCounts: Record<string, number>;
-  tracks: Record<string, StoryboardEvent[]>;
-  events: StoryboardEvent[];
-  note: string;
-}
-export interface StoryboardContext {
-  board_id: string;
-  context: {
-    available: boolean;
-    source: string;
-    from: number;
-    to: number;
-    durationSec: number;
-    tracks: Record<string, StoryboardEvent[]>;
-    instrumentals: (StoryboardEvent & { lyricOverlap: boolean; visualShotsAdvisory: number })[];
-    uncoveredLyrics: { id: string; lineId?: number; start: number; end: number; label: string }[];
-    uncoveredNarrative: { id: string; start: number; end: number; label: string }[];
-    continuity: Record<string, unknown> | null;
-  };
-  promptBlock: string | null;
-}
-export interface StoryboardHandoff {
-  board_id: string;
-  schema: string;
-  source: string;
-  timeline_reference: Record<string, unknown>;
-  story_bible: Record<string, unknown>;
-  scene_timeline: StoryboardScene[];
-  lip_sync_requirements: { id: string; start: number; end: number; characterId: string }[];
-  audio_timing_references: { id: string; lineId: number | null; start: number; end: number }[];
-  coverage_summary: Record<string, unknown>;
-  note: string;
-}
-export const directorStoryboard = (id: string) =>
-  get<StoryboardView>(`/api/director/boards/${encodeURIComponent(id)}/storyboard`);
-export const directorStoryboardTimeline = (id: string) =>
-  get<StoryboardTimeline>(`/api/director/boards/${encodeURIComponent(id)}/storyboard/timeline`);
-export const directorStoryboardContext = (id: string, from?: number, to?: number) =>
-  get<StoryboardContext>(
-    `/api/director/boards/${encodeURIComponent(id)}/storyboard/context` +
-      `${from != null ? `?from=${from}` : ""}${to != null ? `${from != null ? "&" : "?"}to=${to}` : ""}`,
-  );
-export const directorStoryboardCoverage = (id: string) =>
-  get<{ board_id: string } & StoryboardCoverage>(`/api/director/boards/${encodeURIComponent(id)}/storyboard/coverage`);
-export const directorStoryboardValidate = (id: string) =>
-  get<StoryboardValidation>(`/api/director/boards/${encodeURIComponent(id)}/storyboard/validate`);
-export const directorStoryboardHandoff = (id: string) =>
-  get<StoryboardHandoff>(`/api/director/boards/${encodeURIComponent(id)}/storyboard/handoff`);
-
 // ---------------------------------------------------------------------------
 // The MEANING-AWARE semantic analysis (lib/semantics.mjs).
 // Every source line is analysed before the scenes are planned: the language,
@@ -1632,20 +1417,6 @@ export interface DirectorSemanticLine {
   beats: { start_seconds: number; end_seconds: number; action: string; estimated?: boolean }[];
   warnings: string[];
 }
-export interface DirectorSemantics {
-  board_id: string;
-  language: string;
-  source: string;
-  warning?: string;
-  lines: DirectorSemanticLine[];
-  issues: string[];
-  attached?: number;
-  repaired?: number;
-}
-export const directorSemantics = (id: string) =>
-  get<DirectorSemantics>(`/api/director/boards/${encodeURIComponent(id)}/semantics`);
-export const directorAnalyzeSemantics = (id: string, body: { useModel?: boolean; language?: string } = {}) =>
-  post<DirectorSemantics>(`/api/director/boards/${encodeURIComponent(id)}/semantics`, body);
 
 // ---- WhisperX lyric timeline (Story / Song) ------------------------------
 // The import is ANNOTATIVE: WhisperX supplies MEASURED timing, the user's own
@@ -1994,66 +1765,6 @@ export const whisperXPreflight = () =>
 
 // Chief Director Story Plan + stage pipeline (read-only) — the authoritative
 // narrative source with per-stage done/ready/blocked status and approvals.
-export interface DirectorPlanTask {
-  id: string;
-  label: string;
-  stage: string;
-  status: "pending" | "ready" | "done" | "approved";
-  dependsOn: string[];
-}
-export interface DirectorStageStatus {
-  stage: string;
-  status: "done" | "ready" | "blocked" | "approved";
-  approvedAt: string | null;
-  detail: string;
-}
-export interface DirectorPlan {
-  board_id: string;
-  storyPlan: {
-    version: number;
-    logline: string;
-    theme: string;
-    structure: { beginning: string; development: string; climax: string; resolution: string };
-    narrativeOutline: string[];
-    characterRoster: { character_id: string; name: string; role: string; motivation: string }[];
-    uncertainties: string[];
-    productionTasks: DirectorPlanTask[];
-    approvals: Record<string, string>;
-    revisions: number;
-    visualGuide?: string;
-    cinematography?: string;
-    motionPlan?: string;
-    audioSync?: string;
-    editPlan?: string;
-  };
-  stages: DirectorStageStatus[];
-}
-export const directorPlan = (id: string) =>
-  get<DirectorPlan>(`/api/director/boards/${encodeURIComponent(id)}/plan`);
-
-// Chief Director approval checkpoint — sign off one pipeline stage.
-// Enforces dependency order server-side (force overrides for user edits).
-export const directorApproveStage = (id: string, stage: string, force = false) =>
-  fetch(`/api/director/boards/${encodeURIComponent(id)}/approve-stage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ stage, force }),
-  }).then(directorOk<DirectorPlan>("stage approval failed"));
-
-export interface DirectorUncovered {
-  board_id: string;
-  uncovered: {
-    lyric_line_id: number;
-    lyric_text: string;
-    phrase: string;
-    song_start_time: number | null;
-    song_end_time: number | null;
-    timing_confidence: string;
-  }[];
-}
-export const directorUncovered = (id: string) =>
-  get<DirectorUncovered>(`/api/director/boards/${encodeURIComponent(id)}/uncovered`);
-
 // World & Asset Intelligence (Phase 2) — reference map + duplicates +
 // style guide + continuity. Read-only.
 export interface DirectorAssetMap {
@@ -2143,44 +1854,6 @@ export const directorAssetFileUrl = (filePath: string) =>
     return `/director-assets/${rel.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
   })();
 
-// Cinematography & shot planning (Phase 3) — read-only shot list, camera,
-// lighting, blocking, transitions + validation.
-export interface DirectorCinematography {
-  board_id: string;
-  shots: { scene_number: number; shot_id: string; lyric_line_id: number | null; lyric_segment: string; dramatic_purpose: string; shot_type: string; movement: string; duration_seconds: number }[];
-  camera: { shot_id: string; movement: string; speed: string; shot_type: string }[];
-  lighting: { scene_number: number; time_of_day: string; lighting: string; emphasis: string }[];
-  blocking: { shot_id: string; cast: { character_id: string; gaze_target: string; starting_state: string; action: string; ending_state: string }[] }[];
-  transitions: { scene_number: number; transition: string }[];
-  issues: string[];
-}
-export const directorCinematography = (id: string) =>
-  get<DirectorCinematography>(`/api/director/boards/${encodeURIComponent(id)}/cinematography`);
-
-// Acting, motion & audio sync (Phase 4) — read-only action/interaction/
-// timeline/audio/sync/lipsync plans + validation.
-export interface DirectorMotionAudio {
-  board_id: string;
-  actions: { shot_id: string; character_id: string; reference: string; starting_state: string; gaze_target: string; emotion: string; expression: string; action: string; ending_state: string; role: string }[];
-  interactions: { shot_id: string; initiator: string; responders: string[]; target: string; cause_effect: string }[];
-  timeline: { shot_id: string; start_time: number; end_time: number; phases: string[]; camera_movement: string }[];
-  audioTiming: { lyric_line_id: number; lyric_text: string; start_time: number | null; end_time: number | null; timing_confidence: string }[];
-  sync: { shot_id: string; lyric_line_id: number | null; lyric_segment: string; action: string; start_time: number | null; end_time: number | null; timing_confidence: string }[];
-  lipsync: { shot_id: string; speaker: string; line: string; estimated_seconds: number; timing_confidence: string }[];
-  issues: string[];
-}
-export const directorMotionAudio = (id: string) =>
-  get<DirectorMotionAudio>(`/api/director/boards/${encodeURIComponent(id)}/motion-audio`);
-
-// Prompt preview (Phase 5) — per-shot Flux image + LTX/Wan video prompts
-// with checklist issues. Dry run, no generation.
-export interface DirectorShotPrompts {
-  board_id: string;
-  shots: { shot_id: string; image_prompt: string; video_prompt: string; image_issues: string[]; video_issues: string[] }[];
-}
-export const directorShotPrompts = (id: string) =>
-  get<DirectorShotPrompts>(`/api/director/boards/${encodeURIComponent(id)}/prompts`);
-
 // Delivery (Phase 7) — edit plan, assembly timeline, render-job spec + QC.
 export interface DirectorDelivery {
   board_id: string;
@@ -2197,15 +1870,6 @@ export const directorDelivery = (id: string, opts?: { format?: string; beats?: s
   const s = q.toString();
   return get<DirectorDelivery>(`/api/director/boards/${encodeURIComponent(id)}/delivery${s ? `?${s}` : ""}`);
 };
-
-// Intelligent Director: staged repair — re-plans ONLY the flagged scenes via
-// the reasoning engine, preserving ids and approved neighbours.
-export const directorRepair = (id: string, scene_numbers?: number[]) =>
-  fetch(`/api/director/boards/${encodeURIComponent(id)}/repair`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(scene_numbers?.length ? { scene_numbers } : {}),
-  }).then(directorOk<{ board_id: string; repaired: number[]; score: number; board: DirectorBoard }>("repair failed"));
 
 export const directorUpdateBoard = (id: string, patch: Record<string, unknown>) =>
   fetch(`/api/director/boards/${encodeURIComponent(id)}`, {
@@ -2255,9 +1919,10 @@ export const directorApprove = (id: string) =>
 // Duplicate a board as a fresh version (exact copy of characters, locations,
 // objects, beats + scenes prompts; no linked project so images/videos
 // regenerate from scratch). The server auto-versions the title (v2, v3, …).
-export const directorDuplicateBoard = (id: string) =>
+export const directorDuplicateBoard = (id: string, options?: { title: string; imports: string[] }) =>
   fetch(`/api/director/boards/${encodeURIComponent(id)}/duplicate`, {
     method: "POST",
+    ...(options ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(options) } : {}),
   }).then(directorOk<DirectorBoard>("duplicate failed"));
 
 export const directorDeleteBoard = (id: string) =>

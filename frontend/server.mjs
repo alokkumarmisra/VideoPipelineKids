@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { Pool } from "pg";
 import { normalizeMovieCharacter, movieCapabilityRegistry, buildMovieReferencePacket, buildMovieKeyframePrompt, resolveMovieEnvironmentAssets } from "../lib/movie.mjs";
-import { movieDb, movieFilesDir, listMovieProjects, getMovieProject, getMovieCharacter, createMovieProject, addMovieCharacter, updateMovieCharacter, saveMovieProduction, setCharacterApproval, addCharacterReference, importMovieCharacterReference, reviewCharacterReference, setCanonicalReference, addMovieCostume, reviewCostume, addMovieEnvironmentAsset, updateMovieEnvironmentAsset, setMovieEnvironmentReference, reviewMovieEnvironmentReference, setMovieEnvironmentLock, createMovieJob, updateMovieJob, addMovieShotAsset, listMovieJobs, getMovieShotAsset, reviewMovieShotAsset } from "./movieStore.mjs";
+import { movieDb, movieFilesDir, listMovieProjects, getMovieProject, getMovieCharacter, createMovieProject, addMovieCharacter, updateMovieCharacter, saveMovieProduction, setCharacterApproval, addCharacterReference, importMovieCharacterReference, reviewCharacterReference, setCanonicalReference, addMovieCostume, reviewCostume, addMovieEnvironmentAsset, updateMovieEnvironmentAsset, setMovieEnvironmentReference, reviewMovieEnvironmentReference, setMovieEnvironmentLock, createMovieJob, updateMovieJob, addMovieShotAsset, listMovieJobs, getMovieShotAsset, deleteMovieShotAsset, reviewMovieShotAsset } from "./movieStore.mjs";
 
 const movieGenerationProcesses = new Map();
 
@@ -83,7 +83,11 @@ function movieEnvironmentForShot(project, scene, shot) {
     if (!allowed || !fs.existsSync(full) || !fs.statSync(full).isFile()) throw new Error(`Approved ${asset.kind} reference is missing: ${asset.name}`);
     return { ...asset, reference_path: full };
   };
-  return { locations: matched.locations.map(resolve), objects: matched.objects.map(resolve) };
+  const selectedLocations = new Set((shot.location_ids || []).map(String));
+  const selectedObjects = new Set((shot.object_ids || []).map(String));
+  const locations = [...new Map([...matched.locations, ...(project.environment_assets || []).filter((asset) => selectedLocations.has(asset.asset_id))].map((asset) => [asset.asset_id, asset])).values()];
+  const objects = [...new Map([...matched.objects, ...(project.environment_assets || []).filter((asset) => selectedObjects.has(asset.asset_id))].map((asset) => [asset.asset_id, asset])).values()];
+  return { locations: locations.map(resolve), objects: objects.map(resolve) };
 }
 import { versionMap, setMain, clearRefMain, nextVersion } from "../lib/sequence_state.mjs";
 import {
@@ -180,6 +184,7 @@ import {
   normalizeBlueprint,
   normalizeDialogue,
   normalizeScene,
+  isAbstractOpeningSource,
   compactSceneGenerationDirections,
   canonicalizeSceneRefs,
   dedupeScenes,
@@ -189,7 +194,6 @@ import {
   buildScenesPrompt,
   buildRegenPrompt,
   buildAddEntryPrompt,
-  buildBeatsRefreshPrompt,
   buildRegenEntryPrompt,
   normalizeCharacter,
   normalizeLocation,
@@ -203,54 +207,18 @@ import {
   planProgress,
   verifyPlanComplete,
   validateLyricPlan,
-  validateStoryBoard,
   extractPartialScenes,
-  buildLyricCoverageMap,
-  coverageSummary,
   boardLyricLines,
-  scoreDirectorPlan,
-  detectContinuityIssues,
-  buildDirectionRepairPrompt,
-  genreDirectingNotes,
-  learningReviewChecklist,
   validateBibleAnatomy,
   normalizeStoryPlan,
   buildStoryPlan,
-  stageStatus,
   approveGate,
-  chiefApproveStage,
-  uncoveredPhrases,
-  buildShotList,
-  buildCameraMotionPlan,
-  buildLightingPlan,
-  buildBlockingPlan,
-  buildTransitionPlan,
-  validateCinematography,
-  buildCharacterActionPlan,
-  buildInteractionPlan,
-  buildMotionTimeline,
-  buildAudioTimingMap,
-  buildActionSyncPlan,
-  buildLipSyncInstructions,
-  validateMotionPrompts,
-  buildShotPrompts,
-  validateImagePrompt,
-  validateVideoPrompt,
-  buildEditPlan,
-  buildAssemblyTimeline,
-  buildRenderJob,
-  buildQCReport,
 } from "../lib/director.mjs";
 import {
   STORYBOARD_PHASES,
-  STORYBOARD_TRACKS,
   normalizeStoryboardTimeline,
   storyboardBatchContext,
   buildStoryboardPromptBlock,
-  auditStoryboardCoverage,
-  validateStoryboardForApproval,
-  buildDirectorHandoff,
-  buildStoryboardView,
 } from "../lib/storyboard_planner.mjs";
 import { storyboardToScenario } from "../lib/project_import.mjs";
 import {
@@ -4561,6 +4529,49 @@ function directorApprovedAssets(board, stateOverride = null) {
   return compactIndex(state).filter((a) => a.reference);
 }
 
+// Bind approved visual references deterministically after planning. The model
+// still decides which bible entities are visible in each scene/shot; whenever
+// it selects one, its matching approved asset ID is guaranteed to travel with
+// that scene/shot to the image pipeline.
+function bindApprovedSceneAssetRefs(scene, approvedAssets = []) {
+  const byBible = new Map();
+  for (const asset of arr(approvedAssets)) {
+    const kind = String(asset && asset.type || "");
+    const bibleId = String(asset && asset.blueprint_id || "");
+    const ref = String(asset && (asset.reference_id || asset.id) || "");
+    if (kind && bibleId && ref) byBible.set(`${kind}:${bibleId}`, ref);
+  }
+  const bind = (node, fallback = {}) => {
+    const current = node && node.asset_refs && typeof node.asset_refs === "object" ? node.asset_refs : {};
+    const visibleCharacters = arr(node && node.characters).length ? arr(node.characters) : arr(fallback.characters);
+    const visibleObjects = arr(node && node.objects);
+    const visibleLocation = String(node && node.location || fallback.location || "");
+    const collect = (kind, existing, ids) => [...new Set([
+      ...arr(existing).map((x) => String(x || "")).filter(Boolean),
+      ...arr(ids).map((id) => byBible.get(`${kind}:${String(id || "")}`) || "").filter(Boolean),
+    ])];
+    node.asset_refs = {
+      characters: collect("character", current.characters, visibleCharacters),
+      locations: collect("location", current.locations, visibleLocation ? [visibleLocation] : []),
+      objects: collect("object", current.objects, visibleObjects),
+    };
+    return node.asset_refs;
+  };
+  const sceneRefs = bind(scene);
+  const shots = arr(scene && scene.shots);
+  const shotRefs = shots.map((shot) => bind(shot, {
+    characters: arr(scene && scene.characters),
+    location: String(scene && scene.location || ""),
+    objects: arr(scene && scene.objects),
+  }));
+  if (shots.length) {
+    for (const kind of ["characters", "locations", "objects"]) {
+      scene.asset_refs[kind] = [...new Set([...sceneRefs[kind], ...shotRefs.flatMap((refs) => refs[kind])])];
+    }
+  }
+  return scene;
+}
+
 // Resolve compact asset references only at approval time. Scene board rows
 // keep ids and direction; the existing generation scenario receives the
 // approved prompts plus safe local reference paths as ephemeral generation
@@ -5902,8 +5913,15 @@ const server = http.createServer(async (req, res) => {
         if (!project) return json(res, 404, { error: "Movie not found" });
         if (!Array.isArray(body.scenes) || body.scenes.some((scene) => !Number.isInteger(Number(scene.scene_number)) || !Array.isArray(scene.shots))) return json(res, 400, { error: "Production data needs numbered scenes with shot arrays" });
         const characterIds = new Set(project.characters.map((character) => character.character_id));
-        for (const scene of body.scenes) for (const shot of scene.shots) for (const characterId of shot.character_ids || [])
-          if (!characterIds.has(String(characterId))) return json(res, 409, { error: `Shot ${shot.shot_id} references unresolved character ${characterId}` });
+        const environmentAssets = new Map((project.environment_assets || []).map((asset) => [asset.asset_id, asset]));
+        for (const scene of body.scenes) for (const shot of scene.shots) {
+          for (const characterId of shot.character_ids || []) if (!characterIds.has(String(characterId)))
+            return json(res, 409, { error: `Shot ${shot.shot_id} references unresolved character ${characterId}` });
+          for (const [kind, ids] of [["location", shot.location_ids || []], ["object", shot.object_ids || []]]) for (const id of ids) {
+            const asset = environmentAssets.get(String(id));
+            if (!asset || asset.kind !== kind) return json(res, 409, { error: `Shot ${shot.shot_id} references an unresolved ${kind} ${id}` });
+          }
+        }
         return json(res, 200, saveMovieProduction(movieId, body.screenplay || {}, body.scenes));
       } catch (e) { return json(res, 400, { error: e.message }); }
     }
@@ -5911,6 +5929,12 @@ const server = http.createServer(async (req, res) => {
     if (movieJobsMatch && req.method === "GET") {
       const movieId = decodeURIComponent(movieJobsMatch[1]);
       if (!getMovieProject(movieId)) return json(res, 404, { error: "Movie not found" });
+      // Jobs are persisted, but their renderer processes are in-memory. After a
+      // server restart an old queued/running row would otherwise keep the UI
+      // showing "Generating keyframe…" forever even though no render exists.
+      const stranded = movieDb.prepare("SELECT job_id FROM movie_generation_jobs WHERE movie_id=? AND status IN ('queued','running')").all(movieId)
+        .filter(({ job_id }) => !movieGenerationProcesses.has(job_id));
+      for (const { job_id } of stranded) updateMovieJob(job_id, { status: "failed", error: "Renderer process is no longer active. Retry keyframe generation." });
       return json(res, 200, listMovieJobs(movieId));
     }
     const movieShotAction = p.match(/^\/api\/movie\/shots\/([^/]+)\/(keyframe|reference-packets|assets)$/);
@@ -5950,8 +5974,15 @@ const server = http.createServer(async (req, res) => {
         fs.writeFileSync(jobFile, JSON.stringify({ job_id: job.job_id, prompt, packets: characterPackets.map((entry) => entry.packet), environment_references, workflow: workflow.id, model: workflow.model,
           prefix: `movie/${safeMovie}/scene_${scene.scene_number}/${safeShot}/${job.job_id}` }, null, 2));
         updateMovieJob(job.job_id, { status: "running" });
-        const proc = spawn(process.execPath, [path.join(ROOT, "scripts/movie_keyframe.mjs"), "--job-file", jobFile, "--out", output],
-          { cwd: ROOT, env: process.env, windowsHide: true });
+        let proc;
+        try {
+          proc = spawn(process.execPath, [path.join(ROOT, "scripts/movie_keyframe.mjs"), "--job-file", jobFile, "--out", output],
+            { cwd: ROOT, env: process.env, windowsHide: true });
+        } catch (error) {
+          movieGenerationProcesses.delete(job.job_id);
+          updateMovieJob(job.job_id, { status: "failed", error: `Could not start Movie keyframe renderer: ${String(error.message || error).slice(-900)}` });
+          return json(res, 500, { error: "Could not start the keyframe renderer. The job was marked failed; retry generation." });
+        }
         movieGenerationProcesses.set(job.job_id, proc);
         let log = "";
         proc.stdout?.on("data", (chunk) => { log = `${log}${chunk}`.slice(-12000); });
@@ -6170,17 +6201,41 @@ const server = http.createServer(async (req, res) => {
         return fs.createReadStream(full).pipe(res);
       }
     }
-    const movieShotAssetRoute = p.match(/^\/api\/movie\/shot-assets\/([^/]+)\/(approve|reject|image)$/);
-    if (movieShotAssetRoute && req.method === "POST" && movieShotAssetRoute[2] !== "image") {
+    const movieShotAssetRoute = p.match(/^\/api\/movie\/shot-assets\/([^/]+)\/(approve|reject|image|media|delete)$/);
+    if (movieShotAssetRoute && req.method === "POST" && !["image", "media", "delete"].includes(movieShotAssetRoute[2])) {
       try { return json(res, 200, reviewMovieShotAsset(decodeURIComponent(movieShotAssetRoute[1]), movieShotAssetRoute[2])); }
       catch (e) { return json(res, 400, { error: e.message }); }
     }
-    if (movieShotAssetRoute && req.method === "GET" && movieShotAssetRoute[2] === "image") {
+    if (movieShotAssetRoute && req.method === "DELETE" && movieShotAssetRoute[2] === "delete") {
       const asset = getMovieShotAsset(decodeURIComponent(movieShotAssetRoute[1]));
-      if (!asset) return json(res, 404, { error: "Shot image not found" });
+      if (!asset) return json(res, 404, { error: "Shot media not found" });
       const full = path.resolve(ROOT, asset.file_path), movieOutputRoot = path.resolve(path.dirname(movieFilesDir), "Movies");
-      if (!full.startsWith(movieOutputRoot + path.sep) || !fs.existsSync(full)) return json(res, 404, { error: "Shot image not found" });
-      res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=60" });
+      if (!full.startsWith(movieOutputRoot + path.sep)) return json(res, 404, { error: "Shot media not found" });
+      try {
+        if (fs.existsSync(full)) fs.unlinkSync(full);
+        const deleted = deleteMovieShotAsset(asset.asset_id);
+        return json(res, 200, { deleted: true, asset_id: deleted.asset_id });
+      } catch (e) { return json(res, 500, { error: `Could not delete Movie media: ${e.message}` }); }
+    }
+    if (movieShotAssetRoute && req.method === "GET" && ["image", "media"].includes(movieShotAssetRoute[2])) {
+      const asset = getMovieShotAsset(decodeURIComponent(movieShotAssetRoute[1]));
+      if (!asset) return json(res, 404, { error: "Shot media not found" });
+      const full = path.resolve(ROOT, asset.file_path), movieOutputRoot = path.resolve(path.dirname(movieFilesDir), "Movies");
+      if (!full.startsWith(movieOutputRoot + path.sep) || !fs.existsSync(full)) return json(res, 404, { error: "Shot media not found" });
+      const ext = path.extname(full).toLowerCase();
+      const contentType = ({ ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime" })[ext];
+      if (!contentType) return json(res, 415, { error: "Unsupported Movie media format" });
+      const size = fs.statSync(full).size, range = req.headers.range;
+      if (range && contentType.startsWith("video/")) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+        if (!match) return json(res, 416, { error: "Invalid media range" });
+        const start = match[1] ? Number(match[1]) : Math.max(0, size - Number(match[2]));
+        const end = match[1] ? Math.min(Number(match[2] || size - 1), size - 1) : size - 1;
+        if (start >= size || end < start) { res.writeHead(416, { "Content-Range": `bytes */${size}` }); return res.end(); }
+        res.writeHead(206, { "Content-Type": contentType, "Cache-Control": "private, max-age=60", "Accept-Ranges": "bytes", "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": end - start + 1 });
+        return fs.createReadStream(full, { start, end }).pipe(res);
+      }
+      res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "private, max-age=60", "Accept-Ranges": "bytes", "Content-Length": size });
       return fs.createReadStream(full).pipe(res);
     }
 
@@ -7267,7 +7322,7 @@ const server = http.createServer(async (req, res) => {
     }
     // ------------------------------------------------- AI Story Director
     // Story-to-Video workflow on top of the existing pipeline: the director
-    // authors a storyboard (analysis -> bibles -> beats -> scenes) via the
+    // authors a storyboard (analysis -> asset bible -> source-grounded scenes) via the
     // local LLM; APPROVE hands a standard scenario config to the EXISTING
     // save/generation pipeline (client calls saveScenario, then opens the
     // workspace). No separate image/video implementation exists here.
@@ -7926,7 +7981,8 @@ const server = http.createServer(async (req, res) => {
       }
       assertNoCJK(raw, "the director bible");
       const blueprint = normalizeBlueprint(raw);
-      if (!blueprint.characters.length && !blueprint.beats.length)
+      if (!blueprint.characters.length && !blueprint.locations.length && !blueprint.objects.length
+        && !blueprint.logline && !Object.values(blueprint.analysis || {}).some((value) => Array.isArray(value) ? value.length : Boolean(value)))
         throw new Error("director returned an empty blueprint — try again");
       const id = slug(input.title) || `story_${Date.now().toString(36)}`;
       // The MEANING pass runs right after the bible: every source line is
@@ -8282,9 +8338,11 @@ const server = http.createServer(async (req, res) => {
       // Duration-driven planning: the timeline (not the scene cap) is the
       // source of truth. Close enough counts as covered so a 299.5s plan
       // never spawns another scene for half a second.
-      const songTarget = board.input && board.input.song && board.input.song.durationSeconds
-        ? Math.round(Number(board.input.song.durationSeconds)) : null;
-      const planTarget = songTarget || Math.round(Number(board.input.targetSeconds)) || 0;
+      const measuredAudioTarget = Number(board.input && board.input.song && board.input.song.durationSeconds)
+        || Number(board.input && board.input.sourceAudio && board.input.sourceAudio.durationSeconds)
+        || Number(board.input && board.input.whisperxAudio && board.input.whisperxAudio.durationSeconds)
+        || 0;
+      const planTarget = Math.round(measuredAudioTarget || Number(board.input.targetSeconds)) || 0;
       const prog = planProgress(board.scenes, planTarget);
       const avgScene = Math.max(1, Number(board.input.sceneSeconds) || 3);
       const DONE_TOL = Math.max(1, avgScene / 2);
@@ -8336,7 +8394,6 @@ const server = http.createServer(async (req, res) => {
       const budget = planTarget > 0
         ? Math.max(avgScene, Math.min(n * avgScene, remainingSecs + avgScene / 2))
         : n * avgScene;
-      const beats = (board.blueprint.beats || []).slice();
       const prevScene = done > 0 ? board.scenes[done - 1] : null;
       // Prior spoken lines so the prompt can forbid verbatim repeats (late
       // batches used to re-plan the opening and copy scene-1 dialogue).
@@ -8363,6 +8420,7 @@ const server = http.createServer(async (req, res) => {
       // the timing derivation above throws (it is best-effort).
       let masterTiming = null;
       let approvedApplied = false;
+      let storedTimingUsable = false;
       // Storyboard Planner 2.0: the richer read-only 19-track context. Built
       // from the SAME approved master (never a second clock) and sliced to the
       // identical batch window as masterTiming above. Null => old prompt.
@@ -8389,9 +8447,9 @@ const server = http.createServer(async (req, res) => {
           ? masterStored : null;
         const currentLineIds = lyricTimelineSourceLines(board)
           .map((l) => Number(l.lyric_line_id)).filter((n) => Number.isFinite(n));
-        let lyricTiming = [];
+        let storedTiming = [];
         let storedCoversCurrent = false;
-        let approvedApplied = false;
+        storedTimingUsable = false;
         if (approvedMaster) {
           const approvedTiming = approvedMaster.segments
             .filter((s) => Number(s.lyric_line_id) > 0 && Number.isFinite(Number(s.start_seconds)) && Number(s.end_seconds) > Number(s.start_seconds))
@@ -8405,6 +8463,9 @@ const server = http.createServer(async (req, res) => {
           const approvedIds = new Set(approvedTiming.map((l) => l.lyric_line_id));
           approvedApplied = currentLineIds.length > 0
             && currentLineIds.every((id) => approvedIds.has(id));
+          if (!approvedApplied) {
+            console.warn(`[director:${id}] approved master timeline does not cover every current source line; scene batches will use complete source-line timing instead`);
+          }
           if (approvedApplied && approvedTiming.length) {
             lyricTiming = approvedTiming;
           }
@@ -8413,7 +8474,7 @@ const server = http.createServer(async (req, res) => {
           // Fall back to stored timeline analysis
           const storedTimeline = timingFresh && Array.isArray(board.lyric_timeline && board.lyric_timeline.lines)
             ? board.lyric_timeline.lines : [];
-          const storedTiming = storedTimeline
+          storedTiming = storedTimeline
             .filter((l) => Number.isFinite(Number(l.start_seconds)) && Number.isFinite(Number(l.end_seconds)))
             .map((l) => ({
               lyric_line_id: Number(l.line_id) || 0,
@@ -8425,7 +8486,14 @@ const server = http.createServer(async (req, res) => {
             .filter((l) => l.song_end_time > l.song_start_time);
           storedCoversCurrent = storedTiming.length > 0 && currentLineIds.length > 0
             && currentLineIds.every((id) => storedTiming.some((l) => l.lyric_line_id === id));
-          if (storedCoversCurrent && storedTiming.length) {
+          const sourceOrderedTiming = [...storedTiming].sort((a, b) => a.lyric_line_id - b.lyric_line_id);
+          const chronological = sourceOrderedTiming.every((line, i) => i === 0
+            || line.song_start_time + 0.25 >= sourceOrderedTiming[i - 1].song_start_time);
+          storedTimingUsable = storedCoversCurrent && chronological;
+          if (storedCoversCurrent && !chronological) {
+            console.warn(`[director:${id}] stored WhisperX line windows run backward in source order; using ordered source-line timing estimates`);
+          }
+          if (storedTimingUsable) {
             lyricTiming = storedTiming;
           }
         }
@@ -8438,9 +8506,14 @@ const server = http.createServer(async (req, res) => {
         // this batch's time window so the scenes are planned ON the timeline.
         // (lyricTiming and approvedApplied already set above)
         const winFrom = prog.plannedSeconds;
-          const winTo = prog.plannedSeconds + budget;
-          const inWin = (t) => Number(t.end_seconds ?? t.end) > winFrom - 0.001
-            && Number(t.start_seconds ?? t.start) < winTo + 0.001;
+        const winTo = prog.plannedSeconds + budget;
+        const inWin = (t) => Number(t.end_seconds ?? t.end) > winFrom - 0.001
+          && Number(t.start_seconds ?? t.start) < winTo + 0.001;
+        // A partial approved timeline cannot drive batching: otherwise the
+        // scene planner may receive only the covered subset (or conflicting
+        // instrumental/unknown labels) while omitting source lines. It is an
+        // authority only when every current source line is represented.
+        if (approvedApplied && approvedMaster) {
           const slimSegs = approvedMaster.segments.filter(inWin).map((s) => ({
             segment_id: s.segment_id, type: s.type,
             start_seconds: Number(s.start_seconds), end_seconds: Number(s.end_seconds),
@@ -8459,10 +8532,11 @@ const server = http.createServer(async (req, res) => {
               })),
             };
           }
-        if (!approvedApplied && storedCoversCurrent) {
-          // The approved slice above already replaced this when it covers the
-          // current lines; the raw stored windows are the next-best source.
-          if (!approvedApplied) lyricTiming = storedTiming;
+        }
+        if (approvedApplied) {
+          // Complete approved timelines are the exact timing authority.
+        } else if (storedTimingUsable) {
+          lyricTiming = storedTiming;
         } else if (song && song.hasLyrics !== false) {
           const parsed = parseLyricLines(board.input.story);
           if (parsed.length) {
@@ -8507,7 +8581,7 @@ const server = http.createServer(async (req, res) => {
       }
       // masterTiming stays the LAST field: existing wiring tests pin that
       // exact tail, and the planning engine still reads it the same way.
-      return { ready: false, done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, cinematicContext, masterTiming };
+      return { ready: false, done, planTarget, prog, avgScene, remaining, n, budget, prevScene, priorDialogue, lyricTiming, lineRange, cinematicContext, masterTiming };
     };
     // -----------------------------------------------------------------------
     // Storyboard Planner 2.0 — READ-ONLY views over the SAME board and the
@@ -8515,155 +8589,18 @@ const server = http.createServer(async (req, res) => {
     // approves anything, or starts a run. They power the cinematic workspace
     // without giving it a second planning engine.
     // -----------------------------------------------------------------------
-    const storyboardRouteId = () => decodeURIComponent(p.split("/")[4] || "");
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard$/) && req.method === "GET") {
-      const id = storyboardRouteId();
-      const board = readDirectorBoard(id);
-      const timeline = normalizeStoryboardTimeline({ board });
-      const audit = auditStoryboardCoverage({ board, timeline });
-      return json(res, 200, buildStoryboardView({ board, timeline, audit }));
-    }
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/timeline$/) && req.method === "GET") {
-      const id = storyboardRouteId();
-      const board = readDirectorBoard(id);
-      const tl = normalizeStoryboardTimeline({ board });
-      // Flat event list keeps the DAW-style ruler simple while the full 19
-      // lanes remain available for the lane view. Source ids are preserved.
-      const events = STORYBOARD_TRACKS.flatMap((track) => arr(tl.tracks[track]).map((e) => ({ ...e, track })))
-        .sort((a, b) => a.start - b.start || a.end - b.end);
-      return json(res, 200, {
-        board_id: id, source: tl.source, id: tl.id, version: tl.version,
-        approvedAt: tl.approvedAt, approved: tl.approved, available: tl.available,
-        durationSec: tl.durationSec, readOnly: true,
-        trackCounts: tl.trackCounts, tracks: tl.tracks, events,
-        note: tl.note,
-      });
-    }
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/context$/) && req.method === "GET") {
-      const id = storyboardRouteId();
-      const board = readDirectorBoard(id);
-      const tl = normalizeStoryboardTimeline({ board });
-      const fromQ = Number(u.searchParams.get("from"));
-      const toQ = Number(u.searchParams.get("to"));
-      const from = Number.isFinite(fromQ) ? fromQ : 0;
-      const to = Number.isFinite(toQ) ? toQ : tl.durationSec;
-      const ctx = storyboardBatchContext({ board, timeline: tl, from, to });
-      return json(res, 200, { board_id: id, context: ctx, promptBlock: buildStoryboardPromptBlock(ctx) });
-    }
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/coverage$/) && req.method === "GET") {
-      const id = storyboardRouteId();
-      const board = readDirectorBoard(id);
-      const timeline = normalizeStoryboardTimeline({ board });
-      return json(res, 200, { board_id: id, ...auditStoryboardCoverage({ board, timeline }) });
-    }
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/validate$/) && req.method === "GET") {
-      const id = storyboardRouteId();
-      const board = readDirectorBoard(id);
-      const timeline = normalizeStoryboardTimeline({ board });
-      return json(res, 200, {
-        board_id: id,
-        ...validateStoryboardForApproval({ board, timeline }),
-        note: "Advisory pre-approval audit. The existing APPROVE route remains the authority; critical errors here are never silently waived.",
-      });
-    }
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/handoff$/) && req.method === "GET") {
-      const id = storyboardRouteId();
-      const board = readDirectorBoard(id);
-      const timeline = normalizeStoryboardTimeline({ board });
-      return json(res, 200, { board_id: id, ...buildDirectorHandoff({ board, timeline }) });
-    }
-    // Prompt preview (dry run): the EXACT system + user messages the next
-    // Continue would send to the LLM — built by the same planner above, but
-    // no model call and nothing saved. Powers Show prompt popup.
-    // Chief Director Story Plan + stage pipeline — read-only. Returns the
-    // authoritative plan (built lazily from the bible for pre-plan boards,
-    // never persisted by this route) plus per-stage done/ready/blocked
-    // status. Powers the storyboard's Story Plan panel. No LLM, no mutation.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/plan$/) && req.method === "GET") {
+    // Canonical asset map used by the Characters & World panel.
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/assets$/) && req.method === "GET") {
       const id = decodeURIComponent(p.split("/")[4] || "");
       const board = readDirectorBoard(id);
-      const storyPlan = (board.storyPlan && typeof board.storyPlan === "object" && Object.keys(board.storyPlan).length)
-        ? normalizeStoryPlan(board.storyPlan)
-        : (board.blueprint ? buildStoryPlan({ input: board.input, blueprint: board.blueprint }) : normalizeStoryPlan(null));
-      return json(res, 200, { board_id: id, storyPlan, stages: stageStatus({ ...board, storyPlan }) });
-    }
-    // Intelligent Director: Lyric Coverage Map (spec §3) — read-only.
-    // Every lyric line with its meaningful phrases, assigned scenes/shots and
-    // coverage status, plus the phrase totals. Powers the UI coverage view and
-    // lyric<->shot navigation. No LLM, no board mutation.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/coverage$/) && req.method === "GET") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      const map = buildLyricCoverageMap(board.scenes, boardLyricLines(board));
-      return json(res, 200, { board_id: id, lines: map, summary: coverageSummary(map) });
-    }
-    // Intelligent Director: quality-control validation pass (spec §12) —
-    // configurable 0–100 score with explicit rule-based breakdown (lyric
-    // coverage, action clarity, continuity, timing, prompt completeness) plus
-    // the structural story-board gate. Read-only; issues are actionable.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/semantics$/) && req.method === "GET") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
+      const bp = board.blueprint || {};
+      const dupes = [ ...findDuplicateAssets(bp.characters), ...findDuplicateAssets(bp.locations), ...findDuplicateAssets(bp.objects) ];
       return json(res, 200, {
-        board_id: id,
-        semantics: board.semantics || { language: "auto", lines: [], source: "none" },
-        issues: boardSemanticIssues(board),
+        board_id: id, map: buildAssetReferenceMap(board), duplicates: dupes,
+        styleGuide: buildVisualStyleGuide(board), issues: validateAssetContinuity(board),
+        production: directorAssetWithVersions(id, getBoardAssetState(board)),
       });
-    }
-    // Run (or re-run) the meaning analysis. body: { useModel?: boolean }
-    // The model pass is opt-in per call (it is slow on a local model) — the
-    // deterministic pass always runs and is stored either way.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/semantics$/) && req.method === "POST") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      const body = await readJson(req).catch(() => ({}));
-      const language = String(body.language || (board.input && board.input.semanticsLanguage) || "auto");
-      const lines = directorSourceLines(board);
-      if (!lines.length) {
-        return json(res, 400, { error: "this board has no source lines to analyse" });
-      }
-      let rows = analyzeLinesDeterministic(lines, {
-        language, bible: board.blueprint, genre: board.input && board.input.genre,
-      });
-      let source = "deterministic";
-      let warning = "";
-      if (body.useModel !== false) {
-        const enriched = await enrichSemanticsWithModel(lines, {
-          language, bible: board.blueprint, genre: board.input && board.input.genre,
-          styleLock: board.styleLock || "",
-        });
-        if (enriched.rows.length) { rows = enriched.rows; source = enriched.source; }
-        warning = enriched.warning || "";
-      }
-      // The song boards: the measured audio timing rides along when a
-      // transcript exists (never a fabricated timestamp).
-      const transcriptSegments = (board.input && board.input.songAnalysis && board.input.songAnalysis.transcript
-        && board.input.songAnalysis.transcript.segments) || [];
-      if (transcriptSegments.length) {
-        rows = alignSemanticsToTiming(rows, {
-          transcriptSegments,
-          duration: Number(board.input && board.input.song && board.input.song.durationSeconds) || 0,
-        });
-      }
-      board.semantics = {
-        language,
-        source,
-        warning,
-        lines: rows,
-        created_at: new Date().toISOString(),
-      };
-      const attached = attachSemanticsToScenes(board, board.semantics);
-      board.semantic_issues = attached.issues;
-      const saved = writeDirectorBoard(board);
-      return json(res, 200, {
-        board_id: id,
-        semantics: saved.semantics,
-        attached: attached.attached,
-        repaired: attached.repaired,
-        issues: attached.issues,
-      });
-    }
-    // ---- WhisperX lyric timeline (Story / Song) -------------------------
+    }    // ---- WhisperX lyric timeline (Story / Song) -------------------------
     // The transcript is ANNOTATIVE: it supplies MEASURED timing for the audio,
     // while the user's own lyric text stays authoritative and is never
     // replaced by what the model heard. Stored on the board JSON (no schema
@@ -9406,233 +9343,6 @@ except Exception as e:
       }
       return json(res, 200, { ok: true });
     }
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/validate$/) && req.method === "GET") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      const scored = scoreDirectorPlan({ ...board, blueprint: { ...(board.blueprint || {}), lyric_lines: boardLyricLines(board) } });
-      const gate = validateStoryBoard(board);
-      const lyric = validateLyricPlan(
-        board.scenes,
-        boardLyricLines(board),
-        board.input && board.input.song && board.input.song.durationSeconds
-          ? Number(board.input.song.durationSeconds) : Number(board.input && board.input.targetSeconds) || null,
-      );
-      return json(res, 200, {
-        board_id: id,
-        score: scored.score,
-        breakdown: scored.breakdown,
-        issues: scored.issues,
-        coverage: scored.coverage,
-        errors: gate.errors,
-        warnings: [...gate.warnings, ...lyric, ...learningReviewChecklist(board), ...validateBibleAnatomy(board.blueprint)],
-        // The meaning layer: does every scene really show its source line?
-        semantics: (board.semantics && board.semantics.lines ? board.semantics.lines : []).slice(0, 200).map((r) => ({
-          line_id: r.line_id,
-          source_text: r.source_text,
-          language: r.language,
-          interpretation: r.interpretation,
-          line_kind: r.line_kind,
-          action_plan: (r.action_plan || []).map((a) => ({
-            action: a.action, body_part: a.body_part, grounded: a.grounded !== false,
-          })),
-          camera: r.camera || null,
-          beats: r.beats || [],
-          warnings: r.warnings || [],
-        })),
-        semanticIssues: boardSemanticIssues(board),
-        continuity: detectContinuityIssues(board.scenes),
-        genreNote: genreDirectingNotes(board.input && board.input.genre, board.input && board.input.genreCustom),
-      });
-    }
-    // Chief Director approval checkpoint — sign off one DIRECTOR_STAGES stage.
-    // Body: { stage: string, force?: boolean }. Enforces dependency order via
-    // stageStatus(); persists the approval timestamp into storyPlan.approvals
-    // (board JSONB, no schema migration). Powers approval controls.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/approve-stage$/) && req.method === "POST") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      const body = await readJson(req).catch(() => ({}));
-      const { plan, error } = chiefApproveStage(board, body && body.stage, { force: !!(body && body.force) });
-      if (error) return json(res, 400, { error });
-      board.storyPlan = plan;
-      const saved = writeDirectorBoard(board);
-      return json(res, 200, { board_id: id, storyPlan: plan, stages: stageStatus(saved) });
-    }
-    // Chief Director uncovered-phrase gate — phrases with no staged visual
-    // event, enriched with estimated timing. Read-only; powers selective
-    // regeneration of the exact shots that leave meaning uncovered.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/uncovered$/) && req.method === "GET") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      return json(res, 200, { board_id: id, uncovered: uncoveredPhrases(board) });
-    }
-    // World & Asset Intelligence (Phase 2) — read-only reference map over the
-    // board's bible + scenes: character/location/prop scene lists, duplicate
-    // asset flags, visual style guide, continuity issues. Powers Character and
-    // Asset References + Validation panels. No DB change, no mutation.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/assets$/) && req.method === "GET") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      const bp = board.blueprint || {};
-      const dupes = [
-        ...findDuplicateAssets(bp.characters),
-        ...findDuplicateAssets(bp.locations),
-        ...findDuplicateAssets(bp.objects),
-      ];
-      return json(res, 200, {
-        board_id: id,
-        map: buildAssetReferenceMap(board),
-        duplicates: dupes,
-        styleGuide: buildVisualStyleGuide(board),
-        issues: validateAssetContinuity(board),
-        // The Generate Assets stage lives on the board JSON (no DB migration).
-        production: directorAssetWithVersions(id, getBoardAssetState(board)),
-      });
-    }
-    // Cinematography & shot planning (Phase 3) — read-only plans derived
-    // from approved shot direction: shot list, camera motion, lighting,
-    // blocking, transitions + validation. Powers Storyboard/Timeline and
-    // the Shot Inspector. No mutation, no DB change.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/cinematography$/) && req.method === "GET") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      return json(res, 200, {
-        board_id: id,
-        shots: buildShotList(board),
-        camera: buildCameraMotionPlan(board),
-        lighting: buildLightingPlan(board),
-        blocking: buildBlockingPlan(board),
-        transitions: buildTransitionPlan(board),
-        issues: validateCinematography(board),
-      });
-    }
-    // Acting, motion & audio sync (Phase 4) — read-only: character actions,
-    // interactions, motion timeline, audio timing (measured wins, estimated
-    // flagged), action sync, lip-sync instructions + motion validation.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/motion-audio$/) && req.method === "GET") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      return json(res, 200, {
-        board_id: id,
-        actions: buildCharacterActionPlan(board),
-        interactions: buildInteractionPlan(board),
-        timeline: buildMotionTimeline(board),
-        audioTiming: buildAudioTimingMap(board),
-        sync: buildActionSyncPlan(board),
-        lipsync: buildLipSyncInstructions(board),
-        issues: validateMotionPrompts(board),
-      });
-    }
-    // Prompt preview (Phase 5) — dry run of what Flux (image) and LTX/Wan
-    // (video) receive: per-shot prompts assembled with the same bible
-    // identities + locks approve enforces, plus checklist issues. No ComfyUI
-    // call, no mutation, no node IDs/parameters here (adapters own those).
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/prompts$/) && req.method === "GET") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      return json(res, 200, { board_id: id, shots: buildShotPrompts(board) });
-    }
-    // Delivery (Phase 7) — read-only edit plan, assembly timeline, resumable
-    // render-job spec (existing runners consume it unchanged) + gated QC
-    // report with selective regen targets. No generation, no mutation.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/delivery$/) && req.method === "GET") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      const q = Object.fromEntries(new URL(req.url, "http://x").searchParams.entries());
-      const beatsParam = q.beats != null && String(q.beats).trim() ? String(q.beats).split(",").map((x) => x.trim()).filter(Boolean) : null;
-      return json(res, 200, {
-        board_id: id,
-        editPlan: buildEditPlan(board),
-        timeline: buildAssemblyTimeline(board),
-        renderJob: buildRenderJob(board, { format: q.format, beats: beatsParam }),
-        qc: buildQCReport(board, { minScore: Number(q.minScore) || 60 }),
-      });
-    }
-    // Intelligent Director: staged repair (spec §15.9) — re-plans ONLY the
-    // flagged scenes/shots via the reasoning engine, preserving ids and
-    // approved neighbours. Body: { scene_numbers?: number[] } (default: all
-    // scenes named in the current validation issues). Persists + returns board.
-    if (p.match(/^\/api\/director\/boards\/[^/]+\/repair$/) && req.method === "POST") {
-      const id = decodeURIComponent(p.split("/")[4] || "");
-      const board = readDirectorBoard(id);
-      if (!board.blueprint) return json(res, 400, { error: "analyze the story first" });
-      if (!Array.isArray(board.scenes) || !board.scenes.length) return json(res, 400, { error: "no scenes to repair" });
-      const sceneAssetState = directorAssetWithVersions(id, getBoardAssetState(board));
-      const approvedSceneAssets = directorApprovedAssets(board, sceneAssetState);
-      const body = await readJson(req).catch(() => ({}));
-      const scored = scoreDirectorPlan({ ...board, blueprint: { ...(board.blueprint || {}), lyric_lines: boardLyricLines(board) } });
-      let targets = Array.isArray(body.scene_numbers)
-        ? body.scene_numbers.map((n) => Number(n)).filter((n) => Number.isFinite(n))
-        : [];
-      if (!targets.length) {
-        const nums = new Set();
-        for (const m of scored.issues) {
-          const hit = String(m).match(/scene (\d+)/i) || String(m).match(/shot (\d+)-/i);
-          if (hit) nums.add(Number(hit[1]));
-        }
-        targets = [...nums];
-      }
-      if (!targets.length) return json(res, 200, { board_id: id, repaired: [], score: scored.score, board });
-      const picked = board.scenes.filter((s) => targets.includes(Number(s.scene_number)));
-      if (!picked.length) return json(res, 400, { error: "no matching scenes for scene_numbers" });
-      const user = buildDirectionRepairPrompt({
-        input: board.input, blueprint: board.blueprint, scenes: picked,
-        // The meaning of the flagged lines: a repair restores the LINE's
-        // meaning, not just the flag.
-        issues: [...scored.issues, ...boardSemanticIssues(board)],
-        semantics: semanticsForBatch(board, picked.flatMap((s) => [
-          { lyric_line_id: s.line_from },
-          { lyric_line_id: s.line_to },
-        ]).filter((l) => l.lyric_line_id)),
-        approvedAssets: approvedSceneAssets,
-        promptAddons: directorPromptAddons(readDirectorPromptSettings()),
-      });
-      const raw = await llmChatJson({
-        system: DIRECTOR_SYSTEM, user, maxTokens: 6000, temperature: 0.5,
-        rawTag: `_raw_${id}_repair.log`,
-      });
-      assertNoCJK(raw, "the repaired scenes");
-      const fixed = (Array.isArray(raw.scenes) ? raw.scenes : []).map((s, i) => {
-        const num = Number(s && s.scene_number) || targets[i] || 0;
-        const normed = normalizeScene(s, num || 1, board.input && board.input.sceneSeconds);
-        // Same post-processing as a planned batch: silent-film boards stay
-        // silent, independent-shots boards stay independent, lyric_text is
-        // re-joined, and bible-id grounding drops hallucinated cast — so a
-        // repair can never reintroduce what planning guards remove.
-        if (board.input && board.input.includeDialogue === false) normed.dialogue = [];
-        if (!board.input || board.input.chainContinuity !== true) scrubSceneContinuity(normed);
-        try {
-          const timed = boardLyricLines(board);
-          const joinLine = (lid) => timed.find((l) => Number(l.lyric_line_id) === Number(lid));
-          if (normed.lyric_line_id && !normed.lyric_text && timed.length) {
-            const line = joinLine(normed.lyric_line_id);
-            if (line && line.lyric_text) normed.lyric_text = String(line.lyric_text);
-          }
-          // Repaired multi-shot scenes carry their own per-shot linkage — join
-          // lyric_text per shot exactly like a planned batch does.
-          for (const sh of (Array.isArray(normed.shots) ? normed.shots : [])) {
-            if (sh && sh.lyric_line_id && !sh.lyric_text && timed.length) {
-              const line = joinLine(sh.lyric_line_id);
-              if (line && line.lyric_text) sh.lyric_text = String(line.lyric_text);
-            }
-          }
-        } catch { /* lyric join is best-effort */ }
-        try { canonicalizeSceneRefs(normed, board.blueprint); } catch { /* grounding is best-effort */ }
-        const assetRefs = resolveSceneAssetRefs(normed, sceneAssetState);
-        if (assetRefs.issues.length) console.warn(`[director:${id}] repair asset refs: ${assetRefs.issues.join("; ").slice(0, 400)}`);
-        if (approvedSceneAssets.length) compactSceneGenerationDirections(normed);
-        // Preserve the repaired scene_number even when the model omits it.
-        if (num) normed.scene_number = num;
-        return normed;
-      });
-      const byNum = new Map(fixed.map((s) => [Number(s.scene_number), s]));
-      board.scenes = board.scenes.map((s) => byNum.get(Number(s.scene_number)) || s);
-      // The repaired scenes carry the meaning again.
-      attachSemanticsToScenes(board, board.semantics);
-      board.warn = null;
-      const next = scoreDirectorPlan({ ...board, blueprint: { ...(board.blueprint || {}), lyric_lines: boardLyricLines(board) } });
-      return json(res, 200, { board_id: id, repaired: targets, score: next.score, board: writeDirectorBoard(board) });
-    }
     if (p.match(/^\/api\/director\/boards\/[^/]+\/prompt-preview$/) && req.method === "GET") {
       const id = decodeURIComponent(p.split("/")[4] || "");
       const board = readDirectorBoard(id);
@@ -9648,7 +9358,7 @@ except Exception as e:
         });
       }
       const user = buildScenesPrompt({
-        input: board.input, blueprint: board.blueprint, beats: spec.beats, prevScene: spec.prevScene,
+        input: board.input, blueprint: board.blueprint, prevScene: spec.prevScene,
         startNumber: spec.done + 1, count: spec.n, styleLock: board.styleLock,
         totalScenes: board.sceneCount, priorDialogue: spec.priorDialogue,
         lyricLines: Array.isArray(board.blueprint.lyric_lines) ? board.blueprint.lyric_lines : [],
@@ -9698,7 +9408,7 @@ except Exception as e:
         const body = await readJson(req).catch(() => ({}));
         const spec = nextSceneBatchSpec(board, body.count, id);
         if (spec.ready) return json(res, 200, spec.write ? writeDirectorBoard(spec.board) : spec.board);
-        const { done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, masterTiming, cinematicContext } = spec;
+        const { done, planTarget, prog, avgScene, remaining, n, budget, prevScene, priorDialogue, lyricTiming, lineRange, masterTiming, cinematicContext } = spec;
         const scenesRawTag = `_raw_${id}_scenes_${done + 1}.log`;
         const batchStartedAt = Date.now();
         const batchLlmAttempts = [];
@@ -9780,7 +9490,7 @@ except Exception as e:
           raw = await llmChatJsonLive({
             system: DIRECTOR_SYSTEM,
             user: buildScenesPrompt({
-              input: board.input, blueprint: board.blueprint, beats, prevScene,
+              input: board.input, blueprint: board.blueprint, prevScene,
               startNumber: done + 1, count: attemptN, styleLock: board.styleLock,
               totalScenes: board.sceneCount, priorDialogue,
               lyricLines: Array.isArray(board.blueprint.lyric_lines) ? board.blueprint.lyric_lines : [],
@@ -9887,8 +9597,57 @@ except Exception as e:
       // break grounding, or verbatim repeat scenes.
       const landed = [];
       const groundNotes = [];
+      // Narration text is reconstructed from the saved source, never trusted
+      // from model output. Scene line ranges are global across the board, so
+      // this also keeps later batches (e.g. scenes 40–60) anchored to the
+      // correct section of a long narration.
+      const sourceNarrationLines = board.input.song ? [] : parseLyricLines(board.input.story || "");
+      const openingSourceLines = board.input.song ? lyricTiming : sourceNarrationLines;
       for (let i = 0; i < got.length && done + landed.length < board.sceneCount; i++) {
         const normed = normalizeScene(got[i], done + landed.length + 1, board.input.sceneSeconds);
+        if (normed.scene_number === 1 && isAbstractOpeningSource(openingSourceLines, board.blueprint && board.blueprint.locations)) {
+          const sourceCount = Math.max(1, Math.min(6, openingSourceLines.length || 1));
+          const duration = Number(normed.duration_seconds) || Number(board.input.sceneSeconds) || 3;
+          const abstractImage = "An abstract cosmic opening before any deity is shown: deep indigo-black space, faint celestial glow slowly emerging from darkness, subtle shifting patterns of light suggesting peace, compassion, awe, and immeasurable power. No person, deity, face, silhouette, recognizable mountain, snow, temple, Ganga, meditation pose, or character attributes. Grand devotional cinema, restrained atmospheric light, reverent and enigmatic mood.";
+          const abstractMotion = "The faint glow gradually emerges from darkness; subtle light patterns shift slowly. Slow gradual camera push. No figure or recognizable place appears.";
+          normed.identity_free = true;
+          normed.line_from = 1;
+          normed.line_to = sourceCount;
+          normed.title = "A Presence Beyond Form";
+          normed.dramatic_purpose = "Introduce the narration's abstract qualities through symbolic light before revealing any deity or place.";
+          normed.characters = [];
+          normed.characters_detailed = [];
+          normed.asset_refs = { characters: [], locations: [], objects: [] };
+          normed.reference_images = [];
+          normed.location = "";
+          normed.objects = [];
+          normed.action = "A faint celestial glow emerges from darkness as subtle patterns of light suggest the narration's abstract emotions and power.";
+          normed.motion = abstractMotion;
+          normed.environment = "Deep indigo-black cosmic space with restrained, shifting light; no identifiable physical location.";
+          normed.lighting = "A faint celestial glow slowly emerges from darkness, softly illuminating abstract drifting patterns.";
+          normed.camera = { shot_type: "Wide Shot", angle: "Eye Level", movement: "Slow Push-In" };
+          normed.image_prompt = abstractImage;
+          normed.video_prompt = abstractMotion;
+          normed.dialogue = [];
+          if (!board.input.song) normed.narration = sourceNarrationLines.slice(0, sourceCount).map((line) => String(line.lyric_text || "")).join("\n");
+          normed.shots = (normed.shots.length ? normed.shots : [normalizeScene({ duration_seconds: duration }, 1, duration).shots[0]]).slice(0, 1).map((shot) => ({
+            ...shot,
+            identity_free: true,
+            characters: [], characters_detailed: [], asset_refs: { characters: [], locations: [], objects: [] },
+            location: "", objects: [], dialogue: [],
+            action: normed.action, motion: abstractMotion, environment: normed.environment,
+            lighting: normed.lighting, camera: normed.camera,
+            image_prompt: abstractImage, video_prompt: abstractMotion,
+          }));
+        }
+        bindApprovedSceneAssetRefs(normed, approvedSceneAssets);
+        if (!board.input.song) {
+          const from = Number(normed.line_from);
+          const to = Number(normed.line_to);
+          normed.narration = Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to >= from
+            ? sourceNarrationLines.slice(from - 1, to).map((line) => String(line.lyric_text || "")).join("\n")
+            : "";
+        }
         // Silent-film board: the model sometimes still emits lines despite the
         // DISABLED instruction — strip them server-side so Generate stays
         // silent (no voice, no lip-sync, no clip growth).
@@ -10008,7 +9767,7 @@ except Exception as e:
         for (const note of flagRepeatStaging(board.scenes).slice(0, 3)) warnBits.push(note);
         // The MEANING lands on the scenes: every scene carries its source
         // line, the interpretation, the visible action plan, the camera
-        // rationale and the beats. A scene that does not show its line is
+        // rationale and the source line. A scene that does not show its line is
         // repaired deterministically and reported (never silently accepted).
         const semanticAttach = attachSemanticsToScenes(board, board.semantics);
         for (const issue of semanticAttach.issues.slice(0, 4)) {
@@ -10105,10 +9864,6 @@ except Exception as e:
     // AI append: generate exactly ONE new bible entry (character | location |
     // object) from the master input (title + story/lyrics + genre/style +
     // instructions + song) plus the ALREADY generated bible, then append it.
-    // Nothing existing is rewritten — except the story beats, which are
-    // refreshed (stable + extended where the new entry participates) so later
-    // scene batches plan with the new location/object/character in context.
-    // A failed beats refresh never fails the add — the old beats are kept.
     if (p.match(/^\/api\/director\/boards\/[^/]+\/add-entry$/) && req.method === "POST") {
       const id = decodeURIComponent(p.split("/")[4] || "");
       const board = readDirectorBoard(id);
@@ -10170,44 +9925,6 @@ except Exception as e:
           n++;
         }
         board.blueprint.objects.push(next);
-      }
-      // Beats refresh: fold the just-added entry into the story beats (kept
-      // stable, extended where the new entry participates). Best-effort — a
-      // failed/offline refresh keeps the existing beats and never fails the
-      // add itself.
-      try {
-        const added = kind === "character"
-          ? board.blueprint.characters[board.blueprint.characters.length - 1]
-          : kind === "location"
-            ? board.blueprint.locations[board.blueprint.locations.length - 1]
-            : board.blueprint.objects[board.blueprint.objects.length - 1];
-        const beatsRaw = await llmChatJson({
-          system: DIRECTOR_SYSTEM,
-          user: buildBeatsRefreshPrompt({ input: board.input, blueprint: board.blueprint, kind, newEntry: added }),
-          maxTokens: 3000,
-          temperature: 0.5,
-          timeoutMs: REQUEST_TIMEOUT_MS,
-          rawTag: `_raw_${id}_beats_refresh.log`,
-        });
-        const beatsList = Array.isArray(beatsRaw.beats) ? beatsRaw.beats : (Array.isArray(beatsRaw) ? beatsRaw : []);
-        if (beatsList.length) {
-          board.blueprint.beats = beatsList.map((x, i) => {
-            const o = x && typeof x === "object" ? x : {};
-            const v = (k2, fb) => (o[k2] == null ? fb : String(o[k2]));
-            const out = { n: Number(o.n) || i + 1, title: v("title", `Beat ${i + 1}`), summary: v("summary", "") };
-            const loc = typeof o.location === "string" ? o.location.trim() : "";
-            if (loc) out.location = loc;
-            const objs = Array.isArray(o.objects)
-              ? o.objects.filter((y) => typeof y === "string" || typeof y === "number").map((y) => String(y).trim()).filter(Boolean).slice(0, 6)
-              : [];
-            if (objs.length) out.objects = objs;
-            return out;
-          });
-        } else {
-          console.warn(`[director:${id}] beats refresh returned no beats after add ${kind} — keeping existing beats`);
-        }
-      } catch (e) {
-        console.warn(`[director:${id}] beats refresh failed after add ${kind} — keeping existing beats: ${e && e.message ? e.message : e}`);
       }
       board.error = null;
       return json(res, 200, writeDirectorBoard(board));
@@ -10303,13 +10020,18 @@ except Exception as e:
       return json(res, 200, writeDirectorBoard(board));
     }
     // Duplicate a board as a fresh version (copy characters, locations,
-    // objects, beats + scenes prompts exactly; drop the linked project so
+    // objects + scene prompts exactly; drop the linked project so
     // images/videos regenerate from scratch on approve). The new title is
     // auto-versioned: "<base> v2", then v3, ... — computed as max+1 across
     // the whole "<base>" family so re-copying v1 after v2 exists still
     // yields v3, never a second v2.
     if (p.match(/^\/api\/director\/boards\/[^\/]+\/duplicate$/) && req.method === "POST") {
       const id = decodeURIComponent(p.split("/")[4] || "");
+      const duplicateOptions = await readJson(req).catch(() => ({}));
+      const requestedTitle = String(duplicateOptions.title || "").trim().slice(0, 120);
+      const requestedImports = Array.isArray(duplicateOptions.imports)
+        ? [...new Set(duplicateOptions.imports.map((x) => String(x || "")).filter((x) => ["brief", "audio", "assets", "storyboard", "review", "scenes"].includes(x)))]
+        : null;
       // DB-first read (file fallback) — mirrors GET /api/director/boards/:id.
       let src = null;
       if (pgUp) {
@@ -10373,30 +10095,91 @@ except Exception as e:
         }
         return false;
       };
-      let newTitle = `${base} v${next}`.slice(0, 120);
+      let newTitle = requestedTitle || `${base} v${next}`.slice(0, 120);
+      if (requestedTitle && titles.some((t) => String(t).trim().toLowerCase() === requestedTitle.toLowerCase())) {
+        return json(res, 409, { error: `A Director board named "${requestedTitle}" already exists. Choose a different project name.` });
+      }
       let newId = slug(newTitle) || `story_${Date.now().toString(36)}`;
       // Id collision guard (e.g. a manually created same-slug board): bump
       // the version until both the title and the id are free.
       // eslint-disable-next-line no-await-in-loop
-      while (titles.some((t) => String(t).toLowerCase() === newTitle.toLowerCase()) || await boardIdTaken(newId)) {
+      while (!requestedTitle && (titles.some((t) => String(t).toLowerCase() === newTitle.toLowerCase()) || await boardIdTaken(newId))) {
         next += 1;
         newTitle = `${base} v${next}`.slice(0, 120);
         newId = slug(newTitle) || `story_${Date.now().toString(36)}`;
         if (next > max + 100) throw new Error("could not find a free versioned title");
       }
+      if (requestedTitle && await boardIdTaken(newId)) {
+        return json(res, 409, { error: `The project name "${requestedTitle}" conflicts with an existing board key. Choose a different name.` });
+      }
       const now = new Date().toISOString();
       const clone = (v) => JSON.parse(JSON.stringify(v ?? null));
-      const scenes = Array.isArray(src.scenes) ? clone(src.scenes) : [];
+      const imported = requestedImports == null ? null : new Set(requestedImports);
+      const importTab = (tab) => imported == null || imported.has(tab);
+      // A selected downstream stage brings the data it depends on so the new
+      // board stays usable (scenes need the source and asset bible).
+      const importedTabs = new Set(imported || []);
+      if (importedTabs.has("scenes")) for (const dep of ["brief", "assets", "storyboard"]) importedTabs.add(dep);
+      if (importedTabs.has("storyboard")) for (const dep of ["brief", "assets"]) importedTabs.add(dep);
+      if (importedTabs.has("review")) for (const dep of ["brief", "assets", "storyboard"]) importedTabs.add(dep);
+      if (importedTabs.has("assets") || importedTabs.has("audio")) importedTabs.add("brief");
+      const copyBrief = importedTabs.has("brief") || imported == null;
+      const copyAudio = importTab("audio");
+      const copyAssets = importedTabs.has("assets") || imported == null;
+      const copyStoryboard = importedTabs.has("storyboard") || imported == null;
+      const copyReview = importTab("review");
+      const copyScenes = importedTabs.has("scenes") || imported == null;
+      const sourceInput = clone(src.input) || {};
+      const newInput = { ...sourceInput, title: newTitle };
+      if (!copyBrief) newInput.story = "";
+      if (!copyAudio) {
+        delete newInput.song;
+        delete newInput.sourceAudio;
+        delete newInput.whisperxAudio;
+        delete newInput.songAnalysis;
+      }
+      const sourceBlueprint = clone(src.blueprint);
+      const blueprint = sourceBlueprint && (copyBrief || copyAssets || copyStoryboard || copyReview)
+        ? {
+            ...sourceBlueprint,
+            analysis: copyBrief ? sourceBlueprint.analysis : {},
+            logline: copyBrief ? sourceBlueprint.logline : "",
+            characters: copyAssets ? (sourceBlueprint.characters || []) : [],
+            locations: copyAssets ? (sourceBlueprint.locations || []) : [],
+            objects: copyAssets ? (sourceBlueprint.objects || []) : [],
+            beats: [],
+            lyric_lines: copyAudio || copyBrief ? (sourceBlueprint.lyric_lines || []) : [],
+          }
+        : null;
+      const scenes = copyScenes && Array.isArray(src.scenes) ? clone(src.scenes) : [];
+      const importedTabList = imported == null ? [] : [...importedTabs];
       const nb = {
         id: newId,
-        input: { ...clone(src.input), title: newTitle },
+        input: newInput,
         status: scenes.length >= (src.sceneCount || 0) && (src.sceneCount || 0) > 0
           ? "ready"
           : scenes.length ? "scenes-partial" : "analyzed",
-        blueprint: clone(src.blueprint),
+        blueprint,
         scenes,
-        sceneCount: src.sceneCount || scenes.length,
-        styleLock: src.styleLock,
+        sceneCount: copyScenes ? (src.sceneCount || scenes.length) : (copyBrief ? sceneCountFor(newInput.targetSeconds, newInput.sceneSeconds) : 0),
+        styleLock: copyBrief || copyScenes ? src.styleLock : "",
+        processedTabs: importedTabList,
+        ...(copyAudio ? {
+          audioTimeline: clone(src.audioTimeline),
+          lyric_timeline: clone(src.lyric_timeline),
+        } : {}),
+        ...(copyReview ? {
+          storyPlan: clone(src.storyPlan),
+          semantics: clone(src.semantics),
+        } : {}),
+        ...(copyAssets && src.assetProduction ? {
+          assetProduction: {
+            ...clone(src.assetProduction),
+            jobs: [],
+            status: src.assetProduction.status === "approved" ? "approved" : "review",
+          },
+        } : {}),
+        ...(copyScenes ? { scenePlanningMetrics: clone(src.scenePlanningMetrics) } : {}),
         // Fresh version = no linked project: approving mints a NEW project
         // (newTitle), so images/videos generate from scratch. Nothing binary
         // is copied — boards only carry prompts; outputs/ stays untouched.
@@ -10409,8 +10192,8 @@ except Exception as e:
       };
       // Preserve the exact planning config (scene length etc.) from the source.
       if (nb.input && typeof nb.input === "object") {
-        if (src.input.sceneSeconds != null) nb.input.sceneSeconds = src.input.sceneSeconds;
-        if (src.input.targetSeconds != null) nb.input.targetSeconds = src.input.targetSeconds;
+        if (copyBrief && src.input.sceneSeconds != null) nb.input.sceneSeconds = src.input.sceneSeconds;
+        if (copyBrief && src.input.targetSeconds != null) nb.input.targetSeconds = src.input.targetSeconds;
       }
       return json(res, 200, writeDirectorBoard(nb));
     }

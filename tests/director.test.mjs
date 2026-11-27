@@ -57,14 +57,14 @@ describe("sceneCountFor", () => {
     assert.equal(sceneCountFor(60, 0), 0);
   });
   it("batch size is sane", () => {
-    assert.ok(SCENE_BATCH >= 4 && SCENE_BATCH <= 16);
+    assert.ok(SCENE_BATCH >= 4 && SCENE_BATCH <= 20);
   });
-  it("user-selectable scene batch range is 1..12 with the default batch", () => {
+  it("user-selectable scene batch range is 1..20 with the default batch", () => {
     assert.equal(SCENE_BATCH_MIN, 1);
-    assert.equal(SCENE_BATCH_MAX, 12);
+    assert.equal(SCENE_BATCH_MAX, 20);
     const options = Array.from({ length: SCENE_BATCH_MAX - SCENE_BATCH_MIN + 1 }, (_, i) => SCENE_BATCH_MIN + i);
-    assert.deepEqual(options, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    assert.equal(SCENE_BATCH, 8);
+    assert.deepEqual(options, Array.from({ length: 20 }, (_, i) => i + 1));
+    assert.equal(SCENE_BATCH, 20);
     assert.ok(SCENE_BATCH_MAX >= SCENE_BATCH);
   });
 });
