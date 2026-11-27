@@ -122,12 +122,14 @@ describe("buildImageGraph (the dropdown dispatcher)", () => {
   it("keeps the Flux 2 Klein graph for the flux mode and anchors on a reference", () => {
     const g = buildImageGraph("flux", { prompt: "x", image: "ref.png" });
     assert.equal(g["75:74"].inputs.text, "x");
-    assert.ok(g["ref:load"], "the flux mode must keep its img2img anchor");
+    assert.equal(g["75:75"].inputs.image, "ref.png", "the flux mode must load its character reference");
+    assert.equal(g["75:78"].class_type, "ReferenceLatent", "the reference must condition the scene prompt");
+    assert.deepEqual(g["75:64"].inputs.latent_image, ["75:66", 0], "scene composition must use a fresh latent");
   });
   it("never anchors on a reference for the Flux.1-dev workflows", () => {
     for (const id of ["flux_text_image", "flux_reference_image"]) {
       const g = buildImageGraph(id, { prompt: "x", image: "ref.png" });
-      assert.ok(!g["ref:load"], `${id} must stay pure text-to-image`);
+      assert.ok(!g["75:75"], `${id} must stay pure text-to-image`);
     }
   });
   it("falls back to the flux graph for an unknown mode", () => {

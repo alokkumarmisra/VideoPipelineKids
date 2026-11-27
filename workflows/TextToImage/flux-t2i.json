@@ -40,13 +40,13 @@
   },
   "75:63": {
     "inputs": {
-      "cfg": 5,
+      "cfg": 1,
       "model": [
         "75:70",
         0
       ],
       "positive": [
-        "75:74",
+        "75:78",
         0
       ],
       "negative": [
@@ -162,7 +162,7 @@
   },
   "75:70": {
     "inputs": {
-      "unet_name": "flux-2-klein-9b.safetensors",
+      "unet_name": "flux-2-klein-4b-fp8.safetensors",
       "weight_dtype": "default"
     },
     "class_type": "UNETLoader",
@@ -201,6 +201,61 @@
     "class_type": "CLIPTextEncode",
     "_meta": {
       "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "75:75": {
+    "inputs": {
+      "image": "reference.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Character Reference"
+    }
+  },
+  "75:76": {
+    "inputs": {
+      "image": [
+        "75:75",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "Scale Character Reference"
+    }
+  },
+  "75:77": {
+    "inputs": {
+      "pixels": [
+        "75:76",
+        0
+      ],
+      "vae": [
+        "75:72",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "Encode Character Reference"
+    }
+  },
+  "75:78": {
+    "inputs": {
+      "conditioning": [
+        "75:74",
+        0
+      ],
+      "latent": [
+        "75:77",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "Character Consistency Reference"
     }
   }
 }

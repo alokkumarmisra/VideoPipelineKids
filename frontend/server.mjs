@@ -9,6 +9,82 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { Pool } from "pg";
+import { normalizeMovieCharacter, movieCapabilityRegistry, buildMovieReferencePacket, buildMovieKeyframePrompt, resolveMovieEnvironmentAssets } from "../lib/movie.mjs";
+import { movieDb, movieFilesDir, listMovieProjects, getMovieProject, getMovieCharacter, createMovieProject, addMovieCharacter, updateMovieCharacter, saveMovieProduction, setCharacterApproval, addCharacterReference, importMovieCharacterReference, reviewCharacterReference, setCanonicalReference, addMovieCostume, reviewCostume, addMovieEnvironmentAsset, updateMovieEnvironmentAsset, setMovieEnvironmentReference, reviewMovieEnvironmentReference, setMovieEnvironmentLock, createMovieJob, updateMovieJob, addMovieShotAsset, listMovieJobs, getMovieShotAsset, reviewMovieShotAsset } from "./movieStore.mjs";
+
+const movieGenerationProcesses = new Map();
+
+function resolveMoviePacketFiles(packet) {
+  const resolve = (rel) => {
+    const full = path.resolve(ROOT, String(rel || ""));
+    const allowed = [movieFilesDir, DIRECTOR_ASSETS_DIR].some((dir) => full.startsWith(path.resolve(dir) + path.sep));
+    if (!allowed || !fs.existsSync(full) || !fs.statSync(full).isFile()) throw new Error(`Approved reference file is missing: ${rel}`);
+    return full;
+  };
+  return {
+    ...packet,
+    canonical_face_reference: resolve(packet.canonical_face_reference),
+    face_profile_references: packet.face_profile_references.map(resolve),
+    face_profile_reference: packet.face_profile_reference ? resolve(packet.face_profile_reference) : null,
+    body_references: packet.body_references.map(resolve),
+    body_reference: packet.body_reference ? resolve(packet.body_reference) : null,
+    ...(packet.costume_reference ? { costume_reference: resolve(packet.costume_reference) } : {}),
+  };
+}
+function findMovieShot(shotId) {
+  for (const row of listMovieProjects()) {
+    const project = getMovieProject(row.movie_id);
+    for (const scene of project.scenes) {
+      const shot = scene.shots.find((item) => item.shot_id === shotId);
+      if (shot) return { project, scene, shot };
+    }
+  }
+  return null;
+}
+function moviePacketsForShot(project, scene, shot) {
+  if (!shot.character_ids?.length) return [];
+  if (new Set(shot.character_ids).size !== shot.character_ids.length) throw new Error("This shot lists the same character more than once; remove the duplicate cast assignment");
+  const packets = shot.character_ids.map((characterId) => {
+    const character = project.characters.find((row) => row.character_id === characterId);
+    if (!character) throw new Error(`Shot character ${characterId} is not in this movie`);
+    const snapshot = scene.state_snapshots.filter((row) => row.character_id === characterId && row.approved)
+      .sort((a, b) => Number(b.version) - Number(a.version))[0];
+    const baseState = { ...(scene.continuity_start || {}) };
+    delete baseState.characters;
+    for (const row of project.characters) delete baseState[row.character_id];
+    const scopedState = scene.continuity_start?.characters?.[characterId] ?? scene.continuity_start?.[characterId] ?? {};
+    const state = { ...baseState, ...(scopedState && typeof scopedState === "object" ? scopedState : {}), ...(snapshot?.state || {}) };
+    const assignedCostumeId = shot.costume_ids.find((id) => character.costumes.some((item) => item.costume_id === id));
+    const costumeId = assignedCostumeId || state.costume_id;
+    const costume = costumeId ? character.costumes.find((item) => item.costume_id === costumeId) : null;
+    if (costumeId && (!costume || costume.approval_status !== "approved")) throw new Error(`Approve costume ${costumeId} before generating this shot`);
+    const packet = resolveMoviePacketFiles(buildMovieReferencePacket({ movieId: project.movie_id, character, costume,
+      expression: shot.expression, state, shot }));
+    return { character, costume, state, packet };
+  });
+  const canonicalOwners = new Map();
+  for (const entry of packets) {
+    const canonicalPath = path.resolve(entry.packet.canonical_face_reference).toLowerCase();
+    const owner = canonicalOwners.get(canonicalPath);
+    if (owner) throw new Error(`${owner} and ${entry.character.name} use the same canonical face image; assign separate approved references for a multi-character shot`);
+    canonicalOwners.set(canonicalPath, entry.character.name);
+  }
+  return packets;
+}
+function movieEnvironmentForShot(project, scene, shot) {
+  const matched = resolveMovieEnvironmentAssets({ assets: project.environment_assets || [], scene, shot });
+  if (matched.ambiguous.locations.length) throw new Error(`The scene location matches multiple registered locations (${matched.ambiguous.locations.join(", ")}); edit the location text or make the registered names/aliases unambiguous`);
+  if (matched.ambiguous.objects.length) throw new Error(`The shot text matches multiple registered objects through alias “${matched.ambiguous.objects[0]}”; make that alias unique`);
+  const resolve = (asset) => {
+    if (!asset.identity_locked || asset.approval_status !== "approved" || asset.reference_status !== "approved" || !asset.reference_path)
+      throw new Error(`The mentioned ${asset.kind} “${asset.name}” needs an approved reference and identity lock before keyframe generation`);
+    const full = path.resolve(ROOT, asset.reference_path);
+    const allowed = [movieFilesDir, DIRECTOR_ASSETS_DIR].some((dir) => full.startsWith(path.resolve(dir) + path.sep));
+    if (!allowed || !fs.existsSync(full) || !fs.statSync(full).isFile()) throw new Error(`Approved ${asset.kind} reference is missing: ${asset.name}`);
+    return { ...asset, reference_path: full };
+  };
+  return { locations: matched.locations.map(resolve), objects: matched.objects.map(resolve) };
+}
 import { versionMap, setMain, clearRefMain, nextVersion } from "../lib/sequence_state.mjs";
 import {
   normalizeFormat, outDirName, cfgNameForDir, prefixForDir, engineForDir,
@@ -1563,8 +1639,8 @@ function mainsFor(dirName, cfg) {
 // ('IMAGE' is valid for ad-hoc stills; this pipeline writes KEYFRAME.)
 // Each row has its own prompt/status/file_path/model/workflow/attempts/
 // metadata/started_at/completed_at. Size/dims live inside metadata JSONB.
-const REF_MODEL = "flux-2-klein-9b";
-const IMG_MODEL = "flux-2-klein-9b";
+const REF_MODEL = "flux-2-klein-4b-fp8";
+const IMG_MODEL = "flux-2-klein-4b-fp8";
 const LTX_MODEL = "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot";
 const WAN_MODEL = "wan2.1-i2v-14b-480p-Q4_K_M.gguf";
 const REF_WORKFLOW = "flux-t2i";
@@ -5752,7 +5828,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === "/api/me" && req.method === "GET") {
       const user = authedUser(req);
-      return user ? json(res, 200, { user }) : json(res, 401, { error: "unauthorized" });
+      // Session bootstrap is a normal unauthenticated state, not an API
+      // failure. Returning null avoids noisy 401s in the browser console.
+      return json(res, 200, { user: user ?? null });
     }
     // Public read so the login screen + first paint already use the saved
     // theme (writes stay behind auth below).
@@ -5763,6 +5841,348 @@ const server = http.createServer(async (req, res) => {
     // Everything below (API + generated outputs) requires a session.
     if ((p.startsWith("/api/") || p.startsWith("/outputs/") || p.startsWith("/resources/") || p.startsWith("/kids/") || p.startsWith("/director-assets/")) && !authedUser(req))
       return json(res, 401, { error: "unauthorized" });
+
+    // Movie module: isolated identity records and reference files. These
+    // routes do not touch Director boards, assets, prompts, or workflows.
+    if (p === "/api/movie/capabilities" && req.method === "GET") {
+      const base = String(process.env.COMFY_BASE || "").replace(/\/+$/, "");
+      let inventory = { status: "not-configured", detail: "COMFY_BASE is not configured" };
+      if (base) {
+        try {
+          const [nodeResponse, modelResponse] = await Promise.all([
+            fetch(`${base}/object_info`, { signal: AbortSignal.timeout(2500) }),
+            fetch(`${base}/models/checkpoints`, { signal: AbortSignal.timeout(2500) }),
+          ]);
+          if (!nodeResponse.ok) throw new Error(`ComfyUI node inventory returned HTTP ${nodeResponse.status}`);
+          const nodes = await nodeResponse.json();
+          const models = modelResponse.ok ? await modelResponse.json() : [];
+          const names = Object.keys(nodes || {});
+          inventory = { status: "available", node_count: names.length,
+            identity_reference_nodes: names.filter((name) => /ip.?adapter|instant.?id|pulid|reactor|face.?ip|referencelatent|reference.*(image|embed)|.*reference.*video/i.test(name)),
+            checkpoint_models: Array.isArray(models) ? models : [],
+            model_inventory_status: modelResponse.ok ? "available" : `unavailable (HTTP ${modelResponse.status})` };
+        } catch (e) { inventory = { status: "unavailable", detail: String(e?.message || e) }; }
+      }
+      return json(res, 200, { workflows: movieCapabilityRegistry(), inventory });
+    }
+    if (p === "/api/movie/director-references" && req.method === "GET") {
+      const results = [];
+      if (fs.existsSync(DIRECTOR)) for (const file of fs.readdirSync(DIRECTOR).filter((name) => name.endsWith(".json"))) {
+        const boardId = path.basename(file, ".json");
+        let board;
+        try { board = directorAssetReadBoard(boardId); } catch { continue; }
+        if (!board) continue;
+        for (const asset of getBoardAssetState(board).assets || []) {
+          if (!["character", "location", "object"].includes(asset.type) || asset.status !== "approved" || !asset.reference) continue;
+          const rel = String(asset.reference).replaceAll("\\", "/");
+          if (rel.split("/").some((part) => part === ".." || part === "")) continue;
+          const full = path.resolve(DIRECTOR_ASSETS_DIR, ...rel.split("/"));
+          if (!full.startsWith(path.resolve(DIRECTOR_ASSETS_DIR) + path.sep) || !fs.existsSync(full)) continue;
+          results.push({ board_id: boardId, asset_id: asset.id, blueprint_id: asset.blueprint_id || "", type: asset.type, name: asset.name,
+            prompt: asset.prompt || "", description: asset.description || asset.prompt || "", reference: rel, preview_url: `/director-assets/${rel.split("/").map(encodeURIComponent).join("/")}` });
+        }
+      }
+      return json(res, 200, results);
+    }
+    if (p === "/api/movie/projects" && req.method === "GET") return json(res, 200, listMovieProjects());
+    if (p === "/api/movie/projects" && req.method === "POST") {
+      const body = await readJson(req);
+      if (!String(body.title || "").trim()) return json(res, 400, { error: "Movie title is required" });
+      return json(res, 201, createMovieProject(String(body.title).trim()));
+    }
+    const movieProjectMatch = p.match(/^\/api\/movie\/projects\/([^/]+)$/);
+    const movieProductionMatch = p.match(/^\/api\/movie\/projects\/([^/]+)\/production$/);
+    if (movieProductionMatch && req.method === "GET") {
+      const project = getMovieProject(decodeURIComponent(movieProductionMatch[1]));
+      return project ? json(res, 200, { screenplay: project.screenplay, scenes: project.scenes }) : json(res, 404, { error: "Movie not found" });
+    }
+    if (movieProductionMatch && req.method === "PUT") {
+      try {
+        const movieId = decodeURIComponent(movieProductionMatch[1]), body = await readJson(req), project = getMovieProject(movieId);
+        if (!project) return json(res, 404, { error: "Movie not found" });
+        if (!Array.isArray(body.scenes) || body.scenes.some((scene) => !Number.isInteger(Number(scene.scene_number)) || !Array.isArray(scene.shots))) return json(res, 400, { error: "Production data needs numbered scenes with shot arrays" });
+        const characterIds = new Set(project.characters.map((character) => character.character_id));
+        for (const scene of body.scenes) for (const shot of scene.shots) for (const characterId of shot.character_ids || [])
+          if (!characterIds.has(String(characterId))) return json(res, 409, { error: `Shot ${shot.shot_id} references unresolved character ${characterId}` });
+        return json(res, 200, saveMovieProduction(movieId, body.screenplay || {}, body.scenes));
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    const movieJobsMatch = p.match(/^\/api\/movie\/projects\/([^/]+)\/jobs$/);
+    if (movieJobsMatch && req.method === "GET") {
+      const movieId = decodeURIComponent(movieJobsMatch[1]);
+      if (!getMovieProject(movieId)) return json(res, 404, { error: "Movie not found" });
+      return json(res, 200, listMovieJobs(movieId));
+    }
+    const movieShotAction = p.match(/^\/api\/movie\/shots\/([^/]+)\/(keyframe|reference-packets|assets)$/);
+    if (movieShotAction && req.method === "POST" && movieShotAction[2] === "keyframe") {
+      const shotId = decodeURIComponent(movieShotAction[1]), found = findMovieShot(shotId);
+      if (!found) return json(res, 404, { error: "Movie shot not found" });
+      const { project, scene, shot } = found;
+      try {
+        const characterPackets = moviePacketsForShot(project, scene, shot);
+        const environment = movieEnvironmentForShot(project, scene, shot);
+        if (!characterPackets.length && !environment.locations.length && !environment.objects.length)
+          return json(res, 409, { error: "Assign a locked character or add a named, locked location/object reference for this shot before generating." });
+        const comfy = await directorComfyProbe();
+        if (!comfy.up) return json(res, 503, { error: `ComfyUI is unavailable: ${comfy.error}` });
+        const active = movieDb.prepare("SELECT job_id FROM movie_generation_jobs WHERE shot_id=? AND kind='keyframe' AND status IN ('queued','running')").get(shotId);
+        if (active) return json(res, 409, { error: "A keyframe is already generating for this shot", job_id: active.job_id });
+        const inventoryResponse = await fetch(`${String(process.env.COMFY_BASE).replace(/\/+$/, "")}/object_info`, { signal: AbortSignal.timeout(2500) });
+        if (!inventoryResponse.ok) return json(res, 503, { error: "Could not inspect the ComfyUI node inventory; keyframe generation was not queued." });
+        const inventory = await inventoryResponse.json();
+        const requiredReferenceNodes = ["ReferenceLatent", "ImageScaleToTotalPixels", "LoadImage", "VAEEncode"];
+        const missingReferenceNodes = requiredReferenceNodes.filter((node) => !inventory[node]);
+        if (missingReferenceNodes.length) return json(res, 503, { error: `The installed ComfyUI is missing Movie reference nodes: ${missingReferenceNodes.join(", ")}.` });
+        const prompt = buildMovieKeyframePrompt({ characters: characterPackets.map(({ character, costume, state, packet }) => ({ character, costume, state,
+          secondary_reference_type: [packet.face_profile_view?.replaceAll("_", " ") || "", packet.costume_reference ? "costume" : packet.body_reference ? "full-body" : ""].filter(Boolean).join(" then ") })),
+          locations: environment.locations, objects: environment.objects, shot, scene });
+        const workflow = resolveImageWorkflow("flux", "flux");
+        const job = createMovieJob({ movie_id: project.movie_id, shot_id: shotId, kind: "keyframe", prompt, workflow: workflow.id, model: workflow.model });
+        const safeMovie = project.movie_id.replace(/[^A-Za-z0-9_-]/g, "_");
+        const safeShot = shotId.replace(/[^A-Za-z0-9_-]/g, "_");
+        const version = Number(movieDb.prepare("SELECT COALESCE(MAX(version),0)+1 AS n FROM movie_shot_assets WHERE shot_id=? AND kind='keyframe'").get(shotId).n);
+        const movieRoot = path.dirname(movieFilesDir);
+        const output = path.join(movieRoot, "Movies", safeMovie, "Scenes", String(scene.scene_number), "Shots", safeShot, `keyframe_v${version}_${job.job_id}.png`);
+        const relativeOutput = path.relative(ROOT, output).replaceAll("\\", "/");
+        const jobDir = path.join(movieRoot, "jobs"); fs.mkdirSync(jobDir, { recursive: true });
+        const jobFile = path.join(jobDir, `${job.job_id}.json`);
+        const environment_references = [...environment.locations, ...environment.objects].map(({ asset_id, kind, name, description, identity_version, reference_path }) => ({ asset_id, kind, name, description, identity_version, reference_path }));
+        fs.writeFileSync(jobFile, JSON.stringify({ job_id: job.job_id, prompt, packets: characterPackets.map((entry) => entry.packet), environment_references, workflow: workflow.id, model: workflow.model,
+          prefix: `movie/${safeMovie}/scene_${scene.scene_number}/${safeShot}/${job.job_id}` }, null, 2));
+        updateMovieJob(job.job_id, { status: "running" });
+        const proc = spawn(process.execPath, [path.join(ROOT, "scripts/movie_keyframe.mjs"), "--job-file", jobFile, "--out", output],
+          { cwd: ROOT, env: process.env, windowsHide: true });
+        movieGenerationProcesses.set(job.job_id, proc);
+        let log = "";
+        proc.stdout?.on("data", (chunk) => { log = `${log}${chunk}`.slice(-12000); });
+        proc.stderr?.on("data", (chunk) => { log = `${log}${chunk}`.slice(-12000); });
+        proc.on("error", (error) => {
+          movieGenerationProcesses.delete(job.job_id);
+          updateMovieJob(job.job_id, { status: "failed", error: String(error.message || error).slice(-1000) });
+        });
+        proc.on("close", (code) => {
+          movieGenerationProcesses.delete(job.job_id);
+          if (code === 0 && fs.existsSync(output)) {
+            addMovieShotAsset({ shot_id: shotId, job_id: job.job_id, kind: "keyframe", version, file_path: relativeOutput,
+              prompt, workflow: workflow.id, model: workflow.model });
+            updateMovieJob(job.job_id, { status: "review", asset_path: relativeOutput });
+          } else updateMovieJob(job.job_id, { status: "failed", error: (log || `renderer exited with code ${code}`).slice(-1000) });
+        });
+        return json(res, 202, { job, workflow: workflow.id, model: workflow.model, message: `Keyframe generation started with ${characterPackets.length} character packet(s), ${environment.locations.length} location reference(s), and ${environment.objects.length} object reference(s). The result will appear here for review when rendering completes.` });
+      } catch (e) { return json(res, 409, { error: e.message }); }
+    }
+    if (movieShotAction && req.method === "GET" && movieShotAction[2] === "assets") {
+      const found = findMovieShot(decodeURIComponent(movieShotAction[1]));
+      if (!found) return json(res, 404, { error: "Movie shot not found" });
+      return json(res, 200, { assets: movieDb.prepare("SELECT * FROM movie_shot_assets WHERE shot_id=? ORDER BY kind,version DESC").all(found.shot.shot_id),
+        jobs: movieDb.prepare("SELECT * FROM movie_generation_jobs WHERE shot_id=? ORDER BY created_at DESC").all(found.shot.shot_id) });
+    }
+    const movieShotPacketMatch = p.match(/^\/api\/movie\/shots\/([^/]+)\/reference-packets$/);
+    if (movieShotPacketMatch && req.method === "GET") {
+      const shotId = decodeURIComponent(movieShotPacketMatch[1]);
+      const project = listMovieProjects().map((row) => getMovieProject(row.movie_id)).find((row) => row.scenes.some((scene) => scene.shots.some((shot) => shot.shot_id === shotId)));
+      const scene = project?.scenes.find((row) => row.shots.some((shot) => shot.shot_id === shotId));
+      const shot = scene?.shots.find((row) => row.shot_id === shotId);
+      if (!project || !scene || !shot) return json(res, 404, { error: "Movie shot not found" });
+      try {
+        const packets = moviePacketsForShot(project, scene, shot).map((entry) => entry.packet);
+        const environment = movieEnvironmentForShot(project, scene, shot);
+        return json(res, 200, { movie_id: project.movie_id, scene_id: scene.scene_id, shot_id: shot.shot_id, packets, environment });
+      } catch (e) { return json(res, 409, { error: e.message }); }
+    }
+    if (movieProjectMatch && req.method === "GET") {
+      const project = getMovieProject(decodeURIComponent(movieProjectMatch[1]));
+      return project ? json(res, 200, project) : json(res, 404, { error: "Movie not found" });
+    }
+    const movieCharacterMatch = p.match(/^\/api\/movie\/projects\/([^/]+)\/characters$/);
+    if (movieCharacterMatch && req.method === "POST") {
+      try {
+        const body = await readJson(req);
+        return json(res, 201, addMovieCharacter(decodeURIComponent(movieCharacterMatch[1]), normalizeMovieCharacter(body)));
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    const characterRoute = p.match(/^\/api\/movie\/characters\/([^/]+)(?:\/(approve|unlock|references|canonical|costumes|packet))?$/);
+    if (characterRoute) {
+      const id = decodeURIComponent(characterRoute[1]), action = characterRoute[2];
+      if (!action && req.method === "PUT") {
+        try { const body = await readJson(req); const old = getMovieCharacter(id); if (!old) return json(res, 404, { error: "Character not found" });
+          return json(res, 200, updateMovieCharacter(id, normalizeMovieCharacter(body, old), body.create_identity_version === true));
+        } catch (e) { return json(res, 409, { error: e.message }); }
+      }
+      if (action === "approve" && req.method === "POST") {
+        try { return json(res, 200, setCharacterApproval(id, "approved")); } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (action === "unlock" && req.method === "POST") {
+        try { return json(res, 200, setCharacterApproval(id, "draft")); } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (action === "references" && req.method === "POST") {
+        try {
+          const body = await readJson(req), match = String(body.data_url || "").match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+          if (!match) return json(res, 400, { error: "Upload a PNG, JPEG, or WebP image" });
+          const bytes = Buffer.from(match[2], "base64");
+          if (bytes.length > 12 * 1024 * 1024) return json(res, 413, { error: "Reference image must be under 12 MB" });
+          const ref = addCharacterReference(id, String(body.view || "canonical"), "");
+          const ext = match[1] === "jpeg" ? "jpg" : match[1], file = `${ref.reference_id}.${ext}`, full = path.join(movieFilesDir, file);
+          fs.writeFileSync(full, bytes);
+          const relative = path.relative(ROOT, full).replaceAll("\\", "/");
+          movieDb.prepare("UPDATE movie_character_references SET file_path=? WHERE reference_id=?").run(relative, ref.reference_id);
+          return json(res, 201, { ...ref, file_path: relative });
+        } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (action === "references" && req.method === "PUT") {
+        try {
+          const body = await readJson(req), boardId = String(body.board_id || ""), assetId = String(body.asset_id || "");
+          if (!isSafe(boardId)) return json(res, 400, { error: "Invalid Director board id" });
+          const board = directorAssetReadBoard(boardId);
+          if (!board) return json(res, 404, { error: "Director board not found" });
+          const asset = (getBoardAssetState(board).assets || []).find((row) => row.id === assetId && row.type === "character" && row.status === "approved" && row.reference);
+          if (!asset) return json(res, 409, { error: "Select an approved Director character reference" });
+          const rel = String(asset.reference).replaceAll("\\", "/");
+          if (rel.split("/").some((part) => part === ".." || part === "")) return json(res, 400, { error: "Invalid Director reference path" });
+          const full = path.resolve(DIRECTOR_ASSETS_DIR, ...rel.split("/"));
+          if (!full.startsWith(path.resolve(DIRECTOR_ASSETS_DIR) + path.sep) || !fs.existsSync(full)) return json(res, 404, { error: "Approved Director reference file is missing" });
+          return json(res, 200, importMovieCharacterReference(id, "canonical_face", path.relative(ROOT, full).replaceAll("\\", "/"), boardId, assetId));
+        } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (action === "canonical" && req.method === "PUT") {
+        try { const body = await readJson(req); return json(res, 200, setCanonicalReference(id, body.reference_id)); } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (action === "costumes" && req.method === "POST") {
+        try {
+          const body = await readJson(req);
+          if (!String(body.name || "").trim()) return json(res, 400, { error: "Costume name is required" });
+          let reference_path = null;
+          if (body.reference_data_url) {
+            const match = String(body.reference_data_url).match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+            if (!match) return json(res, 400, { error: "Upload a PNG, JPEG, or WebP costume image" });
+            const bytes = Buffer.from(match[2], "base64");
+            if (bytes.length > 12 * 1024 * 1024) return json(res, 413, { error: "Costume reference must be under 12 MB" });
+            const ext = match[1] === "jpeg" ? "jpg" : match[1];
+            const full = path.join(movieFilesDir, `costume_${crypto.randomBytes(8).toString("hex")}.${ext}`);
+            fs.writeFileSync(full, bytes); reference_path = path.relative(ROOT, full).replaceAll("\\", "/");
+          }
+          return json(res, 201, addMovieCostume(id, { ...body, reference_path }));
+        } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+      if (action === "packet" && req.method === "POST") {
+        try {
+          const body = await readJson(req), project = getMovieProject(body.movie_id);
+          const character = project?.characters.find((row) => row.character_id === id);
+          if (!character) return json(res, 404, { error: "Movie character not found" });
+          const costume = character.costumes.find((row) => row.costume_id === body.costume_id && row.approval_status === "approved") ?? null;
+          const packet = buildMovieReferencePacket({ movieId: project.movie_id, character, costume, expression: body.expression, state: body.state, shot: body.shot });
+          return json(res, 200, resolveMoviePacketFiles(packet));
+        } catch (e) { return json(res, 409, { error: e.message }); }
+      }
+    }
+    const refReview = p.match(/^\/api\/movie\/references\/([^/]+)\/(approve|reject|image)$/);
+    if (refReview && req.method === "POST" && refReview[2] !== "image") {
+      try { return json(res, 200, reviewCharacterReference(decodeURIComponent(refReview[1]), refReview[2] === "approve" ? "approved" : "rejected")); } catch (e) { return json(res, 404, { error: e.message }); }
+    }
+    if (refReview && req.method === "GET" && refReview[2] === "image") {
+      const ref = movieDb.prepare("SELECT file_path FROM movie_character_references WHERE reference_id=?").get(decodeURIComponent(refReview[1]));
+      if (!ref?.file_path) return json(res, 404, { error: "Image not found" });
+      const full = path.resolve(ROOT, ref.file_path);
+      const withinAllowedStore = [movieFilesDir, DIRECTOR_ASSETS_DIR].some((dir) => full.startsWith(path.resolve(dir) + path.sep));
+      if (!withinAllowedStore || !fs.existsSync(full)) return json(res, 404, { error: "Image not found" });
+      res.writeHead(200, { "Content-Type": full.endsWith(".png") ? "image/png" : full.endsWith(".webp") ? "image/webp" : "image/jpeg", "Cache-Control": "private, max-age=60" });
+      return fs.createReadStream(full).pipe(res);
+    }
+    const costumeImage = p.match(/^\/api\/movie\/costumes\/([^/]+)\/image$/);
+    if (costumeImage && req.method === "GET") {
+      const row = movieDb.prepare("SELECT reference_path FROM movie_costumes WHERE costume_id=?").get(decodeURIComponent(costumeImage[1]));
+      if (!row?.reference_path) return json(res, 404, { error: "Costume image not found" });
+      const full = path.resolve(ROOT, row.reference_path);
+      if (!full.startsWith(path.resolve(movieFilesDir) + path.sep) || !fs.existsSync(full)) return json(res, 404, { error: "Costume image not found" });
+      res.writeHead(200, { "Content-Type": full.endsWith(".png") ? "image/png" : full.endsWith(".webp") ? "image/webp" : "image/jpeg", "Cache-Control": "private, max-age=60" });
+      return fs.createReadStream(full).pipe(res);
+    }
+    const costumeReview = p.match(/^\/api\/movie\/costumes\/([^/]+)\/approve$/);
+    if (costumeReview && req.method === "POST") {
+      try { return json(res, 200, reviewCostume(decodeURIComponent(costumeReview[1]), "approved")); } catch (e) { return json(res, 404, { error: e.message }); }
+    }
+    const movieEnvironmentProject = p.match(/^\/api\/movie\/projects\/([^/]+)\/environment-assets$/);
+    const movieEnvironmentDirectorImport = p.match(/^\/api\/movie\/projects\/([^/]+)\/environment-assets\/director-reference$/);
+    if (movieEnvironmentDirectorImport && req.method === "POST") {
+      try {
+        const movieId = decodeURIComponent(movieEnvironmentDirectorImport[1]);
+        if (!getMovieProject(movieId)) return json(res, 404, { error: "Movie not found" });
+        const body = await readJson(req), boardId = String(body.board_id || ""), assetId = String(body.asset_id || "");
+        if (!isSafe(boardId) || !assetId) return json(res, 400, { error: "Choose an approved Director location or object reference" });
+        const board = directorAssetReadBoard(boardId);
+        const asset = (board && getBoardAssetState(board).assets || []).find((row) => row.id === assetId && ["location", "object"].includes(row.type) && row.status === "approved" && row.reference);
+        if (!asset) return json(res, 409, { error: "Select an approved Director location or object reference" });
+        const rel = String(asset.reference).replaceAll("\\", "/");
+        if (rel.split("/").some((part) => part === ".." || part === "")) return json(res, 400, { error: "Invalid Director reference path" });
+        const full = path.resolve(DIRECTOR_ASSETS_DIR, ...rel.split("/"));
+        if (!full.startsWith(path.resolve(DIRECTOR_ASSETS_DIR) + path.sep) || !fs.existsSync(full) || !fs.statSync(full).isFile())
+          return json(res, 404, { error: "Approved Director reference file is missing" });
+        const kind = asset.type === "location" ? "location" : "object";
+        const imported = addMovieEnvironmentAsset(movieId, { kind, name: String(asset.name || asset.id), description: String(asset.description || asset.prompt || "") });
+        setMovieEnvironmentReference(imported.asset_id, path.relative(ROOT, full).replaceAll("\\", "/"));
+        reviewMovieEnvironmentReference(imported.asset_id, "approved");
+        return json(res, 201, setMovieEnvironmentLock(imported.asset_id, true));
+      } catch (e) { return json(res, 409, { error: e.message }); }
+    }
+    if (movieEnvironmentProject && req.method === "POST") {
+      try {
+        const body = await readJson(req);
+        const aliases = Array.isArray(body.aliases) ? body.aliases : String(body.aliases || "").split(",");
+        return json(res, 201, addMovieEnvironmentAsset(decodeURIComponent(movieEnvironmentProject[1]), { ...body, aliases }));
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    const movieEnvironmentRoute = p.match(/^\/api\/movie\/environment-assets\/([^/]+)(?:\/(reference(?:\/approve)?|lock|unlock|image))?$/);
+    if (movieEnvironmentRoute) {
+      const id = decodeURIComponent(movieEnvironmentRoute[1]), action = movieEnvironmentRoute[2];
+      if (!action && req.method === "PUT") {
+        try {
+          const body = await readJson(req), aliases = Array.isArray(body.aliases) ? body.aliases : String(body.aliases || "").split(",");
+          return json(res, 200, updateMovieEnvironmentAsset(id, { ...body, aliases }));
+        } catch (e) { return json(res, 409, { error: e.message }); }
+      }
+      if (action === "reference" && req.method === "POST") {
+        try {
+          const body = await readJson(req), match = String(body.data_url || "").match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+          if (!match) return json(res, 400, { error: "Upload a PNG, JPEG, or WebP reference image" });
+          const bytes = Buffer.from(match[2], "base64");
+          if (bytes.length > 12 * 1024 * 1024) return json(res, 413, { error: "Reference image must be under 12 MB" });
+          const ext = match[1] === "jpeg" ? "jpg" : match[1], filename = `${id}_${crypto.randomBytes(6).toString("hex")}.${ext}`;
+          const full = path.join(movieFilesDir, filename); fs.writeFileSync(full, bytes);
+          const relative = path.relative(ROOT, full).replaceAll("\\", "/");
+          return json(res, 200, setMovieEnvironmentReference(id, relative));
+        } catch (e) { return json(res, 409, { error: e.message }); }
+      }
+      if (action === "reference/approve" && req.method === "POST") {
+        try { return json(res, 200, reviewMovieEnvironmentReference(id, "approved")); } catch (e) { return json(res, 409, { error: e.message }); }
+      }
+      if (action === "lock" && req.method === "POST") {
+        try { return json(res, 200, setMovieEnvironmentLock(id, true)); } catch (e) { return json(res, 409, { error: e.message }); }
+      }
+      if (action === "unlock" && req.method === "POST") {
+        try { return json(res, 200, setMovieEnvironmentLock(id, false)); } catch (e) { return json(res, 409, { error: e.message }); }
+      }
+      if (action === "image" && req.method === "GET") {
+        const row = movieDb.prepare("SELECT reference_path FROM movie_environment_assets WHERE asset_id=?").get(id);
+        if (!row?.reference_path) return json(res, 404, { error: "Environment reference image not found" });
+        const full = path.resolve(ROOT, row.reference_path);
+        if (!full.startsWith(path.resolve(movieFilesDir) + path.sep) || !fs.existsSync(full)) return json(res, 404, { error: "Environment reference image not found" });
+        res.writeHead(200, { "Content-Type": full.endsWith(".png") ? "image/png" : full.endsWith(".webp") ? "image/webp" : "image/jpeg", "Cache-Control": "private, max-age=60" });
+        return fs.createReadStream(full).pipe(res);
+      }
+    }
+    const movieShotAssetRoute = p.match(/^\/api\/movie\/shot-assets\/([^/]+)\/(approve|reject|image)$/);
+    if (movieShotAssetRoute && req.method === "POST" && movieShotAssetRoute[2] !== "image") {
+      try { return json(res, 200, reviewMovieShotAsset(decodeURIComponent(movieShotAssetRoute[1]), movieShotAssetRoute[2])); }
+      catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    if (movieShotAssetRoute && req.method === "GET" && movieShotAssetRoute[2] === "image") {
+      const asset = getMovieShotAsset(decodeURIComponent(movieShotAssetRoute[1]));
+      if (!asset) return json(res, 404, { error: "Shot image not found" });
+      const full = path.resolve(ROOT, asset.file_path), movieOutputRoot = path.resolve(path.dirname(movieFilesDir), "Movies");
+      if (!full.startsWith(movieOutputRoot + path.sep) || !fs.existsSync(full)) return json(res, 404, { error: "Shot image not found" });
+      res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=60" });
+      return fs.createReadStream(full).pipe(res);
+    }
 
     if (p === "/api/settings/director-prompts" && req.method === "GET") {
       const settings = readDirectorPromptSettings();
@@ -5963,7 +6383,12 @@ const server = http.createServer(async (req, res) => {
       const parts = p.split("/");
       const name = pathName(parts[3]);
       if (!isSafe(name)) return json(res, 400, { error: "bad name" });
-      if (!pgUp) return json(res, 503, { error: "database unavailable" });
+      // Version history exists only in the Postgres catalog. When it is
+      // unavailable (or SQLite mode is active), keep the current disk-backed
+      // project usable and report an empty history for list requests.
+      if (!pgUp) return parts.length >= 6 && parts[5]
+        ? json(res, 503, { error: "version history unavailable" })
+        : json(res, 200, []);
       if (parts.length >= 6 && parts[5]) {
         const v = Number(parts[5]);
         if (!Number.isInteger(v)) return json(res, 400, { error: "bad version" });
@@ -12052,7 +12477,9 @@ except Exception as e:
       const segs = p.split("/");
       const name = decodeURIComponent(segs[3] || "");
       if (!isSafe(name)) return json(res, 400, { error: "bad name" });
-      if (!pgUp) return json(res, 503, { error: "database unavailable" });
+      // Generated media and scenario configs remain available from disk even
+      // if the optional Postgres catalog is offline (or SQLite mode is active).
+      if (!pgUp) return json(res, 200, []);
       const pid = await pgProjectId(name);
       if (pid == null) return json(res, 200, []);
       // Missing ?version= means latest. The DB fallback is NULL with zero

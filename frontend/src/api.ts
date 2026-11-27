@@ -107,10 +107,11 @@ export const alertServiceError = async (
 // ---------------------------------------------------------------- auth
 export type { AuthUser } from "./types";
 
-export const me = async (): Promise<AuthUser> => {
+export const me = async (): Promise<AuthUser | null> => {
   const r = await fetch("/api/me");
-  if (!r.ok) throw new Error("unauthorized");
-  return r.json() as Promise<AuthUser>;
+  if (!r.ok) throw new Error(`session check failed (HTTP ${r.status})`);
+  const data = await r.json() as { user?: AuthUser | null };
+  return data?.user ?? null;
 };
 export const login = (username: string, password: string) =>
   fetch("/api/login", {

@@ -16,6 +16,7 @@ import ResourcePage from "./components/ResourcePage";
 import DirectorPage from "./components/DirectorPage";
 import CreateSongPage from "./components/CreateSongPage";
 import DocumentaryPage from "./components/DocumentaryPage";
+import MoviePage from "./components/MoviePage";
 import DatabasePage from "./components/DatabasePage";
 import ComponentsPage from "./components/ComponentsPage";
 import PromptSettingsPage from "./components/PromptSettingsPage";
@@ -230,11 +231,9 @@ export default function App() {
       root.style.setProperty("--glow-2", hexToRgba(themeColor, 0.08));
       root.style.setProperty("--glow-3", hexToRgba(themeColor, 0.05));
     }
-    // Persist every change to data/theme.json (fire-and-forget; the file is
-    // re-read on every load / restart until changed again). Skipped until the
-    // initial file load has landed. May 401 before login — the next change
-    // after login retries the write.
-    if (themeReady) {
+    // Persist every change to data/theme.json only after the saved theme has
+    // loaded and the user session is authenticated.
+    if (themeReady && auth) {
       try {
         localStorage.setItem(THEME_DARK_KEY, darkColor);
         localStorage.setItem(THEME_LIGHT_KEY, lightColor);
@@ -244,7 +243,7 @@ export default function App() {
       } catch { /* ignore */ }
       saveTheme({ mode: theme, color: themeColor, darkColor, lightColor, darkBg, lightBg }).catch(() => {});
     }
-  }, [theme, themeColor, darkColor, lightColor, themeReady]);
+  }, [theme, themeColor, darkColor, lightColor, darkBg, lightBg, themeReady, auth]);
 
   // Active-mode background: repaint the page + cards + topbar from the
   // picked base, or remove the overrides so the CSS defaults show.
@@ -353,7 +352,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
   const [directorHoverBoards, setDirectorHoverBoards] = useState<DirectorBoardMeta[]>([]);
   const [directorBoardRequest, setDirectorBoardRequest] = useState<{ id: string; nonce: number } | null>(null);
   const [directorSelectedBoardId, setDirectorSelectedBoardId] = useState<string | null>(null);
-  const [view, setView] = useState<"home" | "workspace" | "resource" | "director" | "song" | "documentary" | "database" | "components" | "settings">("home");
+  const [view, setView] = useState<"home" | "workspace" | "resource" | "director" | "movie" | "song" | "documentary" | "database" | "components" | "settings">("home");
   const [name, setName] = useState("");
   const [cfg, setCfg] = useState<Scenario | null>(null);
   const [cfgLoading, setCfgLoading] = useState(false);
@@ -1461,6 +1460,11 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                 { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
                 { key: "cur", label: "Director", icon: <IconFilm size={13} aria-hidden="true" />, tone: "ci-director", current: true },
               ];
+            } else if (view === "movie") {
+              crumbs = [
+                { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
+                { key: "cur", label: "Movie", icon: <IconClapper size={13} aria-hidden="true" />, tone: "ci-director", current: true },
+              ];
             } else if (view === "song") {
               crumbs = [
                 { key: "home", label: "Home", title: "Go to Home", onGo: goHome, icon: homeIcon, tone: "ci-home" },
@@ -1742,6 +1746,15 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
               <span className="sidenav-label">Director</span>
             </button>
             <button
+              className={`sidenav-btn nav-movie ${view === "movie" ? "on" : ""}`}
+              onClick={() => setView("movie")}
+              aria-current={view === "movie" ? "page" : undefined}
+              title="Open the blank Movie page"
+            >
+              <span className="sidenav-icon"><IconClapper size={16} aria-hidden="true" /></span>
+              <span className="sidenav-label">Movie</span>
+            </button>
+            <button
               className={`sidenav-btn nav-song ${view === "song" ? "on" : ""}`}
               onClick={() => setView("song")}
               aria-current={view === "song" ? "page" : undefined}
@@ -1841,7 +1854,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
           (and Craft keeps its spinner) when flipping between Home and the
           workspace. Workspace content renders from the last loaded project,
           so switching projects never unmounts/remounts the page. */}
-        <div className={`shell${rightCollapsed ? " no-right" : ""}${view === "resource" ? " is-resource" : ""}${view === "director" ? " is-director" : ""}${view === "song" ? " is-song" : ""}${view === "documentary" ? " is-documentary" : ""}${view === "database" ? " is-database" : ""}${view === "components" ? " is-components" : ""}`}>
+        <div className={`shell${rightCollapsed ? " no-right" : ""}${view === "resource" ? " is-resource" : ""}${view === "director" ? " is-director" : ""}${view === "movie" ? " is-movie" : ""}${view === "song" ? " is-song" : ""}${view === "documentary" ? " is-documentary" : ""}${view === "database" ? " is-database" : ""}${view === "components" ? " is-components" : ""}`}>
         <div className="home-wrap" style={view !== "home" ? { display: "none" } : undefined}>
           <HomePage
             active={view === "home"}
@@ -1876,6 +1889,9 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
               onImageMode={setImageMode}
             />
           </ViewBoundary>
+        </div>
+        <div className="col" style={view !== "movie" ? { display: "none" } : undefined} aria-label="Movie">
+          <ViewBoundary name="Movie"><MoviePage /></ViewBoundary>
         </div>
         <div className="col" style={view !== "song" ? { display: "none" } : undefined}>
           <ViewBoundary name="Create Song">
