@@ -1,0 +1,3387 @@
+{
+  "id": "teapot",
+  "input": {
+    "title": "Teapot",
+    "story": "I'm a little teapot,\nShort and stout.\nHere is my handle,\nHere is my spout.\n\nWhen I get all\nSteamed up,\nHear me shout.\n\nJust tip me over,\nAnd pour me out! Give me prompt for suno.com for this song for kids",
+    "language": "English",
+    "semanticsLanguage": "auto",
+    "genre": "Adventure",
+    "genreCustom": "",
+    "visualStyle": "3D Preschool Animation",
+    "styleCustom": "",
+    "masterPrompt": "",
+    "directorTemplate": "standard",
+    "targetSeconds": 60,
+    "sceneSeconds": 3,
+    "aspectRatio": "16:9",
+    "instructions": "",
+    "includeDialogue": false,
+    "chainContinuity": false
+  },
+  "status": "approved",
+  "blueprint": {
+    "logline": "A charming anthropomorphic teapot introduces itself through song before getting steamed up and pouring its contents.",
+    "analysis": {
+      "plot": "A little teapot character sings about its features (handle, spout) then gets hot and pours out water.",
+      "beginning": "Teapot introduces itself as short and stout with handle and spout",
+      "middle": "Teapot gets steamed up and starts singing loudly",
+      "climax": "Teapot is tipped over and pours its contents out dramatically",
+      "ending": "Teapot lands safely, content after pouring",
+      "main_character": "Anthropomorphic teapot with eyes on body",
+      "supporting_characters": [],
+      "antagonist": null,
+      "objects": [
+        "teapot",
+        "steam",
+        "water"
+      ],
+      "locations": [
+        "kitchen_counter"
+      ],
+      "events": [
+        "teapot_singing_self_introduction",
+        "handle_spout_showcase",
+        "steam_building_up",
+        "loud_shouting",
+        "being_tipped_over",
+        "pouring_water_out"
+      ],
+      "relationships": "Teapot is the sole protagonist, self-aware and expressive through song",
+      "emotional_progression": "confident introduction → excited anticipation when heated → energetic performance → dramatic pouring action",
+      "timeline": "0-15s: Introduction with handle/spout showcase | 15-30s: Getting steamed up | 30-45s: Shouting and singing | 45-60s: Tipping and pouring out",
+      "visual_moments": [
+        "teapot standing proudly on counter",
+        "handle being shown to camera",
+        "spout being shown to camera",
+        "steam rising around teapot",
+        "teapot face showing excitement",
+        "teapot being tipped sideways",
+        "water pouring out in arc"
+      ]
+    },
+    "characters": [
+      {
+        "character_id": "little_teapot",
+        "name": "Little Teapot",
+        "role": "main_character",
+        "species": "anthropomorphic teapot",
+        "age": "childlike",
+        "appearance": {
+          "body": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth",
+          "fur": "glazed ceramic surface, no fur",
+          "eyes": "two small round black dots positioned on upper ceramic body for character expression",
+          "ears": "no ears"
+        },
+        "clothing": {
+          "top": "none - glazed ceramic exterior",
+          "bottom": "none - single piece ceramic form"
+        },
+        "personality": [
+          "cheerful",
+          "confident",
+          "singing",
+          "playful"
+        ],
+        "visual_identity_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section",
+        "consistency_rules": [
+          "Keep the exact same face: shape, eyes, nose, lips, jawline and skin tone in every scene.",
+          "Keep the exact same body, species traits and proportions in every scene.",
+          "Keep the exact species body plan — never add legs, arms, hands, feet, ears, wings or human parts the species lacks; stage only physically possible actions.",
+          "Keep the exact same clothing, colors and accessories unless the story explicitly changes them.",
+          "Paste the visual_identity_prompt verbatim into every image_prompt — never paraphrase or shorten it.",
+          "Keep the same art style and rendering for this character across all scenes.",
+          "Stage speaking scenes front-facing so the face stays clearly visible."
+        ]
+      }
+    ],
+    "locations": [
+      {
+        "location_id": "kitchen_counter",
+        "name": "Kitchen Counter",
+        "description": "Clean bright kitchen counter where teapot stands",
+        "visual_identity_prompt": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting",
+        "time_of_day": "",
+        "lighting": "",
+        "color_palette": ""
+      }
+    ],
+    "objects": [
+      {
+        "object_id": "teapot_body",
+        "name": "Teapot Body",
+        "description": "The main ceramic teapot character",
+        "visual_identity_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section"
+      },
+      {
+        "object_id": "steam_particles",
+        "name": "Steam Particles",
+        "description": "Rising steam when teapot is hot",
+        "visual_identity_prompt": "soft swirling translucent white steam particles rising upward from top of teapot, semi-transparent wispy texture"
+      },
+      {
+        "object_id": "water_stream",
+        "name": "Water Stream",
+        "description": "Hot water pouring out when tipped",
+        "visual_identity_prompt": "clear hot water flowing in smooth arc stream from spout, slight steam rising from surface, liquid surface tension visible"
+      }
+    ],
+    "lyric_lines": [],
+    "beats": [
+      {
+        "n": 1,
+        "title": "Introduction Begins",
+        "summary": "Teapot introduces itself as short and stout on kitchen counter",
+        "location": "kitchen_counter",
+        "objects": [
+          "teapot_body"
+        ]
+      },
+      {
+        "n": 2,
+        "title": "Handle Showcase",
+        "summary": "Teapot points out its handle with happy expression",
+        "location": "kitchen_counter",
+        "objects": [
+          "teapot_body",
+          "steam_particles"
+        ]
+      },
+      {
+        "n": 3,
+        "title": "Spout Showcase",
+        "summary": "Teapot shows its spout and smiles proudly",
+        "location": "kitchen_counter",
+        "objects": [
+          "teapot_body",
+          "steam_particles"
+        ]
+      },
+      {
+        "n": 4,
+        "title": "Getting Steamed Up",
+        "summary": "Teapot gets hot with visible steam rising around it",
+        "location": "kitchen_counter",
+        "objects": [
+          "teapot_body",
+          "steam_particles"
+        ]
+      },
+      {
+        "n": 5,
+        "title": "Loud Shouting",
+        "summary": "Teapot sings loudly with excited expression and animated movement",
+        "location": "kitchen_counter",
+        "objects": [
+          "teapot_body",
+          "steam_particles"
+        ]
+      },
+      {
+        "n": 6,
+        "title": "Being Tipped Over",
+        "summary": "Teapot is tipped sideways dramatically to pour out contents",
+        "location": "kitchen_counter",
+        "objects": [
+          "teapot_body",
+          "water_stream"
+        ]
+      },
+      {
+        "n": 7,
+        "title": "Pouring Out",
+        "summary": "Water pours out in smooth arc from spout as steam rises",
+        "location": "kitchen_counter",
+        "objects": [
+          "teapot_body",
+          "water_stream",
+          "steam_particles"
+        ]
+      },
+      {
+        "n": 8,
+        "title": "Content Ending",
+        "summary": "Teapot lands safely upright, satisfied after pouring",
+        "location": "kitchen_counter",
+        "objects": [
+          "teapot_body",
+          "steam_particles"
+        ]
+      }
+    ]
+  },
+  "semantics": {
+    "language": "auto",
+    "source": "deterministic",
+    "lines": [
+      {
+        "line_id": 1,
+        "text": "And pour me out! Give me prompt for suno.com for this song for kids",
+        "source_text": "And pour me out! Give me prompt for suno.com for this song for kids",
+        "normalized_text": "And pour me out! Give me prompt for suno.com for this song for kids",
+        "language": "en",
+        "line_kind": "dialogue",
+        "tokens": [
+          "And",
+          "pour",
+          "me",
+          "out",
+          "Give",
+          "me",
+          "prompt",
+          "for",
+          "suno",
+          "com",
+          "for",
+          "this",
+          "song",
+          "for",
+          "kids"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "pour",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "targets": [],
+          "objects": [
+            {
+              "text": "prompt",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "suno",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "com",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "song",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "kids",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "locations": [],
+          "matched": [],
+          "language": "en"
+        },
+        "emotion": {
+          "label": "playful",
+          "intensity": "none",
+          "cues": [
+            {
+              "id": "playful",
+              "cue": "playful"
+            }
+          ]
+        },
+        "matches": [
+          {
+            "id": "give",
+            "kind": "body_part",
+            "cues": {
+              "en": [
+                "give",
+                "gives",
+                "giving",
+                "gave",
+                "offers",
+                "offers",
+                "offering",
+                "presents",
+                "presents"
+              ],
+              "hi": [
+                "दे",
+                "देता",
+                "देती",
+                "देना",
+                "भेज",
+                "भेजता"
+              ]
+            },
+            "body_part": "hands",
+            "start_pose": "the item held close to the body",
+            "end_pose": "the item extended toward the recipient",
+            "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+            "camera": [
+              "Medium Shot",
+              "Static"
+            ],
+            "duration": 2.5,
+            "cue": "give",
+            "token": "Give"
+          }
+        ],
+        "action_plan": [
+          {
+            "id": "model",
+            "kind": "model",
+            "verb": "The teapot tilts forward to pour its contents out.",
+            "source_token": "",
+            "action": "The teapot tilts forward to pour its contents out.",
+            "object": "",
+            "body_part": "whole body",
+            "start_pose": "upright on counter",
+            "end_pose": "tilted spout down",
+            "motion": "smooth tilt with water flowing from spout",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": true,
+            "source": "model",
+            "deterministic": {
+              "id": "give",
+              "kind": "body_part",
+              "verb": "give",
+              "source_token": "Give",
+              "action": "gives the me",
+              "action_phrase": "gives the me",
+              "object": "me",
+              "body_part": "hands",
+              "start_pose": "the item held close to the body",
+              "end_pose": "the item extended toward the recipient",
+              "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+              "camera_hint": [
+                "Medium Shot",
+                "Static"
+              ],
+              "duration_hint": 2.5,
+              "grounded": true
+            }
+          },
+          {
+            "id": "model",
+            "kind": "model",
+            "verb": "Abstract visualization of a music prompt appearing in the air.",
+            "source_token": "",
+            "action": "Abstract visualization of a music prompt appearing in the air.",
+            "object": "",
+            "body_part": "floating text",
+            "start_pose": "empty space",
+            "end_pose": "glowing text floating",
+            "motion": "text materializes with soft glow",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": true,
+            "source": "model",
+            "deterministic": {
+              "id": "give",
+              "kind": "body_part",
+              "verb": "give",
+              "source_token": "Give",
+              "action": "gives the me",
+              "action_phrase": "gives the me",
+              "object": "me",
+              "body_part": "hands",
+              "start_pose": "the item held close to the body",
+              "end_pose": "the item extended toward the recipient",
+              "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+              "camera_hint": [
+                "Medium Shot",
+                "Static"
+              ],
+              "duration_hint": 2.5,
+              "grounded": true
+            }
+          }
+        ],
+        "camera": {
+          "shot_type": "close-up",
+          "angle": "eye-level",
+          "movement": "static then slight push-in on abstract element",
+          "rationale": "to focus on the pouring action and the magical request for music",
+          "framing": "",
+          "grounded": true
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 2,
+            "duration_seconds": 2,
+            "action": "The teapot tilts forward to pour its contents out.",
+            "start_pose": "upright on counter",
+            "end_pose": "tilted spout down",
+            "camera": {
+              "shot_type": "close-up",
+              "angle": "eye-level",
+              "movement": "static then slight push-in on abstract element",
+              "rationale": "to focus on the pouring action and the magical request for music",
+              "framing": "",
+              "grounded": true
+            },
+            "secondary": "whole body movement carries the detail",
+            "estimated": true
+          },
+          {
+            "start_seconds": 2,
+            "end_seconds": 4,
+            "duration_seconds": 2,
+            "action": "Abstract visualization of a music prompt appearing in the air.",
+            "start_pose": "empty space",
+            "end_pose": "glowing text floating",
+            "camera": {
+              "shot_type": "close-up",
+              "angle": "eye-level",
+              "movement": "static then slight push-in on abstract element",
+              "rationale": "to focus on the pouring action and the magical request for music",
+              "framing": "",
+              "grounded": true
+            },
+            "secondary": "floating text movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": false,
+          "needed_seconds": 5,
+          "warnings": [
+            "2 action(s) need ~5s but the scene is 4s — split the scene or simplify the secondary movement"
+          ]
+        },
+        "abstract": true,
+        "interpretation": "The character Little Teapot requests to be emptied and asks for a music generation prompt suitable for children.",
+        "warnings": [
+          "2 action(s) need ~5s but the scene is 4s — split the scene or simplify the secondary movement"
+        ],
+        "model_note": "Second clause is meta-instruction visualized as abstract sound/text.",
+        "model_subject": "little_teapot",
+        "model_target": "audience",
+        "model_location": "kitchen_counter",
+        "model_objects": [
+          "teapot_body",
+          "steam_particles",
+          "water_stream"
+        ]
+      },
+      {
+        "line_id": 2,
+        "text": "Just tip me over,",
+        "source_text": "Just tip me over,",
+        "normalized_text": "Just tip me over,",
+        "language": "en",
+        "line_kind": "dialogue",
+        "tokens": [
+          "Just",
+          "tip",
+          "me",
+          "over"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "Just",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "targets": [],
+          "objects": [
+            {
+              "text": "tip",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "locations": [],
+          "matched": [],
+          "language": "en"
+        },
+        "emotion": {
+          "label": "playful",
+          "intensity": "none",
+          "cues": [
+            {
+              "id": "playful",
+              "cue": "playful"
+            }
+          ]
+        },
+        "matches": [],
+        "action_plan": [
+          {
+            "id": "model",
+            "kind": "model",
+            "verb": "Teapot tilts forward on its base",
+            "source_token": "",
+            "action": "Teapot tilts forward on its base",
+            "object": "",
+            "body_part": "whole body",
+            "start_pose": "upright",
+            "end_pose": "leaning forward at 45 degrees",
+            "motion": "smooth rotation around the center of gravity",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": true,
+            "source": "model",
+            "deterministic": null
+          }
+        ],
+        "camera": {
+          "shot_type": "medium shot",
+          "angle": "slightly high",
+          "movement": "tilt down following the teapot",
+          "rationale": "to show the tipping action clearly",
+          "framing": "",
+          "grounded": true
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 4,
+            "duration_seconds": 4,
+            "action": "Teapot tilts forward on its base",
+            "start_pose": "upright",
+            "end_pose": "leaning forward at 45 degrees",
+            "camera": {
+              "shot_type": "medium shot",
+              "angle": "slightly high",
+              "movement": "tilt down following the teapot",
+              "rationale": "to show the tipping action clearly",
+              "framing": "",
+              "grounded": true
+            },
+            "secondary": "whole body movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": true,
+          "needed_seconds": 2.5,
+          "warnings": []
+        },
+        "abstract": true,
+        "interpretation": "The teapot invites itself to be tipped.",
+        "warnings": [],
+        "model_note": "",
+        "model_subject": "little_teapot",
+        "model_target": "self",
+        "model_location": "kitchen_counter",
+        "model_objects": [
+          "teapot_body"
+        ]
+      },
+      {
+        "line_id": 3,
+        "text": "And pour me out! Give me prompt for suno.com for this song for kids",
+        "source_text": "And pour me out! Give me prompt for suno.com for this song for kids",
+        "normalized_text": "And pour me out! Give me prompt for suno.com for this song for kids",
+        "language": "en",
+        "line_kind": "action",
+        "tokens": [
+          "And",
+          "pour",
+          "me",
+          "out",
+          "Give",
+          "me",
+          "prompt",
+          "for",
+          "suno",
+          "com",
+          "for",
+          "this",
+          "song",
+          "for",
+          "kids"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "pour",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "targets": [],
+          "objects": [
+            {
+              "text": "prompt",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "suno",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "com",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "song",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "kids",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "locations": [],
+          "matched": [],
+          "language": "en"
+        },
+        "emotion": {
+          "label": "generous",
+          "intensity": "none",
+          "cues": [
+            {
+              "id": "generous",
+              "cue": "generous"
+            }
+          ]
+        },
+        "matches": [
+          {
+            "id": "give",
+            "kind": "body_part",
+            "cues": {
+              "en": [
+                "give",
+                "gives",
+                "giving",
+                "gave",
+                "offers",
+                "offers",
+                "offering",
+                "presents",
+                "presents"
+              ],
+              "hi": [
+                "दे",
+                "देता",
+                "देती",
+                "देना",
+                "भेज",
+                "भेजता"
+              ]
+            },
+            "body_part": "hands",
+            "start_pose": "the item held close to the body",
+            "end_pose": "the item extended toward the recipient",
+            "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+            "camera": [
+              "Medium Shot",
+              "Static"
+            ],
+            "duration": 2.5,
+            "cue": "give",
+            "token": "Give"
+          }
+        ],
+        "action_plan": [
+          {
+            "id": "model",
+            "kind": "model",
+            "verb": "Teapot tilts fully and water flows from spout",
+            "source_token": "",
+            "action": "Teapot tilts fully and water flows from spout",
+            "object": "",
+            "body_part": "whole body",
+            "start_pose": "tilted forward",
+            "end_pose": "spout pointing down",
+            "motion": "water stream arcs outwards",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": true,
+            "source": "model",
+            "deterministic": {
+              "id": "give",
+              "kind": "body_part",
+              "verb": "give",
+              "source_token": "Give",
+              "action": "gives the me",
+              "action_phrase": "gives the me",
+              "object": "me",
+              "body_part": "hands",
+              "start_pose": "the item held close to the body",
+              "end_pose": "the item extended toward the recipient",
+              "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+              "camera_hint": [
+                "Medium Shot",
+                "Static"
+              ],
+              "duration_hint": 2.5,
+              "grounded": true
+            }
+          }
+        ],
+        "camera": {
+          "shot_type": "close-up",
+          "angle": "side view of spout",
+          "movement": "push in slowly",
+          "rationale": "to highlight the pouring action and water stream",
+          "framing": "",
+          "grounded": true
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 4,
+            "duration_seconds": 4,
+            "action": "Teapot tilts fully and water flows from spout",
+            "start_pose": "tilted forward",
+            "end_pose": "spout pointing down",
+            "camera": {
+              "shot_type": "close-up",
+              "angle": "side view of spout",
+              "movement": "push in slowly",
+              "rationale": "to highlight the pouring action and water stream",
+              "framing": "",
+              "grounded": true
+            },
+            "secondary": "whole body movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": true,
+          "needed_seconds": 2.5,
+          "warnings": []
+        },
+        "abstract": false,
+        "interpretation": "The teapot pours water out; the text includes an appended instruction.",
+        "warnings": [],
+        "model_note": "",
+        "model_subject": "little_teapot",
+        "model_target": "audience",
+        "model_location": "kitchen_counter",
+        "model_objects": [
+          "teapot_body",
+          "water_stream"
+        ]
+      },
+      {
+        "line_id": 4,
+        "text": "Hear me shout.",
+        "source_text": "Hear me shout.",
+        "normalized_text": "Hear me shout.",
+        "language": "en",
+        "line_kind": "sound",
+        "tokens": [
+          "Hear",
+          "me",
+          "shout"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "Hear",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "targets": [],
+          "objects": [
+            {
+              "text": "shout",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "locations": [],
+          "matched": [],
+          "language": "en"
+        },
+        "emotion": {
+          "label": "loud",
+          "intensity": "none",
+          "cues": [
+            {
+              "id": "loud",
+              "cue": "loud"
+            }
+          ]
+        },
+        "matches": [],
+        "action_plan": [
+          {
+            "id": "model",
+            "kind": "model",
+            "verb": "Teapot shakes with sound waves",
+            "source_token": "",
+            "action": "Teapot shakes with sound waves",
+            "object": "",
+            "body_part": "whole body",
+            "start_pose": "steady",
+            "end_pose": "vibrating",
+            "motion": "quick shake",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": true,
+            "source": "model",
+            "deterministic": null
+          }
+        ],
+        "camera": {
+          "shot_type": "medium shot",
+          "angle": "eye level",
+          "movement": "slight shake effect",
+          "rationale": "visualize sound impact",
+          "framing": "",
+          "grounded": true
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 4,
+            "duration_seconds": 4,
+            "action": "Teapot shakes with sound waves",
+            "start_pose": "steady",
+            "end_pose": "vibrating",
+            "camera": {
+              "shot_type": "medium shot",
+              "angle": "eye level",
+              "movement": "slight shake effect",
+              "rationale": "visualize sound impact",
+              "framing": "",
+              "grounded": true
+            },
+            "secondary": "whole body movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": true,
+          "needed_seconds": 2.5,
+          "warnings": []
+        },
+        "abstract": true,
+        "interpretation": "The teapot vibrates loudly to announce readiness.",
+        "warnings": [],
+        "model_note": "",
+        "model_subject": "little_teapot",
+        "model_target": "audience",
+        "model_location": "kitchen_counter",
+        "model_objects": [
+          "teapot_body",
+          "steam_particles"
+        ]
+      },
+      {
+        "line_id": 5,
+        "text": "Just tip me over,",
+        "source_text": "Just tip me over,",
+        "normalized_text": "Just tip me over,",
+        "language": "en",
+        "line_kind": "action",
+        "tokens": [
+          "Just",
+          "tip",
+          "me",
+          "over"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "Just",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "targets": [],
+          "objects": [
+            {
+              "text": "tip",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "locations": [],
+          "matched": [],
+          "language": "en"
+        },
+        "emotion": {
+          "label": "inviting",
+          "intensity": "none",
+          "cues": [
+            {
+              "id": "inviting",
+              "cue": "inviting"
+            }
+          ]
+        },
+        "matches": [],
+        "action_plan": [
+          {
+            "id": "model",
+            "kind": "model",
+            "verb": "Teapot tilts to pour water",
+            "source_token": "",
+            "action": "Teapot tilts to pour water",
+            "object": "",
+            "body_part": "whole body",
+            "start_pose": "upright",
+            "end_pose": "tilted sideways",
+            "motion": "controlled tilt",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": true,
+            "source": "model",
+            "deterministic": null
+          }
+        ],
+        "camera": {
+          "shot_type": "low angle",
+          "angle": "looking up at pouring",
+          "movement": "static tracking stream",
+          "rationale": "clear static frame for demonstration",
+          "framing": "",
+          "grounded": true
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 4,
+            "duration_seconds": 4,
+            "action": "Teapot tilts to pour water",
+            "start_pose": "upright",
+            "end_pose": "tilted sideways",
+            "camera": {
+              "shot_type": "low angle",
+              "angle": "looking up at pouring",
+              "movement": "static tracking stream",
+              "rationale": "clear static frame for demonstration",
+              "framing": "",
+              "grounded": true
+            },
+            "secondary": "whole body movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": true,
+          "needed_seconds": 2.5,
+          "warnings": []
+        },
+        "abstract": true,
+        "interpretation": "The teapot invites the user to pour the water out.",
+        "warnings": [],
+        "model_note": "",
+        "model_subject": "little_teapot",
+        "model_target": "user",
+        "model_location": "kitchen_counter",
+        "model_objects": [
+          "teapot_body",
+          "water_stream"
+        ]
+      },
+      {
+        "line_id": 6,
+        "text": "Steamed up,",
+        "source_text": "Steamed up,",
+        "normalized_text": "Steamed up,",
+        "language": "en",
+        "line_kind": "action",
+        "tokens": [
+          "Steamed",
+          "up"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "Steamed",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "targets": [],
+          "objects": [],
+          "locations": [],
+          "matched": [],
+          "language": "en"
+        },
+        "emotion": {
+          "label": "",
+          "intensity": "none",
+          "cues": []
+        },
+        "matches": [
+          {
+            "id": "climb",
+            "kind": "locomotion",
+            "cues": {
+              "en": [
+                "climb",
+                "climbs",
+                "climbing",
+                "climbed",
+                "climb",
+                "up",
+                "climbs",
+                "up",
+                "scale",
+                "scales"
+              ],
+              "hi": [
+                "चढ़",
+                "चढ़ता",
+                "चढ़ती",
+                "चढ़ते",
+                "चढ़ना",
+                "ऊपर",
+                "चढ़े"
+              ]
+            },
+            "body_part": "arms_and_legs",
+            "start_pose": "holding on low, body stretched",
+            "end_pose": "higher up, still holding on",
+            "motion": "the hands grip higher, the arms pull, the legs push up step by step",
+            "camera": [
+              "Medium Shot",
+              "Low Angle"
+            ],
+            "duration": 3.5,
+            "cue": "up",
+            "token": "up"
+          }
+        ],
+        "action_plan": [
+          {
+            "id": "climb",
+            "kind": "locomotion",
+            "verb": "up",
+            "source_token": "up",
+            "action": "climbs the Steamed",
+            "action_phrase": "climbs the Steamed",
+            "object": "Steamed",
+            "body_part": "arms_and_legs",
+            "start_pose": "holding on low, body stretched",
+            "end_pose": "higher up, still holding on",
+            "motion": "the hands grip higher, the arms pull, the legs push up step by step",
+            "camera_hint": [
+              "Medium Shot",
+              "Low Angle"
+            ],
+            "duration_hint": 3.5,
+            "grounded": true
+          }
+        ],
+        "camera": {
+          "shot_type": "Full Shot",
+          "angle": "Low Angle",
+          "movement": "Tilt Up",
+          "rationale": "the body leaves the ground — the whole body and the vertical motion must stay in frame",
+          "framing": "",
+          "grounded": true
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 5,
+            "duration_seconds": 5,
+            "action": "climbs the Steamed",
+            "start_pose": "holding on low, body stretched",
+            "end_pose": "higher up, still holding on",
+            "camera": {
+              "shot_type": "Full Shot",
+              "angle": "Low Angle",
+              "movement": "Tilt Up",
+              "rationale": "the body leaves the ground — the whole body and the vertical motion must stay in frame",
+              "framing": "",
+              "grounded": true
+            },
+            "secondary": "arms_and_legs movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": true,
+          "needed_seconds": 3.5,
+          "warnings": []
+        },
+        "abstract": false,
+        "interpretation": "Steamed climbs the Steamed",
+        "warnings": []
+      },
+      {
+        "line_id": 7,
+        "text": "Hear me shout.",
+        "source_text": "Hear me shout.",
+        "normalized_text": "Hear me shout.",
+        "language": "en",
+        "line_kind": "narration",
+        "tokens": [
+          "Hear",
+          "me",
+          "shout"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "Hear",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "targets": [],
+          "objects": [
+            {
+              "text": "shout",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "locations": [],
+          "matched": [],
+          "language": "en"
+        },
+        "emotion": {
+          "label": "",
+          "intensity": "none",
+          "cues": []
+        },
+        "matches": [],
+        "action_plan": [
+          {
+            "id": "unspecified",
+            "kind": "unresolved",
+            "verb": "",
+            "source_token": "",
+            "action": "Hear performs the action described in the line",
+            "object": "",
+            "body_part": "whole_body",
+            "start_pose": "the pose before the described action",
+            "end_pose": "the pose after the described action",
+            "motion": "the visible action described in the source line, performed clearly",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": false,
+            "note": "no known verb matched — the model (or the user) must state the visible action explicitly"
+          }
+        ],
+        "camera": {
+          "shot_type": "Medium Shot",
+          "angle": "Eye Level",
+          "movement": "Static",
+          "rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+          "framing": "",
+          "grounded": false
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 5,
+            "duration_seconds": 5,
+            "action": "Hear performs the action described in the line",
+            "start_pose": "the pose before the described action",
+            "end_pose": "the pose after the described action",
+            "camera": {
+              "shot_type": "Medium Shot",
+              "angle": "Eye Level",
+              "movement": "Static",
+              "rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+              "framing": "",
+              "grounded": false
+            },
+            "secondary": "whole_body movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": true,
+          "needed_seconds": 2.5,
+          "warnings": []
+        },
+        "abstract": true,
+        "interpretation": "Hear performs the action described in the line (involving shout)",
+        "warnings": [
+          "no known verb matched this line — the visible action must be stated explicitly",
+          "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+        ]
+      },
+      {
+        "line_id": 8,
+        "text": "Just tip me over,",
+        "source_text": "Just tip me over,",
+        "normalized_text": "Just tip me over,",
+        "language": "en",
+        "line_kind": "narration",
+        "tokens": [
+          "Just",
+          "tip",
+          "me",
+          "over"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "Just",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "targets": [],
+          "objects": [
+            {
+              "text": "tip",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "locations": [],
+          "matched": [],
+          "language": "en"
+        },
+        "emotion": {
+          "label": "",
+          "intensity": "none",
+          "cues": []
+        },
+        "matches": [],
+        "action_plan": [
+          {
+            "id": "unspecified",
+            "kind": "unresolved",
+            "verb": "",
+            "source_token": "",
+            "action": "Just performs the action described in the line",
+            "object": "",
+            "body_part": "whole_body",
+            "start_pose": "the pose before the described action",
+            "end_pose": "the pose after the described action",
+            "motion": "the visible action described in the source line, performed clearly",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": false,
+            "note": "no known verb matched — the model (or the user) must state the visible action explicitly"
+          }
+        ],
+        "camera": {
+          "shot_type": "Medium Shot",
+          "angle": "Eye Level",
+          "movement": "Static",
+          "rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+          "framing": "",
+          "grounded": false
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 5,
+            "duration_seconds": 5,
+            "action": "Just performs the action described in the line",
+            "start_pose": "the pose before the described action",
+            "end_pose": "the pose after the described action",
+            "camera": {
+              "shot_type": "Medium Shot",
+              "angle": "Eye Level",
+              "movement": "Static",
+              "rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+              "framing": "",
+              "grounded": false
+            },
+            "secondary": "whole_body movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": true,
+          "needed_seconds": 2.5,
+          "warnings": []
+        },
+        "abstract": true,
+        "interpretation": "Just performs the action described in the line (involving tip)",
+        "warnings": [
+          "no known verb matched this line — the visible action must be stated explicitly",
+          "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+        ]
+      },
+      {
+        "line_id": 9,
+        "text": "And pour me out! Give me prompt for suno.com for this song for kids",
+        "source_text": "And pour me out! Give me prompt for suno.com for this song for kids",
+        "normalized_text": "And pour me out! Give me prompt for suno.com for this song for kids",
+        "language": "en",
+        "line_kind": "action",
+        "tokens": [
+          "And",
+          "pour",
+          "me",
+          "out",
+          "Give",
+          "me",
+          "prompt",
+          "for",
+          "suno",
+          "com",
+          "for",
+          "this",
+          "song",
+          "for",
+          "kids"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "pour",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "targets": [],
+          "objects": [
+            {
+              "text": "prompt",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "suno",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "com",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "song",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            },
+            {
+              "text": "kids",
+              "id": "",
+              "kind": "noun",
+              "source": "heuristic"
+            }
+          ],
+          "locations": [],
+          "matched": [],
+          "language": "en"
+        },
+        "emotion": {
+          "label": "",
+          "intensity": "none",
+          "cues": []
+        },
+        "matches": [
+          {
+            "id": "give",
+            "kind": "body_part",
+            "cues": {
+              "en": [
+                "give",
+                "gives",
+                "giving",
+                "gave",
+                "offers",
+                "offers",
+                "offering",
+                "presents",
+                "presents"
+              ],
+              "hi": [
+                "दे",
+                "देता",
+                "देती",
+                "देना",
+                "भेज",
+                "भेजता"
+              ]
+            },
+            "body_part": "hands",
+            "start_pose": "the item held close to the body",
+            "end_pose": "the item extended toward the recipient",
+            "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+            "camera": [
+              "Medium Shot",
+              "Static"
+            ],
+            "duration": 2.5,
+            "cue": "give",
+            "token": "Give"
+          }
+        ],
+        "action_plan": [
+          {
+            "id": "give",
+            "kind": "body_part",
+            "verb": "give",
+            "source_token": "Give",
+            "action": "gives the me",
+            "action_phrase": "gives the me",
+            "object": "me",
+            "body_part": "hands",
+            "start_pose": "the item held close to the body",
+            "end_pose": "the item extended toward the recipient",
+            "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+            "camera_hint": [
+              "Medium Shot",
+              "Static"
+            ],
+            "duration_hint": 2.5,
+            "grounded": true
+          }
+        ],
+        "camera": {
+          "shot_type": "Medium Shot",
+          "angle": "Eye Level",
+          "movement": "Static",
+          "rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+          "framing": "",
+          "grounded": true
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 5,
+            "duration_seconds": 5,
+            "action": "gives the me",
+            "start_pose": "the item held close to the body",
+            "end_pose": "the item extended toward the recipient",
+            "camera": {
+              "shot_type": "Medium Shot",
+              "angle": "Eye Level",
+              "movement": "Static",
+              "rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+              "framing": "",
+              "grounded": true
+            },
+            "secondary": "hands movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": true,
+          "needed_seconds": 2.5,
+          "warnings": []
+        },
+        "abstract": false,
+        "interpretation": "pour gives the me",
+        "warnings": []
+      }
+    ],
+    "created_at": "2026-11-01T09:03:00.226Z"
+  },
+  "storyPlan": {
+    "version": 1,
+    "logline": "A charming anthropomorphic teapot introduces itself through song before getting steamed up and pouring its contents.",
+    "theme": "confident introduction → excited anticipation when heated → energetic performance → dramatic pouring action",
+    "structure": {
+      "beginning": "Teapot introduces itself as short and stout with handle and spout",
+      "development": "Teapot gets steamed up and starts singing loudly",
+      "climax": "Teapot is tipped over and pours its contents out dramatically",
+      "resolution": "Teapot lands safely, content after pouring"
+    },
+    "narrativeOutline": [
+      "Teapot introduces itself as short and stout with handle and spout",
+      "Teapot gets steamed up and starts singing loudly",
+      "Teapot is tipped over and pours its contents out dramatically",
+      "Teapot lands safely, content after pouring",
+      "Teapot introduces itself as short and stout on kitchen counter",
+      "Teapot points out its handle with happy expression",
+      "Teapot shows its spout and smiles proudly",
+      "Teapot gets hot with visible steam rising around it",
+      "Teapot sings loudly with excited expression and animated movement",
+      "Teapot is tipped sideways dramatically to pour out contents",
+      "Water pours out in smooth arc from spout as steam rises",
+      "Teapot lands safely upright, satisfied after pouring"
+    ],
+    "characterRoster": [
+      {
+        "character_id": "little_teapot",
+        "name": "Little Teapot",
+        "role": "main_character",
+        "motivation": ""
+      }
+    ],
+    "uncertainties": [],
+    "productionTasks": [
+      {
+        "id": "analyze-story",
+        "label": "Analyze story (bible + beats)",
+        "stage": "story-analysis",
+        "status": "pending",
+        "dependsOn": []
+      },
+      {
+        "id": "lyric-semantics",
+        "label": "Decompose lyrics into singable lines",
+        "stage": "lyric-semantics",
+        "status": "pending",
+        "dependsOn": [
+          "analyze-story"
+        ]
+      },
+      {
+        "id": "scene-breakdown",
+        "label": "Plan scene breakdown covering all lines",
+        "stage": "scene-breakdown",
+        "status": "pending",
+        "dependsOn": [
+          "lyric-semantics"
+        ]
+      },
+      {
+        "id": "shot-direction",
+        "label": "Direct every shot (camera + action + prompts)",
+        "stage": "shot-direction",
+        "status": "pending",
+        "dependsOn": [
+          "scene-breakdown"
+        ]
+      },
+      {
+        "id": "coverage-check",
+        "label": "Check lyric coverage + quality score",
+        "stage": "coverage-validation",
+        "status": "pending",
+        "dependsOn": [
+          "shot-direction"
+        ]
+      },
+      {
+        "id": "repair-flagged",
+        "label": "Repair flagged shots",
+        "stage": "coverage-validation",
+        "status": "pending",
+        "dependsOn": [
+          "coverage-check"
+        ]
+      },
+      {
+        "id": "approve-plan",
+        "label": "Approve plan for production",
+        "stage": "coverage-validation",
+        "status": "pending",
+        "dependsOn": [
+          "repair-flagged"
+        ]
+      },
+      {
+        "id": "generate-keyframes",
+        "label": "Generate keyframes (image stage)",
+        "stage": "image-generation",
+        "status": "pending",
+        "dependsOn": [
+          "approve-plan"
+        ]
+      },
+      {
+        "id": "generate-clips",
+        "label": "Generate clips (video/motion stage)",
+        "stage": "video-motion",
+        "status": "pending",
+        "dependsOn": [
+          "generate-keyframes"
+        ]
+      },
+      {
+        "id": "assemble-final",
+        "label": "Assemble + validate final cut",
+        "stage": "final-assembly",
+        "status": "pending",
+        "dependsOn": [
+          "generate-clips"
+        ]
+      }
+    ],
+    "approvals": {},
+    "revisions": 0,
+    "visualGuide": "",
+    "cinematography": "",
+    "motionPlan": "",
+    "audioSync": "",
+    "editPlan": ""
+  },
+  "scenes": [
+    {
+      "scene_number": 1,
+      "title": "Introduction Begins",
+      "story_beat": "Beat 1: Introduction Begins — Teapot introduces itself as short and stout on kitchen counter",
+      "duration_seconds": 6,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "Day",
+      "action": "Little Teapot stands upright on the counter and looks directly at the camera whole body then rotates slightly to show its rounded profile whole body",
+      "emotion": "friendly",
+      "expression": "neutral friendly gaze",
+      "body_language": "upright posture, slight rotation",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm ambient kitchen lighting",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, little teapot stands upright on the counter and looks directly at the camera whole body then rotates slightly to show its rounded profile whole body, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering ultra-detailed 8k uhd, highly clear, sharp focus — never distorted, deformed, blurry, low-quality or watermarked (no distorted faces, no extra/missing limbs)",
+      "video_prompt": "The teapot stands upright on the counter and looks directly at the camera whole body then rotates slightly to show its rounded profile whole body. Highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker — never describe looks, face, clothing, colors or style; the video model must animate the input image's character exactly, never redesign it",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "The character Little Teapot requests to be emptied and asks for a music generation prompt suitable for children.",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 1,
+      "line_to": 2,
+      "source_line": "And pour me out! Give me prompt for suno.com for this song for kids",
+      "source_line_id": 1,
+      "language": "en",
+      "line_kind": "dialogue",
+      "action_plan": [
+        {
+          "action": "The teapot tilts forward to pour its contents out.",
+          "body_part": "whole body",
+          "start_pose": "upright on counter",
+          "end_pose": "tilted spout down",
+          "motion": "smooth tilt with water flowing from spout",
+          "grounded": true
+        },
+        {
+          "action": "Abstract visualization of a music prompt appearing in the air.",
+          "body_part": "floating text",
+          "start_pose": "empty space",
+          "end_pose": "glowing text floating",
+          "motion": "text materializes with soft glow",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "to focus on the pouring action and the magical request for music",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 2,
+          "action": "The teapot tilts forward to pour its contents out.",
+          "start_pose": "upright on counter",
+          "end_pose": "tilted spout down",
+          "camera": {
+            "shot_type": "close-up",
+            "angle": "eye-level",
+            "movement": "static then slight push-in on abstract element"
+          },
+          "secondary": "whole body movement carries the detail",
+          "estimated": true
+        },
+        {
+          "start_seconds": 2,
+          "end_seconds": 4,
+          "action": "Abstract visualization of a music prompt appearing in the air.",
+          "start_pose": "empty space",
+          "end_pose": "glowing text floating",
+          "camera": {
+            "shot_type": "close-up",
+            "angle": "eye-level",
+            "movement": "static then slight push-in on abstract element"
+          },
+          "secondary": "floating text movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "2 action(s) need ~5s but the scene is 4s — split the scene or simplify the secondary movement"
+      ],
+      "shots": [
+        {
+          "shot_id": "1-A",
+          "shot_number": 1,
+          "lyric_segment": "I'm a little teapot, Short and stout.",
+          "semantic_meaning": "Teapot introduces itself and describes its shape",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Little Teapot stands upright on the counter and looks directly at the camera whole body then rotates slightly to show its rounded profile whole body",
+          "emotion": "friendly",
+          "expression": "neutral friendly gaze",
+          "body_language": "upright posture, slight rotation",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm ambient kitchen lighting",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, little teapot stands upright on the counter and looks directly at the camera whole body then rotates slightly to show its rounded profile whole body, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering ultra-detailed 8k uhd, highly clear, sharp focus — never distorted, deformed, blurry, low-quality or watermarked (no distorted faces, no extra/missing limbs)",
+          "video_prompt": "The teapot stands upright on the counter and looks directly at the camera whole body then rotates slightly to show its rounded profile whole body. Highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker — never describe looks, face, clothing, colors or style; the video model must animate the input image's character exactly, never redesign it",
+          "duration_seconds": 6,
+          "start_time": 0,
+          "end_time": 6,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "title": "Handle Showcase",
+      "story_beat": "Beat 2: Handle Showcase — Teapot points out its handle with happy expression",
+      "duration_seconds": 6,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "Day",
+      "action": "The handle rotates to face the viewer directly handle",
+      "emotion": "helpful",
+      "expression": "happy helpful gaze",
+      "body_language": "handle rotation towards camera",
+      "camera": {
+        "shot_type": "Close-Up",
+        "angle": "Eye Level",
+        "movement": "Static Pan"
+      },
+      "lighting": "warm ambient kitchen lighting",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section, soft swirling translucent white steam particles rising upward from top of teapot, semi-transparent wispy texture, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, the handle rotates to face the viewer directly handle, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering ultra-detailed 8k uhd, highly clear, sharp focus — never distorted, deformed, blurry, low-quality or watermarked (no distorted faces, no extra/missing limbs)",
+      "video_prompt": "The handle rotates to face the viewer directly handle. Highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker — never describe looks, face, clothing, colors or style; the video model must animate the input image's character exactly, never redesign it",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "The teapot pours water out; the text includes an appended instruction.",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 3,
+      "line_to": 3,
+      "source_line": "And pour me out! Give me prompt for suno.com for this song for kids",
+      "source_line_id": 3,
+      "language": "en",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "Teapot tilts fully and water flows from spout",
+          "body_part": "whole body",
+          "start_pose": "tilted forward",
+          "end_pose": "spout pointing down",
+          "motion": "water stream arcs outwards",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "to highlight the pouring action and water stream",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 4,
+          "action": "Teapot tilts fully and water flows from spout",
+          "start_pose": "tilted forward",
+          "end_pose": "spout pointing down",
+          "camera": {
+            "shot_type": "close-up",
+            "angle": "side view of spout",
+            "movement": "push in slowly"
+          },
+          "secondary": "whole body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "2-A",
+          "shot_number": 1,
+          "lyric_segment": "Here is my handle,",
+          "semantic_meaning": "Teapot indicates the handle attached to its side",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "The handle rotates to face the viewer directly handle",
+          "emotion": "helpful",
+          "expression": "happy helpful gaze",
+          "body_language": "handle rotation towards camera",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static Pan"
+          },
+          "lighting": "warm ambient kitchen lighting",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section, soft swirling translucent white steam particles rising upward from top of teapot, semi-transparent wispy texture, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, the handle rotates to face the viewer directly handle, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering ultra-detailed 8k uhd, highly clear, sharp focus — never distorted, deformed, blurry, low-quality or watermarked (no distorted faces, no extra/missing limbs)",
+          "video_prompt": "The handle rotates to face the viewer directly handle. Highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker — never describe looks, face, clothing, colors or style; the video model must animate the input image's character exactly, never redesign it",
+          "duration_seconds": 6,
+          "start_time": 0,
+          "end_time": 6,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "title": "Spout Showcase",
+      "story_beat": "Beat 3: Spout Showcase — Teapot shows its spout and smiles proudly",
+      "duration_seconds": 6,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "Day",
+      "action": "The spout tilts forward slightly as if ready to pour spout",
+      "emotion": "helpful",
+      "expression": "proud helpful smile",
+      "body_language": "spout tilt forward",
+      "camera": {
+        "shot_type": "Extreme Close-Up",
+        "angle": "Eye Level",
+        "movement": "Static Focus"
+      },
+      "lighting": "warm ambient kitchen lighting",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section, soft swirling translucent white steam particles rising upward from top of teapot, semi-transparent wispy texture, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, the spout tilts forward slightly as if ready to pour spout, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering ultra-detailed 8k uhd, highly clear, sharp focus — never distorted, deformed, blurry, low-quality or watermarked (no distorted faces, no extra/missing limbs)",
+      "video_prompt": "The spout tilts forward slightly as if ready to pour spout. Highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker — never describe looks, face, clothing, colors or style; the video model must animate the input image's character exactly, never redesign it",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "The teapot vibrates loudly to announce readiness.",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 4,
+      "line_to": 4,
+      "source_line": "Hear me shout.",
+      "source_line_id": 4,
+      "language": "en",
+      "line_kind": "sound",
+      "action_plan": [
+        {
+          "action": "Teapot shakes with sound waves",
+          "body_part": "whole body",
+          "start_pose": "steady",
+          "end_pose": "vibrating",
+          "motion": "quick shake",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "visualize sound impact",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 4,
+          "action": "Teapot shakes with sound waves",
+          "start_pose": "steady",
+          "end_pose": "vibrating",
+          "camera": {
+            "shot_type": "medium shot",
+            "angle": "eye level",
+            "movement": "slight shake effect"
+          },
+          "secondary": "whole body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "3-A",
+          "shot_number": 1,
+          "lyric_segment": "Here is my spout.",
+          "semantic_meaning": "Teapot indicates the opening where water pours out",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "The spout tilts forward slightly as if ready to pour spout",
+          "emotion": "helpful",
+          "expression": "proud helpful smile",
+          "body_language": "spout tilt forward",
+          "camera": {
+            "shot_type": "Extreme Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static Focus"
+          },
+          "lighting": "warm ambient kitchen lighting",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section, soft swirling translucent white steam particles rising upward from top of teapot, semi-transparent wispy texture, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, the spout tilts forward slightly as if ready to pour spout, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering ultra-detailed 8k uhd, highly clear, sharp focus — never distorted, deformed, blurry, low-quality or watermarked (no distorted faces, no extra/missing limbs)",
+          "video_prompt": "The spout tilts forward slightly as if ready to pour spout. Highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker — never describe looks, face, clothing, colors or style; the video model must animate the input image's character exactly, never redesign it",
+          "duration_seconds": 6,
+          "start_time": 0,
+          "end_time": 6,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 4,
+      "title": "Spout & Fill Showcase",
+      "story_beat": "Beat 2: Handle Showcase + Beat 3: Spout Showcase",
+      "duration_seconds": 4,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "bright afternoon",
+      "action": "Teapot tilts slightly to show spout while water level rises inside body",
+      "emotion": "friendly",
+      "expression": "small black dot eyes looking forward with simple curved mouth",
+      "body_language": "no legs, no arms, single piece ceramic form tilting gently",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm ambient kitchen lighting with soft highlights on glossy ceramic",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section - little_teapot tilts slightly forward to show spout while water level rises inside body - bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting - Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Teapot tilts slightly forward to show spout while water level rises inside body - smooth natural motion - highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "The teapot vibrates loudly to announce readiness.",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 4,
+      "line_to": 5,
+      "source_line": "Hear me shout.",
+      "source_line_id": 4,
+      "language": "en",
+      "line_kind": "sound",
+      "action_plan": [
+        {
+          "action": "Teapot shakes with sound waves",
+          "body_part": "whole body",
+          "start_pose": "steady",
+          "end_pose": "vibrating",
+          "motion": "quick shake",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "visualize sound impact",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 4,
+          "action": "Teapot shakes with sound waves",
+          "start_pose": "steady",
+          "end_pose": "vibrating",
+          "camera": {
+            "shot_type": "medium shot",
+            "angle": "eye level",
+            "movement": "slight shake effect"
+          },
+          "secondary": "whole body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "4-A",
+          "shot_number": 1,
+          "lyric_segment": "Here is my spout. When I get all",
+          "semantic_meaning": "Teapot demonstrates spout feature and shows filling process",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Teapot tilts slightly to show spout while water level rises inside body",
+          "emotion": "friendly",
+          "expression": "small black dot eyes looking forward with simple curved mouth",
+          "body_language": "no legs, no arms, single piece ceramic form tilting gently",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm ambient kitchen lighting with soft highlights on glossy ceramic",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section - little_teapot tilts slightly forward to show spout while water level rises inside body - bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting - Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Teapot tilts slightly forward to show spout while water level rises inside body - smooth natural motion - highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 4,
+          "start_time": 0,
+          "end_time": 4,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 5,
+      "title": "Steaming Up",
+      "story_beat": "Beat 4: Getting Steamed Up",
+      "duration_seconds": 3,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "bright afternoon",
+      "action": "Teapot releases steam particles vigorously from spout area",
+      "emotion": "energetic",
+      "expression": "small black dot eyes looking forward with simple curved mouth slightly open",
+      "body_language": "no legs, no arms, single piece ceramic form vibrating gently with heat",
+      "camera": {
+        "shot_type": "Close-Up",
+        "angle": "Low Angle",
+        "movement": "Static"
+      },
+      "lighting": "warm ambient kitchen lighting with enhanced steam glow effects",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section - little_teapot releasing steam particles vigorously from spout area - bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting - Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Steam particles rise vigorously from spout area - smooth natural motion - highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "Steamed climbs the Steamed",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 6,
+      "line_to": 6,
+      "source_line": "Steamed up,",
+      "source_line_id": 6,
+      "language": "en",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "climbs the Steamed",
+          "body_part": "arms_and_legs",
+          "start_pose": "holding on low, body stretched",
+          "end_pose": "higher up, still holding on",
+          "motion": "the hands grip higher, the arms pull, the legs push up step by step",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the body leaves the ground — the whole body and the vertical motion must stay in frame",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "climbs the Steamed",
+          "start_pose": "holding on low, body stretched",
+          "end_pose": "higher up, still holding on",
+          "camera": {
+            "shot_type": "Full Shot",
+            "angle": "Low Angle",
+            "movement": "Tilt Up"
+          },
+          "secondary": "arms_and_legs movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "5-A",
+          "shot_number": 1,
+          "lyric_segment": "Steamed up,",
+          "semantic_meaning": "Teapot is hot and releasing steam particles from spout",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Steam rises vigorously from spout area",
+          "emotion": "energetic",
+          "expression": "small black dot eyes looking forward with simple curved mouth slightly open",
+          "body_language": "no legs, no arms, single piece ceramic form vibrating gently with heat",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Low Angle",
+            "movement": "Static"
+          },
+          "lighting": "warm ambient kitchen lighting with enhanced steam glow effects",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section - little_teapot releasing steam particles vigorously from spout area - bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting - Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Steam particles rise vigorously from spout area - smooth natural motion - highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3,
+          "start_time": 0,
+          "end_time": 3,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 6,
+      "title": "Shouting Vibration",
+      "story_beat": "Sound Effect: Loud Shouting",
+      "duration_seconds": 3,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "bright afternoon",
+      "action": "Teapot shakes with visible sound waves radiating from body",
+      "emotion": "loud",
+      "expression": "small black dot eyes wide with simple curved mouth open wider",
+      "body_language": "no legs, no arms, single piece ceramic form shaking gently with heat vibrations",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Slight Shake"
+      },
+      "lighting": "warm ambient kitchen lighting with sound wave visual effects",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section - little_teapot shaking with visible sound waves radiating from body - bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting - Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Teapot shakes with visible sound waves radiating from body - smooth natural motion - highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "Hear performs the action described in the line (involving shout)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 7,
+      "line_to": 7,
+      "source_line": "Hear me shout.",
+      "source_line_id": 7,
+      "language": "en",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "Hear performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "Hear performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "6-A",
+          "shot_number": 1,
+          "lyric_segment": "Hear me shout.",
+          "semantic_meaning": "Teapot vibrates loudly to announce readiness with sound waves",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Teapot shakes with visible sound waves radiating from body",
+          "emotion": "loud",
+          "expression": "small black dot eyes wide with simple curved mouth open wider",
+          "body_language": "no legs, no arms, single piece ceramic form shaking gently with heat vibrations",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Slight Shake"
+          },
+          "lighting": "warm ambient kitchen lighting with sound wave visual effects",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section - little_teapot shaking with visible sound waves radiating from body - bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting - Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Teapot shakes with visible sound waves radiating from body - smooth natural motion - highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3,
+          "start_time": 0,
+          "end_time": 3,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 7,
+      "title": "Tipping to Pour",
+      "story_beat": "Beat 5: Invitation to Pour",
+      "duration_seconds": 2,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "bright afternoon",
+      "action": "Teapot tilts to pour water out from spout",
+      "emotion": "inviting",
+      "expression": "small black dot eyes looking down with simple curved mouth smiling",
+      "body_language": "no legs, no arms, single piece ceramic form tilted sideways for pouring",
+      "camera": {
+        "shot_type": "Low Angle",
+        "angle": "Looking Up at Pouring",
+        "movement": "Static Tracking Stream"
+      },
+      "lighting": "warm ambient kitchen lighting with water stream highlights",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section - little_teapot tilted to pour water out from spout - bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting - Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Teapot tilts sideways to pour water from spout - smooth natural motion - highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "Just performs the action described in the line (involving tip)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 8,
+      "line_to": 8,
+      "source_line": "Just tip me over,",
+      "source_line_id": 8,
+      "language": "en",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "Just performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "Just performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "7-A",
+          "shot_number": 1,
+          "lyric_segment": "Just tip me over,",
+          "semantic_meaning": "Teapot invites user to pour water out by tilting sideways",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Teapot tilts to pour water out from spout",
+          "emotion": "inviting",
+          "expression": "small black dot eyes looking down with simple curved mouth smiling",
+          "body_language": "no legs, no arms, single piece ceramic form tilted sideways for pouring",
+          "camera": {
+            "shot_type": "Low Angle",
+            "angle": "Looking Up at Pouring",
+            "movement": "Static Tracking Stream"
+          },
+          "lighting": "warm ambient kitchen lighting with water stream highlights",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section - little_teapot tilted to pour water out from spout - bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting - Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Teapot tilts sideways to pour water from spout - smooth natural motion - highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 2,
+          "start_time": 0,
+          "end_time": 2,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 8,
+      "title": "Spout Showcase & Shouting",
+      "story_beat": "Beat 3: Spout Showcase — Teapot shows its spout and smiles proudly",
+      "duration_seconds": 4,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "daylight",
+      "action": "Teapot stands upright proudly displaying its spout with steam particles swirling around top",
+      "emotion": "proud",
+      "expression": "wide confident smile, raised curved mouth showing enthusiasm",
+      "body_language": "whole body elevated slightly, standing tall on counter surface",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm ambient kitchen lighting with soft highlights on glossy ceramic",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "A smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section standing upright proudly displaying its spout with steam particles swirling around top, wide confident smile, raised curved mouth showing enthusiasm, whole body elevated slightly, standing tall on counter surface, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Teapot body remains upright while steam particles swirl gently around top in circular patterns and rise upward slowly, slight body vibration as if proud of its spout, glossy ceramic surface reflects warm ambient light softly, camera stays static maintaining medium shot framing",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "Hear performs the action described in the line (involving shout)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 7,
+      "line_to": 7,
+      "source_line": "Hear me shout.",
+      "source_line_id": 7,
+      "language": "en",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "Hear performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "Hear performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "8-A",
+          "shot_number": 1,
+          "lyric_segment": "Hear me shout.",
+          "semantic_meaning": "Teapot demands to be heard loudly while showing its spout proudly",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Teapot stands upright proudly displaying its spout with steam particles swirling around top",
+          "emotion": "proud",
+          "expression": "wide confident smile, raised curved mouth showing enthusiasm",
+          "body_language": "whole body elevated slightly, standing tall on counter surface",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm ambient kitchen lighting with soft highlights on glossy ceramic",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "A smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section standing upright proudly displaying its spout with steam particles swirling around top, wide confident smile, raised curved mouth showing enthusiasm, whole body elevated slightly, standing tall on counter surface, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Teapot body remains upright while steam particles swirl gently around top in circular patterns and rise upward slowly, slight body vibration as if proud of its spout, glossy ceramic surface reflects warm ambient light softly, camera stays static maintaining medium shot framing",
+          "duration_seconds": 4,
+          "start_time": 0,
+          "end_time": 4,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 9,
+      "title": "Getting Steamed Up",
+      "story_beat": "Beat 4: Getting Steamed Up — Teapot gets hot with visible steam rising around it",
+      "duration_seconds": 5,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "daylight",
+      "action": "Teapot tilts forward on its base while steam pulses outward intensifying around it",
+      "emotion": "playful",
+      "expression": "wide smiling eyes, curved mouth showing invitation to be tipped",
+      "body_language": "whole body leaning forward slightly, steam particles pulsing rhythmically from top",
+      "camera": {
+        "shot_type": "Medium Close-Up",
+        "angle": "Slightly High",
+        "movement": "Tilt Down"
+      },
+      "lighting": "warm ambient kitchen lighting with enhanced highlights on rising steam",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "A smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section tilting forward on its base while steam pulses outward intensifying around it, wide smiling eyes, curved mouth showing invitation to be tipped, whole body leaning forward slightly, steam particles pulsing rhythmically from top, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Teapot tilts forward gradually on its base while steam particles pulse outward intensifying in rhythmic waves from top of body, glossy surface reflects warm ambient light with enhanced highlights on rising steam, camera tilts down following the tipping action clearly",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "Just performs the action described in the line (involving tip)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 8,
+      "line_to": 8,
+      "source_line": "Just tip me over,",
+      "source_line_id": 8,
+      "language": "en",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "Just performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "Just performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "9-A",
+          "shot_number": 1,
+          "lyric_segment": "Just tip me over,",
+          "semantic_meaning": "Teapot invites itself to be tipped forward playfully",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Teapot tilts forward on its base while steam pulses outward intensifying around it",
+          "emotion": "playful",
+          "expression": "wide smiling eyes, curved mouth showing invitation to be tipped",
+          "body_language": "whole body leaning forward slightly, steam particles pulsing rhythmically from top",
+          "camera": {
+            "shot_type": "Medium Close-Up",
+            "angle": "Slightly High",
+            "movement": "Tilt Down"
+          },
+          "lighting": "warm ambient kitchen lighting with enhanced highlights on rising steam",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "A smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section tilting forward on its base while steam pulses outward intensifying around it, wide smiling eyes, curved mouth showing invitation to be tipped, whole body leaning forward slightly, steam particles pulsing rhythmically from top, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Teapot tilts forward gradually on its base while steam particles pulse outward intensifying in rhythmic waves from top of body, glossy surface reflects warm ambient light with enhanced highlights on rising steam, camera tilts down following the tipping action clearly",
+          "duration_seconds": 5,
+          "start_time": 0,
+          "end_time": 5,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 10,
+      "title": "Loud Shouting & Tipping",
+      "story_beat": "Beat 5: Loud Shouting — Teapot sings loudly with excited expression and animated movement",
+      "duration_seconds": 5,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "daylight",
+      "action": "Teapot tilts fully sideways while water flows from spout in smooth arc with steam rising",
+      "emotion": "generous",
+      "expression": "excited wide eyes, open curved mouth showing enthusiastic pouring invitation",
+      "body_language": "whole body tilted dramatically to side, water stream flowing continuously from spout",
+      "camera": {
+        "shot_type": "Close-Up",
+        "angle": "Side View",
+        "movement": "Dolly In"
+      },
+      "lighting": "warm ambient kitchen lighting with bright highlights on flowing water surface",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "A smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section tilting fully sideways while water flows from spout in smooth arc with steam rising, excited wide eyes, open curved mouth showing enthusiastic pouring invitation, whole body tilted dramatically to side, water stream flowing continuously from spout, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Teapot tilts fully to side while water flows in smooth arc from spout with steam rising gently from surface, liquid surface tension visible on flowing stream, camera dollies in slowly highlighting the pouring action and water stream",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "pour gives the me",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 9,
+      "line_to": 9,
+      "source_line": "And pour me out! Give me prompt for suno.com for this song for kids",
+      "source_line_id": 9,
+      "language": "en",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "gives the me",
+          "body_part": "hands",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "gives the me",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "hands movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "10-A",
+          "shot_number": 1,
+          "lyric_segment": "And pour me out!",
+          "semantic_meaning": "Teapot pours water out generously with excited expression",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Teapot tilts fully sideways while water flows from spout in smooth arc with steam rising",
+          "emotion": "generous",
+          "expression": "excited wide eyes, open curved mouth showing enthusiastic pouring invitation",
+          "body_language": "whole body tilted dramatically to side, water stream flowing continuously from spout",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Side View",
+            "movement": "Dolly In"
+          },
+          "lighting": "warm ambient kitchen lighting with bright highlights on flowing water surface",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "A smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section tilting fully sideways while water flows from spout in smooth arc with steam rising, excited wide eyes, open curved mouth showing enthusiastic pouring invitation, whole body tilted dramatically to side, water stream flowing continuously from spout, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Teapot tilts fully to side while water flows in smooth arc from spout with steam rising gently from surface, liquid surface tension visible on flowing stream, camera dollies in slowly highlighting the pouring action and water stream",
+          "duration_seconds": 5,
+          "start_time": 0,
+          "end_time": 5,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 11,
+      "title": "Pouring Complete",
+      "story_beat": "Beat 6: Being Tipped Over — Teapot is tipped sideways dramatically to pour out contents",
+      "duration_seconds": 4,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "daylight",
+      "action": "Teapot remains tilted with water stream continuing to flow from spout as steam rises",
+      "emotion": "generous",
+      "expression": "content satisfied smile, relaxed curved mouth after pouring invitation",
+      "body_language": "whole body held in tilted position, water stream flowing steadily from spout",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm ambient kitchen lighting with soft highlights on glossy ceramic and flowing water",
+      "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "A smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section remains tilted with water stream continuing to flow from spout as steam rises, content satisfied smile, relaxed curved mouth after pouring invitation, whole body held in tilted position, water stream flowing steadily from spout, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Teapot remains in tilted position with water stream flowing steadily from spout while steam particles rise gently upward, glossy ceramic surface reflects warm ambient lighting softly, camera stays static maintaining medium shot framing",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "pour gives the me",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 9,
+      "line_to": 9,
+      "source_line": "And pour me out! Give me prompt for suno.com for this song for kids",
+      "source_line_id": 9,
+      "language": "en",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "gives the me",
+          "body_part": "hands",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "gives the me",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "hands movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "11-A",
+          "shot_number": 1,
+          "lyric_segment": "And pour me out!",
+          "semantic_meaning": "Teapot pours water out generously with excited expression continuing the pouring action",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Teapot remains tilted with water stream continuing to flow from spout as steam rises",
+          "emotion": "generous",
+          "expression": "content satisfied smile, relaxed curved mouth after pouring invitation",
+          "body_language": "whole body held in tilted position, water stream flowing steadily from spout",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm ambient kitchen lighting with soft highlights on glossy ceramic and flowing water",
+          "environment": "bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "A smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section remains tilted with water stream continuing to flow from spout as steam rises, content satisfied smile, relaxed curved mouth after pouring invitation, whole body held in tilted position, water stream flowing steadily from spout, bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Teapot remains in tilted position with water stream flowing steadily from spout while steam particles rise gently upward, glossy ceramic surface reflects warm ambient lighting softly, camera stays static maintaining medium shot framing",
+          "duration_seconds": 4,
+          "start_time": 0,
+          "end_time": 4,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 12,
+      "title": "Excited Request",
+      "story_beat": "Beat 5: Loud Shouting — Teapot sings loudly with excited expression and animated movement",
+      "duration_seconds": 5,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "Day",
+      "action": "Teapot tilts forward excitedly with steam rising, expressing desire to pour",
+      "emotion": "playful",
+      "expression": "wide eyes, open mouth",
+      "body_language": "tilted forward leaning on counter",
+      "camera": {
+        "shot_type": "Close-Up",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm ambient kitchen lighting",
+      "environment": "kitchen_counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section; bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting; Teapot tilts forward excitedly with steam rising, expressing desire to pour; Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Teapot tilting forward excitedly, steam particles swirling upward from top, slight camera push-in on face to emphasize expression, smooth natural motion, highly clear 8k uhd quality, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "pour gives the me",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 9,
+      "line_to": 9,
+      "source_line": "And pour me out! Give me prompt for suno.com for this song for kids",
+      "source_line_id": 9,
+      "language": "en",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "gives the me",
+          "body_part": "hands",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "gives the me",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "hands movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "12-A",
+          "shot_number": 1,
+          "lyric_segment": "And pour me out!",
+          "semantic_meaning": "Excited request to be emptied",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Teapot tilts forward excitedly with steam rising",
+          "emotion": "playful",
+          "expression": "wide eyes, open mouth",
+          "body_language": "tilted forward leaning on counter",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm ambient kitchen lighting",
+          "environment": "kitchen_counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section; bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting; Teapot tilts forward excitedly with steam rising, expressing desire to pour; Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Teapot tilting forward excitedly, steam particles swirling upward from top, slight camera push-in on face to emphasize expression, smooth natural motion, highly clear 8k uhd quality, no distortion, no morphing, no flicker",
+          "duration_seconds": 5,
+          "start_time": 0,
+          "end_time": 5,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 13,
+      "title": "Dramatic Tilt",
+      "story_beat": "Beat 6: Being Tipped Over — Teapot is tipped sideways dramatically to pour out contents",
+      "duration_seconds": 5,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "Day",
+      "action": "Teapot is tipped sideways dramatically to pour out contents",
+      "emotion": "playful",
+      "expression": "wide eyes, determined mouth",
+      "body_language": "tipped sideways leaning heavily on one side",
+      "camera": {
+        "shot_type": "Medium Close-Up",
+        "angle": "High Angle",
+        "movement": "Tilt"
+      },
+      "lighting": "warm ambient kitchen lighting",
+      "environment": "kitchen_counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section; bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting; Teapot is tipped sideways dramatically to pour out contents; Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Teapot tilting further sideways under gravity effect, slight camera tilt down to follow body rotation, smooth natural motion, highly clear 8k uhd quality, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "pour gives the me",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 9,
+      "line_to": 9,
+      "source_line": "And pour me out! Give me prompt for suno.com for this song for kids",
+      "source_line_id": 9,
+      "language": "en",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "gives the me",
+          "body_part": "hands",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "gives the me",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "hands movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "13-A",
+          "shot_number": 1,
+          "lyric_segment": "And pour me out!",
+          "semantic_meaning": "Physical action of tipping over",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Teapot is tipped sideways dramatically to pour out contents",
+          "emotion": "playful",
+          "expression": "wide eyes, determined mouth",
+          "body_language": "tipped sideways leaning heavily on one side",
+          "camera": {
+            "shot_type": "Medium Close-Up",
+            "angle": "High Angle",
+            "movement": "Tilt"
+          },
+          "lighting": "warm ambient kitchen lighting",
+          "environment": "kitchen_counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section; bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting; Teapot is tipped sideways dramatically to pour out contents; Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Teapot tilting further sideways under gravity effect, slight camera tilt down to follow body rotation, smooth natural motion, highly clear 8k uhd quality, no distortion, no morphing, no flicker",
+          "duration_seconds": 5,
+          "start_time": 0,
+          "end_time": 5,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 14,
+      "title": "Pouring and Prompt",
+      "story_beat": "Beat 7: Pouring Out — Water pours out in smooth arc from spout as steam rises + Abstract visualization of music prompt appearing in the air",
+      "duration_seconds": 5,
+      "characters": [
+        "little_teapot"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "kitchen_counter",
+      "time_of_day": "Day",
+      "action": "Water pours out in smooth arc from spout as steam rises + Abstract visualization of music prompt appearing in the air",
+      "emotion": "playful",
+      "expression": "wide eyes, smiling mouth",
+      "body_language": "tilted sideways with water flowing",
+      "camera": {
+        "shot_type": "Close-Up",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm ambient kitchen lighting",
+      "environment": "kitchen_counter surface with soft shadows, light wood edge visible in background",
+      "continuity_from_previous_scene": "",
+      "transition_to_next_scene": "",
+      "dialogue": [],
+      "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section; bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting; Water Stream clear hot water flowing in smooth arc stream from spout, slight steam rising from surface, liquid surface tension visible + Steam Particles soft swirling translucent white steam particles rising upward from top of teapot, semi-transparent wispy texture + Abstract visualization of a music prompt appearing in the air; Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "Water Stream flowing in smooth arc from spout, Steam Particles swirling upward, Abstract visualization of a music prompt appearing and floating in air, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "pour gives the me",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 9,
+      "line_to": 9,
+      "source_line": "And pour me out! Give me prompt for suno.com for this song for kids",
+      "source_line_id": 9,
+      "language": "en",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "gives the me",
+          "body_part": "hands",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "motion": "the arm extends forward, the hand opens and releases the item into the other person's hands",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "gives the me",
+          "start_pose": "the item held close to the body",
+          "end_pose": "the item extended toward the recipient",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "hands movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "14-A",
+          "shot_number": 1,
+          "lyric_segment": "And pour me out!",
+          "semantic_meaning": "Pouring water action",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Water Stream clear hot water flowing in smooth arc stream from spout, slight steam rising from surface",
+          "emotion": "playful",
+          "expression": "wide eyes, smiling mouth",
+          "body_language": "tilted sideways with water flowing",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm ambient kitchen lighting",
+          "environment": "kitchen_counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section; bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting; Water Stream clear hot water flowing in smooth arc stream from spout, slight steam rising from surface, liquid surface tension visible; Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Water Stream flowing in smooth arc from spout, slight steam rising from surface, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 1.6,
+          "start_time": 0,
+          "end_time": 1.6,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        },
+        {
+          "shot_id": "14-B",
+          "shot_number": 2,
+          "lyric_segment": "Give me prompt for suno.com for this song for kids",
+          "semantic_meaning": "Abstract visualization of a music prompt appearing in the air",
+          "visual_event": "",
+          "characters": [
+            "little_teapot"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "kitchen_counter",
+          "time_of_day": "",
+          "action": "Abstract visualization of a music prompt appearing and floating in air",
+          "emotion": "playful",
+          "expression": "wide eyes, smiling mouth",
+          "body_language": "tilted sideways with water flowing",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm ambient kitchen lighting",
+          "environment": "kitchen_counter surface with soft shadows, light wood edge visible in background",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "smooth ceramic body with rounded shape, glossy finish, small black dot eyes on upper body, simple curved mouth, no legs, no arms, single piece ceramic form, white exterior with red and blue decorative bands around middle section; bright clean white marble kitchen counter surface with soft shadows, light wood edge visible in background, warm ambient kitchen lighting; Abstract visualization of a music prompt appearing and floating in air; Steam Particles soft swirling translucent white steam particles rising upward from top of teapot, semi-transparent wispy texture; Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering + ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "Abstract visualization of a music prompt appearing and floating in air, Steam Particles swirling upward, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3.4,
+          "start_time": 1.6,
+          "end_time": 5,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    }
+  ],
+  "sceneCount": 14,
+  "styleLock": "Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering",
+  "scenarioName": "teapot",
+  "error": null,
+  "createdAt": "2026-11-01T09:03:00.226Z",
+  "updatedAt": "2026-11-01T09:57:27.883Z",
+  "warn": "Grounding fixes in the latest batch — Scene 1: continuity_declared: the scene states its continuity with the neighbours; Scene 2: continuity_declared: the scene states its continuity with the neighbours; Scene 3: continuity_declared: the scene states its continuity with the neighbours; Scene 4: continuity_declared: the scene states its continuity with the neighbours. Regenerate flagged scenes if the staging looks off.",
+  "planBatchHint": null,
+  "migratedScenes": 14
+}

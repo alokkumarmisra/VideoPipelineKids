@@ -45,6 +45,10 @@ export interface Beat {
 export interface Scenario {
   description?: string;
   character?: string;
+  // The user-typed project name ("Pyari billi"). The scenario identity (`name`
+  // in URLs/DB) is the SPACE-FREE internal key ("pyari_billi") — UI labels
+  // prefer this and fall back to the key when absent.
+  display_name?: string;
   referencePrompt: string;
   duration: number;
   sequence: Beat[];
@@ -112,6 +116,10 @@ export interface Scenario {
 
 export interface ScenarioInfo {
   name: string;
+  /** The user-typed project name ("Pyari billi") — `name` is the space-free
+   *  internal KEY ("pyari_billi") used for URLs/storage. UI labels prefer
+   *  this and fall back to the key. */
+  display_name?: string | null;
   isSequence: boolean;
   mtimeMs: number;
   favorite?: boolean;

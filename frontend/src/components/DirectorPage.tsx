@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   alertServiceError, directorAddEntry, directorAnalyze, directorAnalyzeLive, directorApprove, directorApproveStage, directorAssets, directorBiblePreview, directorBoard, directorBoards, directorCinematography, directorCoverage, directorDeleteBoard, directorOptimizePrompt,
   directorDuplicateBoard, directorLive, directorMotionAudio, directorPlan, directorPromptPreview, directorRegenEntry, directorRegenScene, directorRepair, directorScenes, directorSemantics, directorAnalyzeSemantics, directorShotPrompts, directorSongUrl, directorUpdateBoard, directorValidate, fmtRelative, saveScenario, suggestDirectorInstructions,
-  type DirectorAssetMap, type DirectorBoard, type DirectorBoardMeta, type DirectorCinematography, type DirectorCoverage, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorMotionAudio, type DirectorPlan, type DirectorPromptPreview, type DirectorScene, type DirectorShotPrompts, type DirectorShot, type DirectorValidation, type DirectorSemantics, type ImageMode,
+  uploadLyricAudio, startWhisperXAnalysis, getWhisperXJobStatus, directorMasterTimeline, approveMasterTimeline,
+  type DirectorAssetMap, type DirectorBoard, type DirectorBoardMeta, type DirectorCinematography, type DirectorCoverage, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorMotionAudio, type DirectorPlan, type DirectorPromptPreview, type DirectorScene, type DirectorShotPrompts, type DirectorShot, type DirectorValidation, type DirectorSemantics, type ImageMode, type MasterTimelineResponse,
 } from "../api";
 import { useDialog } from "./Dialog";
 import { IconCheck, IconClapper, IconFilm, IconFolder, IconPanel, IconRefresh, IconSparkles, IconTrash, Spinner } from "./Icons";
 import Collapse from "./Collapse";
+import AudioIntelligencePanel from "./AudioIntelligencePanel";
 import BatchSizeSelect, { SCENE_BATCH } from "./BatchSizeSelect";
 import DirectorGeneration from "./DirectorGeneration";
 import { useIdleFollow } from "./useIdleFollow";
@@ -60,27 +62,305 @@ const ANALYZER_TYPES = {
       "Return valid JSON using the application's required schema, including story analysis, registered assets, and chronological beats."
     ]
   },
+  // Song Director: a full 16-section directive (asset-library-driven scene
+  // planning). Sections render verbatim into the Master Prompt between TASK
+  // and the VISUAL STYLE LOCK; the style lock itself stays dynamic (follows
+  // the Visual Style dropdown) and the Additional Instructions box overrides
+  // `additionalDefault` when the user types their own.
   song_director: {
     role: "Song Director — Sanskriti AI Studio",
-    task: "Convert supplied song lyrics and available audio metadata into a complete visual music-video storyboard synchronized to the existing song.",
-    instructions: [
-      "Read and understand all lyrics before planning scenes.",
-      "Identify the intro, verses, chorus, repeated sections, bridge, outro, singers, speakers, characters, actions, and emotional progression when present.",
-      "Do not rewrite lyrics, compose a new song, change the supplied duration, or generate replacement audio.",
-      "Register every character represented in the lyrics, including singers, talking animals, and personified characters when present. Assign unique IDs and reusable static visual identity prompts.",
-      "Register all relevant locations and props with unique IDs and visual identity prompts.",
-      "Divide the song into chronological visual beats based on lyric meaning and supplied timing cues. Group related lines when they describe one coherent action; split them when the visual meaning changes.",
-      "For every beat, specify the corresponding lyric or lyric range, start and end times when known, characters, location, visible props, and exactly one primary visual action.",
-      "Translate lyrics into literal or appropriately symbolic visuals that a viewer can understand. Do not create unrelated scenes just to fill the song.",
-      "Use the existing song duration as the fixed runtime. If exact timestamps are unavailable, produce an estimated scene allocation and label it clearly.",
-      "Match singing and lip-sync to the correct character. Do not assign a vocal line to an unrelated character.",
-      "Repeated choruses should retain character identity while allowing purposeful visual variation.",
-      "Use instrumental passages for relevant visual actions, establishing shots, or transitions without inventing lyrics.",
-      "Specify image composition, video action, camera movement, lighting, and transitions for each beat.",
-      "Maintain character anatomy, visual identity, location continuity, and prop consistency throughout the video.",
-      "Ensure all beats together cover the complete supplied duration without unexplained gaps or overlaps.",
-      "Return valid JSON using the required schema, including registered characters, locations, props, and chronological beats."
-    ]
+    task: "Convert supplied song lyrics and available audio metadata into a complete visual music-video storyboard synchronized to the existing song. Use the complete Storyboard asset library to select appropriate characters, locations, and objects for every scene according to the lyrics, music, action, and narrative context.",
+    instructions: [], // unused — `sections` renders instead
+    sections: [
+      {
+        title: "Song Understanding and Structure",
+        body: [
+          "1. Read and understand all lyrics before planning scenes.",
+          "2. Identify the intro, verses, chorus, repeated sections, bridge, outro, singers, speakers, characters, actions, and emotional progression when present.",
+          "3. Do not rewrite lyrics, compose a new song, change the supplied duration, or generate replacement audio.",
+          "4. Analyze available audio metadata, lyric timestamps, vocal segments, instrumental passages, tempo, mood, and transitions when provided.",
+          "5. Treat the supplied audio duration as the fixed runtime.",
+          "6. Never invent exact audio timestamps when they are unavailable. Estimate scene timings only when necessary and label them as estimated.",
+        ].join("\n"),
+      },
+      {
+        title: "Complete Storyboard Asset Registration",
+        body: [
+          "1. Register every relevant character represented in the lyrics, including singers, talking animals, personified objects, and other characters when present.",
+          "2. Assign unique, stable IDs to characters and provide reusable static visual identity prompts.",
+          "3. Register all relevant locations, environments, objects, and props identified through the lyrics, story, or supplied Storyboard analysis.",
+          "4. Assign unique, stable IDs to locations and objects and provide reusable visual identity prompts.",
+          "5. Preserve existing asset IDs, names, descriptions, reference images, and mappings supplied by Storyboard Analysis.",
+          "6. Do not duplicate assets that already exist in the asset library.",
+          "7. Do not invent replacement assets when suitable registered assets already exist.",
+          "8. Do not assume that the first character, location, or object is the default asset.",
+          "9. Do not assume a fixed number of assets.",
+          "10. Treat the complete supplied asset library as the candidate pool for every scene, not merely the first entry or a small initial subset.",
+        ].join("\n"),
+      },
+      {
+        title: "Mandatory Full Asset Evaluation for Every Scene",
+        body: [
+          "Before generating EACH scene, evaluate the complete available list of registered characters, locations, and objects.",
+          "",
+          "This requirement applies independently to every scene and every batch of scenes.",
+          "",
+          "For each scene, determine:",
+          "",
+          "- Which registered characters are necessary for the current lyric or musical event?",
+          "- Which registered location best matches the scene's action and narrative context?",
+          "- Which registered objects or props are necessary for the action?",
+          "- Which assets from previous scenes must remain present for continuity?",
+          "- Which assets should be introduced, reused, moved, or removed?",
+          "- Does the scene require a new location or a continuation of the existing location?",
+          "- Does the scene require one character or an interaction between multiple characters?",
+          "",
+          "Do not select assets based on their array position, registration order, popularity, or convenience.",
+          "",
+          "**CRITICAL RULE:** The first registered location, character, or object must never automatically become the default for all scenes. Select assets according to scene relevance.",
+        ].join("\n"),
+      },
+      {
+        title: "Intelligent Location Selection and Distribution",
+        body: [
+          "1. Evaluate ALL registered locations before selecting the location for each scene.",
+          "2. Choose the location that best matches the lyric meaning, action, story progression, and visual requirements.",
+          "3. Use different locations when the lyrics or narrative indicate a change in setting.",
+          "4. Maintain the current location when the story continues in the same environment.",
+          "5. Introduce appropriate location transitions when characters travel, move, explore, or enter another environment.",
+          "6. Use location-specific visual details from the registered asset description.",
+          "7. Do not repeatedly use the first location merely because it was registered first.",
+          "8. Do not randomly rotate locations simply to increase variety.",
+          "9. Do not force every registered location into the song if it has no narrative relevance.",
+          "10. Across the complete video, ensure that every relevant location is considered and used when the song provides a suitable opportunity.",
+          "11. If the lyrics explicitly identify a location, prioritize that location when it matches the available asset library.",
+          "12. If several locations are plausible, choose the one that best supports the current action and continuity.",
+        ].join("\n"),
+      },
+      {
+        title: "Intelligent Character Selection",
+        body: [
+          "1. Evaluate all registered characters for each scene.",
+          "2. Include every character required by the current action, lyric, dialogue, or interaction.",
+          "3. Include multiple characters when the action requires them to interact.",
+          "4. Do not automatically reuse the first registered character.",
+          "5. Do not force every character into every scene.",
+          "6. Preserve character identity, appearance, clothing, proportions, colors, and distinguishing features.",
+          "7. Keep singers and vocal performers consistent with the corresponding lyric or vocal segment.",
+          "8. Do not assign lip-sync or singing actions to an unrelated character.",
+          "9. For instrumental passages, use appropriate character actions when narratively relevant, without inventing sung dialogue.",
+          "10. Ensure that all relevant characters receive appropriate appearances across the complete video.",
+        ].join("\n"),
+      },
+      {
+        title: "Intelligent Object and Prop Selection",
+        body: [
+          "1. Evaluate all registered objects and props for every scene.",
+          "2. Select objects required by the lyrics, scene action, environment, or narrative.",
+          "3. Include relevant props explicitly in the scene plan and final generation prompt.",
+          "4. Do not ignore a relevant registered object because it appears later in the asset list.",
+          "5. Do not insert irrelevant objects merely to increase asset utilization.",
+          "6. Maintain object identity, color, shape, size, and appearance across scenes.",
+          "7. Preserve object continuity when a character carries, uses, drops, collects, exchanges, or puts down an object.",
+          "8. Introduce objects at the appropriate point in the song.",
+          "9. If an object is mentioned in the lyrics, evaluate whether it should be visibly represented.",
+          "10. When an object is not available in the registered library, use an existing suitable asset if appropriate; otherwise, identify the missing asset rather than falsely claiming that a registered asset was selected.",
+        ].join("\n"),
+      },
+      {
+        title: "Scene Segmentation and Lyric Synchronization",
+        body: [
+          "1. Divide the song into chronological visual beats based on lyric meaning and supplied timing cues.",
+          "2. Group related lines when they describe one coherent action; split them when the visual meaning changes.",
+          "3. For every beat, specify the corresponding lyric or lyric range, start and end times when known, characters, location, visible props, and exactly one primary visual action.",
+          "4. Translate lyrics into literal or appropriately symbolic visuals that a viewer can understand.",
+          "5. Do not create unrelated scenes just to fill the song.",
+          "6. Use the existing song duration as the fixed runtime.",
+          "7. Ensure all beats together cover the complete supplied duration without unexplained gaps or overlaps.",
+          "8. Preserve the existing scene-duration constraints and clip segmentation rules.",
+          "9. Align scene changes with lyric changes, vocal phrases, musical transitions, and instrumental breaks when the supplied metadata supports them.",
+          "10. Avoid changing a scene's primary action midway unless the beat is deliberately split into separate scenes.",
+        ].join("\n"),
+      },
+      {
+        title: "Scene-Level Asset Mapping",
+        body: [
+          "Every scene MUST explicitly map its selected assets to the registered asset library.",
+          "",
+          "For each scene, include the fields supported by the existing output schema:",
+          "",
+          "- Scene ID.",
+          "- Lyric segment or musical segment.",
+          "- Start and end timestamps.",
+          "- Selected character IDs and names.",
+          "- Selected location ID and name.",
+          "- Selected object/prop IDs and names.",
+          "- Primary visual action.",
+          "- Character interactions and positions.",
+          "- Scene-specific environment details.",
+          "- Camera framing and movement.",
+          "- Lighting, mood, and visual style.",
+          "- Transition to the next scene.",
+          "- Final image or text-to-video prompt.",
+          "",
+          "Use existing registered IDs wherever available.",
+          "",
+          "Do not rely on vague instructions such as \"use storyboard assets\" or \"use the appropriate background.\"",
+          "",
+          "The final scene prompt must explicitly describe the selected location, characters, and relevant props so the video-generation model can produce the intended composition.",
+          "",
+          "Do not include all registered assets indiscriminately in every scene. Include the assets that are appropriate for that specific scene.",
+        ].join("\n"),
+      },
+      {
+        title: "Scene Prompt Construction",
+        body: [
+          "Construct every image or video generation prompt using the following order:",
+          "",
+          "1. **Location:** Identify the selected registered location and describe its relevant visual features.",
+          "2. **Characters:** Identify the selected characters and preserve their registered visual identities.",
+          "3. **Objects and props:** Identify the selected objects, their appearance, and how they are used.",
+          "4. **Primary action:** Describe exactly one main visible action for the scene.",
+          "5. **Composition:** Specify character positions, foreground, background, and important visual elements.",
+          "6. **Camera:** Specify shot type, angle, framing, and movement.",
+          "7. **Lighting and mood:** Match the musical mood and lyric context.",
+          "8. **Continuity:** Preserve relevant details from previous scenes.",
+          "9. **Style:** Apply the global visual style lock.",
+          "10. **Transition:** Describe the visual transition when supported by the existing schema.",
+          "",
+          "The generated prompt must reflect the selected assets, not merely repeat the same generic scene description with different lyrics.",
+        ].join("\n"),
+      },
+      {
+        title: "Character, Location, and Prop Continuity",
+        body: [
+          "1. Maintain consistent character identity and appearance throughout the video.",
+          "2. Maintain location continuity when consecutive scenes represent the same place.",
+          "3. Preserve relevant props across scenes until the story indicates that they are removed, transferred, or no longer visible.",
+          "4. Ensure that a character's actions in one scene make sense in the following scene.",
+          "5. Allow location changes when justified by the lyrics or narrative.",
+          "6. Avoid contradictory character positions, object ownership, and environmental details.",
+          "7. Repeated choruses must preserve character identity while allowing purposeful variation in actions, camera angles, composition, and relevant locations.",
+          "8. Reuse registered asset descriptions instead of creating inconsistent new descriptions for the same assets.",
+        ].join("\n"),
+      },
+      {
+        title: "Cinematic Direction",
+        body: [
+          "For each beat, specify:",
+          "",
+          "- One primary visual action.",
+          "- Character expression and body language.",
+          "- Shot type and camera angle.",
+          "- Camera movement when appropriate.",
+          "- Foreground and background composition.",
+          "- Lighting and color mood.",
+          "- Relevant environmental motion.",
+          "- A suitable transition.",
+          "",
+          "Keep the scene visually understandable and appropriate for the song's audience.",
+          "",
+          "For children's songs, prefer clear actions, readable expressions, colorful environments, and simple compositions. For other songs, adapt the direction to the song's genre, mood, and narrative.",
+          "",
+          "Do not sacrifice lyric synchronization or asset relevance for unnecessary cinematic complexity.",
+        ].join("\n"),
+      },
+      {
+        title: "Instrumental Sections and Repeated Lyrics",
+        body: [
+          "1. Use instrumental passages for relevant visual actions, establishing shots, reactions, environmental movement, or transitions.",
+          "2. Do not invent lyrics or assign lip-sync during instrumental-only segments.",
+          "3. Repeated choruses should retain character identity and important story details.",
+          "4. Use purposeful visual variation when appropriate, including different actions, framing, or relevant registered locations.",
+          "5. Do not change the location or introduce new objects solely because a lyric section repeats.",
+          "6. Make visual variation consistent with the actual song and narrative.",
+        ].join("\n"),
+      },
+      {
+        title: "Mandatory Asset Selection Validation",
+        body: [
+          "Before finalizing EACH scene, validate all of the following:",
+          "",
+          "- Was the complete available character list evaluated?",
+          "- Was the complete available location list evaluated?",
+          "- Was the complete available object and prop list evaluated?",
+          "- Does the selected location match the current scene?",
+          "- Are all characters necessary for the action included?",
+          "- Are all relevant props included?",
+          "- Are the selected asset IDs valid and mapped to registered assets?",
+          "- Does the final prompt explicitly describe the selected assets?",
+          "- Is the scene consistent with the lyrics and music?",
+          "- Is continuity preserved from the previous scene?",
+          "- Has an appropriate location change been made when required?",
+          "- Has any suitable asset been overlooked simply because it was not the first entry?",
+          "- Is the scene free of irrelevant assets added solely for coverage?",
+          "",
+          "If the first location or first asset keeps being selected despite more appropriate registered alternatives, reconsider the selection before finalizing the scene.",
+        ].join("\n"),
+      },
+      {
+        title: "Complete-Video Asset Coverage",
+        body: [
+          "After planning all scenes, review the complete storyboard as a whole.",
+          "",
+          "1. Check which registered characters, locations, and objects are used.",
+          "2. Check which relevant assets were not used.",
+          "3. Determine whether unused assets are genuinely irrelevant or have been overlooked.",
+          "4. Add or revise scenes only when the song's lyrics, musical structure, and narrative support the change.",
+          "5. Do not force irrelevant assets into the video to achieve 100% asset usage.",
+          "6. Preserve the song duration, chronology, and established scene boundaries.",
+          "7. Ensure that all relevant assets receive appropriate consideration across the complete video.",
+          "",
+          "Where supported by the existing schema, include a compact asset-coverage summary showing each registered asset's ID, type, scene IDs where it is used, and its reason for being unused when applicable.",
+          "",
+          "This summary must not replace scene-level asset mapping.",
+        ].join("\n"),
+      },
+      {
+        title: "Batch Processing and Context Preservation",
+        body: [
+          "If scene generation is performed in multiple batches:",
+          "",
+          "1. Apply the same full-asset-evaluation rules to every batch.",
+          "2. Preserve the complete registered asset library across batches.",
+          "3. Preserve character, location, prop, and continuity information from preceding batches.",
+          "4. Do not reset the default location or character when a new batch begins.",
+          "5. Do not assume that the assets used in the previous batch are the only available assets.",
+          "6. Use global story context and local scene context together.",
+          "7. Ensure that scene numbering and timestamps remain chronological across all batches.",
+          "",
+          "If the model receives only a partial asset list or insufficient context, do not pretend that all assets were evaluated. Use only the assets actually available and flag the missing context in a supported diagnostic field or validation report.",
+        ].join("\n"),
+      },
+      {
+        title: "Output and Schema Compliance",
+        body: [
+          "1. Return valid JSON using the existing required schema.",
+          "2. Include registered characters, locations, props, and chronological beats.",
+          "3. Preserve existing field names, data types, required properties, and downstream compatibility.",
+          "4. Do not introduce new top-level fields or change the schema unless explicitly permitted.",
+          "5. Include selected asset IDs in every scene using the existing supported field structure.",
+          "6. Ensure every referenced asset ID exists in the registered asset list.",
+          "7. Ensure timestamps are valid, chronological, and consistent with the supplied duration.",
+          "8. Do not include explanatory prose outside the JSON when machine-readable JSON is required.",
+          "9. Do not use comments, trailing commas, or Markdown code fences around the JSON.",
+          "10. If the existing schema supports asset-coverage metadata, populate it. Otherwise, keep the coverage validation internal without changing the schema.",
+        ].join("\n"),
+      },
+    ],
+    additionalDefault: [
+      "- The complete registered Storyboard asset library is the candidate pool for every scene.",
+      "- Evaluate every available location, character, and object before selecting assets for each scene.",
+      "- Asset selection must be based on narrative relevance, lyrics, action, and continuity—not registration order.",
+      "- Never automatically use the first location as the setting for every scene.",
+      "- Never automatically use the first character or object as the default.",
+      "- Use all relevant assets appropriately across the complete video, but never force irrelevant assets into a scene.",
+      "- Every scene's final generation prompt must explicitly describe its selected assets and primary action.",
+      "- Preserve existing audio synchronization, visual style, JSON schema, scene segmentation, and downstream workflow.",
+      "- If the asset library is incomplete in the model's input context, identify the limitation rather than inventing selections.",
+      "- Prioritize correct storytelling, scene-specific asset selection, and continuity over arbitrary visual variety.",
+    ].join("\n"),
+    objective: "Produce a complete, synchronized music-video storyboard in which every scene independently selects the most suitable registered characters, location, and objects from the entire available Storyboard asset library. The complete video must reflect the song's narrative progression and use relevant assets naturally, while maintaining consistent identities, meaningful location changes, coherent actions, and strict output-schema compatibility.",
   },
   story_from_song_director: {
     role: "Story-from-Song Director — Sanskriti AI Studio",
@@ -337,6 +617,86 @@ const BOARD_STATUS: Record<string, { label: string; cls: string }> = {
   "approved-partial": { label: "Approved · partial", cls: "done" },
 };
 const boardStatusOf = (s: string) => BOARD_STATUS[s] ?? { label: s, cls: "" };
+// ----- Audio Intelligence: real .wav upload → WhisperX → 19-track timeline -----
+// The panel uploads the .wav to POST /api/director/boards/:id/audio-upload,
+// runs POST .../whisperx/analyze, polls the job, then reads the derived
+// master timeline from GET .../master-timeline. Every count below comes from
+// that real server response — never mocked.
+type TimelineTrackCounts = {
+  lyrics: number; word_timings: number; speaker_events: number;
+  narrative_events: number; character_appearances: number;
+  character_actions: number; emotions: number;
+  dialogue_performance: number; choreography: number;
+  camera_direction: number; scene_timeline: number;
+  shot_timeline: number; lip_sync: number; sound_effects: number;
+  video_assets: number; transitions: number; subtitles: number;
+  original_audio: number; music_structure: number;
+};
+const EMPTY_TRACK_COUNTS: TimelineTrackCounts = {
+  lyrics: 0, word_timings: 0, speaker_events: 0,
+  narrative_events: 0, character_appearances: 0,
+  character_actions: 0, emotions: 0,
+  dialogue_performance: 0, choreography: 0,
+  camera_direction: 0, scene_timeline: 0,
+  shot_timeline: 0, lip_sync: 0, sound_effects: 0,
+  video_assets: 0, transitions: 0, subtitles: 0,
+  original_audio: 0, music_structure: 0,
+};
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error("could not read audio file"));
+    r.onload = () => resolve(String(r.result || ""));
+    r.readAsDataURL(file);
+  });
+const sleep = (ms: number): Promise<void> =>
+  new Promise<void>((res) => { setTimeout(res, ms); });
+// Poll a WhisperX job until it succeeds; throw on failure/cancel/timeout.
+async function waitForWhisperXJob(boardId: string, jobId: string): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    await sleep(3000);
+    const st = await getWhisperXJobStatus(boardId, jobId);
+    if (st.status === "succeeded") return;
+    if (st.status === "failed" || st.status === "cancelled") {
+      throw new Error(st.error || st.message || `WhisperX analysis ${st.status}`);
+    }
+  }
+  throw new Error("WhisperX analysis timed out — check the server log and retry.");
+}
+// Per-track event counts derived from the REAL master-timeline response.
+// Tracks the server does not emit as separate events stay 0 (honest, not mocked).
+function deriveTrackCounts(mt: MasterTimelineResponse): TimelineTrackCounts {
+  const lines = mt.timeline?.lines || [];
+  const segments = mt.master?.segments || [];
+  const clips = mt.master?.clips || [];
+  const sceneMap = mt.timeline?.scene_map || [];
+  const wordCount = lines.reduce((n, l) => n + (l.words?.length || 0), 0);
+  const scenes = new Set(sceneMap.map((s) => s.scene_number).filter((n) => n != null));
+  const chars = new Set(segments.map((s) => s.character_id).filter(Boolean));
+  const vocalSegs = segments.filter((s) => s.type === "singing" || s.type === "dialogue" || s.type === "mixed");
+  return {
+    lyrics: lines.length,
+    word_timings: wordCount,
+    speaker_events: segments.filter((s) => s.speaker).length,
+    narrative_events: (mt.timeline?.actions || []).length,
+    character_appearances: chars.size,
+    character_actions: segments.filter((s) => s.action).length,
+    emotions: segments.filter((s) => s.expression).length,
+    dialogue_performance: vocalSegs.length,
+    choreography: 0,
+    camera_direction: segments.filter((s) => s.camera).length,
+    scene_timeline: scenes.size,
+    shot_timeline: clips.length,
+    lip_sync: vocalSegs.reduce((n, s) => n + (s.words?.length || 0), 0),
+    sound_effects: 0,
+    video_assets: 0,
+    transitions: clips.length > 0 ? clips.length - 1 : 0,
+    subtitles: lines.length,
+    original_audio: mt.whisperx_audio_url ? 1 : 0,
+    music_structure: segments.length,
+  };
+}
+
 export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlanningProgress, imageMode, onImageMode }: {
   onOpenProject: (name: string) => void;
   onProjectsChanged: () => void;
@@ -422,10 +782,36 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     return () => window.clearTimeout(t);
   }, [typingScenes, board]);
   const [stoppedNote, setStoppedNote] = useState<string | null>(null);
+  // Character consistency toggle: when enabled, appends the same character
+  // description to every scene's prompt, ensuring visual consistency across
+  // all scenes. May reduce AI creative freedom but greatly improves character
+  // similarity. Persisted in localStorage.
+  const [characterConsistent, setCharacterConsistent] = useState<
+    boolean
+  >(() => {
+    const stored = localStorage.getItem("characterConsistent");
+    return stored !== null ? JSON.parse(stored) : false;
+  });
+  // UI: persist toggle choice so it survives tab refreshes
+  useEffect(() => {
+    localStorage.setItem("characterConsistent", JSON.stringify(characterConsistent));
+  }, [characterConsistent]);
   // Scene-planning batch size (scenes per AI Director LLM batch) — chosen
   // from the Batch Size dropdown before Generate scenes / Continue scenes and
   // sent as the batch count (server default when unset = SCENE_BATCH = 10).
   const [sceneBatch, setSceneBatch] = useState<number>(SCENE_BATCH);
+  // Character consistency toggle UI
+  const characterConsistentToggle = (
+    <label style={{ marginRight: 16, fontSize: 12 }}>
+      <input
+        type="checkbox"
+        checked={characterConsistent}
+        onChange={(e) => setCharacterConsistent(e.target.checked)}
+        style={{ transform: "scale(1.2)", marginRight: 4 }}
+      />
+      Consistent
+    </label>
+  );
   // Intelligent Director panels (spec §13): lyric coverage map + 0–100
   // quality-control validation for the open board. Fetched on demand (no LLM,
   // no board mutation); cleared whenever another board opens.
@@ -452,6 +838,20 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   const [shotPrompts, setShotPrompts] = useState<DirectorShotPrompts | null>(null);
   const [prodBusy, setProdBusy] = useState(false);
   const [prodOpen, setProdOpen] = useState(true);
+  // ----- Audio Intelligence state (Part 5 & 6) -----
+  const [audioUploaded, setAudioUploaded] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioMeta, setAudioMeta] = useState<{ file: string; fileName: string } | null>(null);
+  const [audioAnalysisStatus, setAudioAnalysisStatus] = useState<"pending" | "generated" | "validated" | "approved" | "failed">("pending"); // "pending"|"generated"|"validated"|"approved"|"failed"
+  const [timelineEventsCount, setTimelineEventsCount] = useState<TimelineTrackCounts>(EMPTY_TRACK_COUNTS);
+  const [timelineValidation, setTimelineValidation] = useState({ valid: true, warnings: [] as string[] });
+  const [timelineApproval, setTimelineApproval] = useState<"pending" | "approved" | "revision_required">("pending");
+  const [timelineVersion, setTimelineVersion] = useState(0);
+  // The full server response — the single source of truth for the visual
+  // 19-track timeline. Only read through the UI adapter; never mutated here.
+  const [masterTimeline, setMasterTimeline] = useState<MasterTimelineResponse | null>(null);
+  const [directorConsumption, setDirectorConsumption] = useState<"idle" | "consuming" | "planning" | "consumed">("idle");
+  const [directorBusy, setDirectorBusy] = useState<"load" | "model" | "planning" | "consumed">("load");
   const cancelRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   // Planning progress for the menu's Progress Status (total + per-scene Time
@@ -621,6 +1021,31 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   const buildMasterPrompt = (analyzer: AnalyzerType, style: string, styleCustomVal: string, additionalInstructions: string) => {
     const a = ANALYZER_TYPES[analyzer];
     const stylePreset = style === "Custom" ? (styleCustomVal.trim() || "Custom style — describe the look in full.") : (STYLE_MASTER_PROMPTS[style] ?? "");
+    // Sectioned analyzers (Song Director) render a full structured directive;
+    // the Additional Instructions box overrides the analyzer's own default
+    // bullet list when the user has typed something.
+    const additional = additionalInstructions.trim()
+      || ("additionalDefault" in a && a.additionalDefault ? a.additionalDefault : "")
+      || "(none)";
+    if ("sections" in a && a.sections) {
+      // The directive's style-lock line is a full sentence (ends with a
+      // period); the shared presets are comma lists, so normalize here.
+      const styleLock = /[.!?]$/.test(stylePreset) ? stylePreset : `${stylePreset}.`;
+      const lines: string[] = [
+        `ROLE: ${a.role}`,
+        "",
+        `TASK: ${a.task}`,
+        "",
+        "## INSTRUCTIONS",
+        "",
+      ];
+      a.sections.forEach((sec, i) => lines.push(`### ${i + 1}. ${sec.title}`, "", sec.body, ""));
+      lines.push("## VISUAL STYLE LOCK", "", styleLock, "");
+      lines.push("Apply this style consistently to all scenes while preserving the registered identity of each character, location, and object.", "");
+      lines.push("## ADDITIONAL DIRECTOR INSTRUCTIONS", "", additional, "");
+      if ("objective" in a && a.objective) lines.push("FINAL DIRECTOR OBJECTIVE:", "", a.objective);
+      return lines.join("\n");
+    }
     const lines = [
       `ROLE: ${a.role}`,
       `TASK: ${a.task}`,
@@ -631,7 +1056,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       stylePreset,
       "",
       "ADDITIONAL DIRECTOR INSTRUCTIONS:",
-      additionalInstructions.trim() || "(none)"
+      additional
     ];
     return lines.join("\n");
   };
@@ -673,12 +1098,47 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     setCoverage(null);
     setValidation(null);
     setPlan(null);
+    // Reset the .wav / 19-track panel — reloaded from the server below when
+    // the board already carries an uploaded audio.
+    setAudioUploaded(false); setAudioDuration(0); setAudioMeta(null);
+    setMasterTimeline(null);
+    setAudioAnalysisStatus("pending"); setTimelineEventsCount(EMPTY_TRACK_COUNTS);
+    setTimelineValidation({ valid: true, warnings: [] });
+    setTimelineApproval("pending"); setTimelineVersion(0);
+    setDirectorConsumption("idle"); setDirectorBusy("load");
     setAssetMap(null); setCine(null); setMotion(null); setShotPrompts(null);
     try {
       const b = await directorBoard(id);
       setBoard(b);
       // Surface a server-side batch note (e.g. salvaged partial batch).
       if (b.error && b.scenes.length < b.sceneCount) setStoppedNote(b.error);
+      // If this board already has an uploaded .wav, surface it + its derived
+      // 19-track timeline (best-effort — a missing timeline just stays pending).
+      try {
+        const input = (b.input || {}) as {
+          whisperxAudio?: { durationSeconds?: number; file?: string; fileName?: string };
+          sourceAudio?: { durationSeconds?: number; file?: string; fileName?: string };
+        };
+        const audio = input.whisperxAudio || input.sourceAudio;
+        if (audio?.file) {
+          setAudioUploaded(true);
+          setAudioDuration(Number(audio.durationSeconds) || 0);
+          setAudioMeta({ file: String(audio.file), fileName: String(audio.fileName || "audio.wav") });
+          setTimelineVersion(1);
+        }
+        try {
+          const mt = await directorMasterTimeline(b.id);
+          setMasterTimeline(mt);
+          if (mt.master || (mt.timeline?.lines?.length || 0) > 0) {
+            setTimelineEventsCount(deriveTrackCounts(mt));
+            const v = mt.validation;
+            setTimelineValidation({ valid: (v?.ok ?? true) && (v?.errors?.length || 0) === 0, warnings: [...(v?.warnings || []), ...(v?.errors || [])] });
+            setTimelineApproval(mt.master?.approved ? "approved" : "pending");
+            setAudioAnalysisStatus(mt.master ? "validated" : "generated");
+            if (mt.master?.approved) setDirectorConsumption("consumed");
+          }
+        } catch { /* timeline stays pending until analyzed */ }
+      } catch { /* audio panel stays in the empty state */ }
       setSelectedScene(0);
       setEditingScene(null);
       setSceneModal(null);
@@ -761,23 +1221,129 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     finally { setPlanBusy(null); }
   };
 
-  // Chief Director approval checkpoint: sign off one pipeline stage via the
-  // dependency-checked endpoint (blocked stages 400 unless forced). Revision
-  // bumps on the Story Plan; the board list refreshes to reflect status.
-  const doApproveStage = async (stage: string, force = false) => {
-    if (!board || planBusy) return;
-    setPlanBusy(stage);
+  // ----- Audio Intelligence handlers (Part 5 & 6): real backend flow -----
+  // .wav upload → POST audio-upload → POST whisperx/analyze → poll job →
+  // GET master-timeline (the derived 19-track timeline). No mocks.
+
+  // Re-read the derived master timeline into the panel (counts + validation).
+  // Returns true when a master timeline exists.
+  const refreshTimelineFromServer = useCallback(async (): Promise<boolean> => {
+    if (!board) return false;
+    const mt = await directorMasterTimeline(board.id);
+    setMasterTimeline(mt);
+    setTimelineEventsCount(deriveTrackCounts(mt));
+    const v = mt.validation;
+    const warnings = [...(v?.warnings || []), ...(v?.errors || [])];
+    setTimelineValidation({ valid: (v?.ok ?? true) && (v?.errors?.length || 0) === 0, warnings });
+    setTimelineApproval(mt.master?.approved ? "approved" : "pending");
+    setAudioAnalysisStatus("validated");
+    return !!mt.master;
+  }, [board]);
+
+  const handleAudioUpload = useCallback(async (audioFile: File) => {
+    if (!board) { setError("Open a Director board first, then upload the .wav."); return; }
+    const name = audioFile.name || "audio.wav";
+    const mime = audioFile.type || "";
+    const mimeOk = /audio\/(wav|x-wav|mpeg|mp3|mp4|x-m4a|aiff|x-aiff|ogg|opus|webm)/i.test(mime);
+    const extOk = /\.(wav|mp3|m4a|aac|ogg|opus|webm|aif|aiff)$/i.test(name);
+    if (!mimeOk && !extOk) {
+      setError(`Unsupported audio type — upload a .wav (mp3/m4a also work). Got: ${mime || name}`);
+      return;
+    }
+    setError("");
+    setAudioUploaded(false);
+    setAudioMeta(null);
+    setMasterTimeline(null);
+    setAudioAnalysisStatus("generated");
+    setTimelineVersion(0);
+    setTimelineApproval("pending");
+    setTimelineValidation({ valid: true, warnings: [] });
+    setDirectorConsumption("consuming");
+    try {
+      // 1. Upload the .wav (server validates RIFF/WAVE + measures duration)
+      const dataUrl = await fileToDataUrl(audioFile);
+      const up = await uploadLyricAudio(board.id, dataUrl, name);
+      setAudioUploaded(true);
+      setAudioDuration(up.durationSeconds);
+      setAudioMeta({ file: up.file, fileName: up.fileName });
+      setTimelineVersion(1);
+      // 2. Start WhisperX analysis (board language pin rides along when set)
+      const lang = (board.input as unknown as { semanticsLanguage?: string } | null | undefined)?.semanticsLanguage;
+      const started = await startWhisperXAnalysis(board.id, lang && lang !== "auto" ? { language: lang } : {});
+      // 3. Wait for transcription + alignment + master-timeline derivation
+      await waitForWhisperXJob(board.id, started.jobId);
+      try { setBoard(await directorBoard(board.id)); } catch { /* keep current board */ }
+      // 4. Read the REAL derived 19-track timeline into the panel
+      const hasMaster = await refreshTimelineFromServer();
+      if (!hasMaster) throw new Error("analysis finished but no master timeline was derived — check the server log");
+      setDirectorConsumption("consumed");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setTimelineValidation({ valid: false, warnings: [msg] });
+      setTimelineApproval("revision_required");
+      setAudioAnalysisStatus("failed");
+    }
+  }, [board, refreshTimelineFromServer]);
+
+  const handleAnalyzeTimeline = useCallback(async () => {
+    if (!board) { setError("Open a Director board first."); return; }
+    if (!audioUploaded) { setError("Upload the .wav first — the 19-track timeline is built from it."); return; }
+    if (timelineApproval === "approved") return; // already approved
     setError("");
     try {
-      const p = await directorApproveStage(board.id, stage, force);
-      setPlan(p);
-      const b = await directorBoard(board.id);
-      setBoard(b);
-      await refreshBoards();
+      // If nothing was derived yet (e.g. after a re-upload), run analysis now.
+      const mt = await directorMasterTimeline(board.id);
+      if (!mt.master) {
+        const started = await startWhisperXAnalysis(board.id, {});
+        await waitForWhisperXJob(board.id, started.jobId);
+      }
+      await refreshTimelineFromServer();
+      setDirectorConsumption("consumed");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setTimelineValidation({ valid: false, warnings: [msg] });
+      setTimelineApproval("revision_required");
     }
-    catch (e) { reportError(e); }
-    finally { setPlanBusy(null); }
-  };
+  }, [board, audioUploaded, timelineApproval, refreshTimelineFromServer]);
+
+  const handleSendToDirector = useCallback(async () => {
+    if (!board) { setError("Open a Director board first."); return; }
+    if (!audioUploaded) { setError("Upload the .wav first — the 19-track timeline is built from it."); return; }
+    setDirectorBusy("model");
+    setError("");
+    try {
+      // The APPROVED master timeline drives timing: approve server-side first
+      // (the server snaps scene/shot windows onto the approved segments).
+      // Scene planning then reads those approved windows automatically.
+      let mt = await directorMasterTimeline(board.id);
+      if (!mt.master) throw new Error("No master timeline yet — run Analyze Audio & Build 19-Track Timeline first.");
+      if (!mt.master.approved) {
+        const ap = await approveMasterTimeline(board.id);
+        mt = { ...mt, master: ap.master };
+      }
+      setTimelineApproval("approved");
+      const master = mt.master;
+      if (!master) throw new Error("No master timeline yet — run Analyze Audio & Build 19-Track Timeline first.");
+      // Counts + validation come from the freshly approved server response —
+      // the server is the timing authority (it snaps scene/shot windows onto
+      // these approved segments on the approve route).
+      setTimelineEventsCount(deriveTrackCounts(mt));
+      setMasterTimeline(mt);
+      setDirectorBusy("planning");
+      setDirectorConsumption("planning");
+      try { setBoard(await directorBoard(board.id)); } catch { /* keep current board */ }
+      try { await refreshTimelineFromServer(); } catch { /* counts already set */ }
+      setDirectorBusy("consumed");
+      setDirectorConsumption("consumed");
+      setError("Timeline sent to AI Director successfully — cinematic planning ready.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setDirectorBusy("load");
+    }
+  }, [board, audioUploaded, refreshTimelineFromServer]);
 
   // Production dashboard (Phase 6): one pass loads every read-only plan for
   // the open board (story plan + coverage + quality + assets + cinematography
@@ -1416,7 +1982,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
           genreCustom: inputDraft.genreCustom.trim().slice(0, 40),
           visualStyle: inputDraft.visualStyle,
           styleCustom: inputDraft.styleCustom.trim().slice(0, 120),
-          masterPrompt: inputDraft.masterPrompt.trim().slice(0, 2000),
+          masterPrompt: inputDraft.masterPrompt.trim().slice(0, 20000),
           targetSeconds: Math.max(15, Math.min(3600, Math.round(Number(inputDraft.targetSeconds) || 60))),
           sceneSeconds: Math.min(30, Math.max(1, Math.round(Number(inputDraft.sceneSeconds) || 3))),
           aspectRatio: inputDraft.aspectRatio,
@@ -1528,6 +2094,20 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
+    }
+  };
+
+  // Chief Director sign-off for one pipeline stage (recorded on the Story Plan).
+  const doApproveStage = async (stage: string) => {
+    if (!board || planBusy) return;
+    setPlanBusy(stage);
+    setError("");
+    try {
+      setPlan(await directorApproveStage(board.id, stage));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPlanBusy(null);
     }
   };
 
@@ -2080,6 +2660,11 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
         )}
         <span className="spacer" />
         {board && (
+          <span className="pill pending" title="Audio Intelligence lives in the storyboard sections below">
+            🎧 Audio panel below
+          </span>
+        )}
+        {board && (
           <span style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
             <button className="ghost" onClick={() => { setBoard(null); setError(""); void refreshBoards(); }} title="Back to the story form and saved boards">
               Boards
@@ -2255,6 +2840,89 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 </p>
               </div>
             </div>
+            <div className="row" style={{ marginTop: 8, alignItems: "center", gap: 8 }}>
+              <div style={{ flex: "1 1 0", minWidth: 180 }}>
+                <label htmlFor="dir-audio-status" title="Audio Intelligence and 19-track Master Timeline status">Audio Intelligence</label>
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 120, fontSize: 12, color: "var(--line)" }}>
+                {audioUploaded ? (
+                  <div>
+                    <span className={`pill ${timelineApproval === "approved" ? "done" : timelineApproval === "revision_required" ? "warn" : "pending"}`}>
+                      {timelineApproval === "approved" ? "Approved" : timelineApproval === "revision_required" ? "Revision required" : "Pending"}
+                    </span>
+                    {timelineVersion > 0 && <span className="muted">v{timelineVersion}</span>}
+                  </div>
+                ) : (
+                  <span>No audio</span>
+                )}
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 120, fontSize: 12, color: "var(--line)" }}>
+                {audioUploaded && timelineApproval === "approved" ? (
+                  <span className="ok">✓ Director-consumed</span>
+                ) : (
+                  <span>—</span>
+                )}
+              </div>
+            </div>
+            <div className="row" style={{ marginTop: 8, gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 0", minWidth: 110 }}>
+                <label htmlFor="dir-lang2">Language</label>
+                <select id="dir-lang2" value={language} onChange={(e) => setLanguage(e.target.value)}>
+                  {LANGS.map((l) => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 110 }}>
+                <label htmlFor="dir-sem-lang2" title="The language of the story text for the meaning analysis (the spoken language above is separate)">Source language</label>
+                <select id="dir-sem-lang2" value={semanticsLanguage} onChange={(e) => setSemanticsLanguage(e.target.value)}>
+                  <option value="auto">Auto detect</option>
+                  <option value="hi">Hindi</option>
+                  <option value="en">English</option>
+                  <option value="hinglish">Hinglish (mixed)</option>
+                </select>
+                <p className="hint" style={{ margin: "4px 0 0" }}>
+                  Every line is read for its meaning before a scene is planned.
+                </p>
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 110 }}>
+                <label htmlFor="dir-genre2">Genre</label>
+                <select id="dir-genre2" value={genre} onChange={(e) => setGenre(e.target.value)}>
+                  {GENRES.map((g) => <option key={g} value={g}>{g}</option>)}
+                </select>
+                {genre === "Custom" && (
+                  <input value={genreCustom} maxLength={40} placeholder="Custom genre…" onChange={(e) => setGenreCustom(e.target.value)} style={{ marginTop: 6 }} />
+                )}
+              </div>
+              <div style={{ flex: "1 1 0", minWidth: 110 }}>
+                <label htmlFor="dir-aspect2">Aspect ratio</label>
+                <select id="dir-aspect2" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)}>
+                  {ASPECTS.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <p className="hint" style={{ margin: "4px 0 0" }}>
+                  {aspectRatio === "9:16"
+                    ? "9:16 renders through the Instagram Reel flow after approval."
+                    : aspectRatio === "1:1"
+                      ? "The pipeline renders 16:9/9:16 — approved as 16:9."
+                      : "Standard landscape cut."}
+                </p>
+              </div>
+            </div>
+            {!board && (
+              <p className="hint" style={{ margin: "8px 0 0" }}>
+                🎧 .wav upload unlocks after Generate Storyboard: open the board, then upload the .wav here — WhisperX builds the 19-track master timeline from it.
+              </p>
+            )}
+            <AudioIntelligencePanel
+              uploaded={audioUploaded}
+              duration={audioDuration}
+              analysisStatus={audioAnalysisStatus}
+              timelineEvents={timelineEventsCount}
+              validation={timelineValidation}
+              approval={timelineApproval}
+              version={timelineVersion}
+              onUpload={handleAudioUpload}
+              onAnalyze={handleAnalyzeTimeline}
+              onDirectorPlan={handleSendToDirector}
+            />
             {!includeDialogue && (
               <p className="hint" style={{ margin: "4px 0 0" }}>
                 Silent film: scenes plan with empty dialogue — approve generates visuals only (no TTS, no lip-sync).
@@ -2414,6 +3082,21 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
         {board && (
           <>
             <div className="section-label">Storyboard</div>
+            <AudioIntelligencePanel
+              boardId={board?.id}
+              uploaded={audioUploaded}
+              duration={audioDuration}
+              analysisStatus={audioAnalysisStatus}
+              timelineEvents={timelineEventsCount}
+              validation={timelineValidation}
+              approval={timelineApproval}
+              version={timelineVersion}
+              masterTimeline={masterTimeline}
+              audioFileName={audioMeta?.fileName}
+              onUpload={handleAudioUpload}
+              onAnalyze={handleAnalyzeTimeline}
+              onDirectorPlan={handleSendToDirector}
+            />
             <p className="card-desc">
               {editingTitle ? (
                 <span className="row" style={{ display: "inline-flex", gap: 6 }}>
@@ -3493,7 +4176,8 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                       <div className="dir-scene-row-head">
                         <span className="pill live-pill" aria-hidden="true">🔴 LIVE</span>
                         <span className="dir-scene-row-title">
-                          Scenes {live.batchFrom ?? "…"}–{live.batchTo ?? "…"} writing…
+                          Scenes {live.batchFrom ?? "…"}–{live.batchTo ?? "…"}{" "}
+                          {live.thinking && !live.tail ? "thinking…" : "writing…"}
                           {live.scenes.length > 0 && ` · ${live.scenes.length} scene${live.scenes.length === 1 ? "" : "s"} complete in stream`}
                         </span>
                         <span className="muted" style={{ fontSize: 11 }}>read-only · planning unaffected</span>
@@ -3513,6 +4197,16 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                           </span>
                         </div>
                       ))}
+                      {/* Thinking phase of a reasoning model (qwen3.5…): the
+                          content stream is still empty, so show the model's
+                          own reasoning tail — visible typing while it thinks. */}
+                      {!!live.thinking && !live.tail && !!live.reasoning && (
+                        <p className="hint live-tail" style={{ margin: "6px 0 0", opacity: 0.8 }}>
+                          <span style={{ color: "var(--accent)" }}>Thinking… </span>
+                          {live.reasoning.slice(-600)}
+                          <span className="typing-caret" aria-hidden="true" />
+                        </p>
+                      )}
                       {!!live.tail && (
                         <p className="hint live-tail" style={{ margin: "6px 0 0" }}>
                           {live.tail}

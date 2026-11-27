@@ -62,6 +62,14 @@ describe("variant formats", () => {
     assert.deepEqual(allDirsFor("film"), ["film", "film_wan", "film_vertical", "film_wan_vertical"]);
   });
 
+  it("keeps display-name spaces out of resource dirs and prefixes", () => {
+    assert.equal(outDirName("My Cozy Film", "wan", "vertical"), "my_cozy_film_wan_vertical");
+    assert.deepEqual(allDirsFor("My Cozy Film"), [
+      "my_cozy_film", "my_cozy_film_wan", "my_cozy_film_vertical", "my_cozy_film_wan_vertical",
+    ]);
+    assert.equal(prefixForDir("My Cozy Film_wan_vertical"), "my_cozy_film_wan_vertical");
+  });
+
   it("vertical canvases are 9:16 within rounding", () => {
     const fluxRatio = VERTICAL_FLUX_WIDTH / VERTICAL_FLUX_HEIGHT;
     const wanRatio = VERTICAL_WAN_WIDTH / VERTICAL_WAN_HEIGHT;

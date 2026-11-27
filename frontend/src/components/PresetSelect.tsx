@@ -171,7 +171,7 @@ export default function PresetSelect({
           </p>
         )
       )}
-      <div className="row" style={{ marginTop: 8 }}>
+      <div className="row" style={{ marginTop: "8px" }}>
         <button
           type="button"
           className="ghost preset-rules-btn"

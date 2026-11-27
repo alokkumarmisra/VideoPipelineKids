@@ -100,7 +100,7 @@ export default function GenerateReference({
         value={referencePrompt}
         onChange={(e) => onReferencePromptChange(e.target.value)}
       />
-      <div className="row" style={{ marginTop: 8 }}>
+      <div className="row" style={{ marginTop: "8px" }}>
         <button
           onClick={() => onGenerateRef(refCount)}
           disabled={refBusy || isDraft}

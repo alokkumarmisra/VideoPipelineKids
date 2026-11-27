@@ -42,7 +42,7 @@ const field = (label: string, input: React.ReactNode, hint?: string) => (
   <div style={{ marginBottom: 12 }}>
     <label style={{ display: "block", marginBottom: 6, fontWeight: 600, fontSize: 13 }}>{label}</label>
     {input}
-    {hint && <div className="hint" style={{ marginTop: 4 }}>{hint}</div>}
+    {hint && <div className="hint" style={{ marginTop: "4px" }}>{hint}</div>}
   </div>
 );
 
@@ -146,7 +146,7 @@ export function KidsPipelinePanel({ projectId, onChanged, onImageMode, onOpenPro
             </button>
           ), "Every stage shows its REAL status — the counts come from the project rows and the files on disk.")}
           {services && (
-            <div className="row" style={{ marginTop: 10 }}>
+            <div className="row" style={{ marginTop: "10px" }}>
               <span className={`pill ${services.llm.up ? "ok" : "err"}`}>LLM {services.llm.up ? "up" : "offline"}</span>
               <span className={`pill ${services.comfyui.up ? "ok" : "err"}`}>ComfyUI {services.comfyui.up ? "up" : "offline"}</span>
               <span className={`pill ${services.whisper.up ? "ok" : "warn"}`} title={services.whisper.note}>Whisper {services.whisper.up ? "ready" : "not configured"}</span>
@@ -154,8 +154,8 @@ export function KidsPipelinePanel({ projectId, onChanged, onImageMode, onOpenPro
               <span className="pill ok">TTS {services.tts.up ? "ready" : "offline"}</span>
             </div>
           )}
-          {error && <div className="hint err-text" style={{ marginTop: 10 }}>{error}</div>}
-          {message && <div className="hint" style={{ marginTop: 10 }}>{message}</div>}
+          {error && <div className="hint err-text" style={{ marginTop: "10px" }}>{error}</div>}
+          {message && <div className="hint" style={{ marginTop: "10px" }}>{message}</div>}
         </>
       )}
 
@@ -217,7 +217,7 @@ export function KidsPipelinePanel({ projectId, onChanged, onImageMode, onOpenPro
                   {projectId && (
                     <button
                       className="btn sm"
-                      style={{ marginTop: 6 }}
+                      style={{ marginTop: "6px" }}
                       disabled={busy !== null}
                       onClick={() => { void run([s.id]); }}
                     >
@@ -225,11 +225,11 @@ export function KidsPipelinePanel({ projectId, onChanged, onImageMode, onOpenPro
                     </button>
                   )}
                   {(s.id === "images" || s.id === "video") && (
-                    <div className="hint" style={{ marginTop: 6 }}>
+                    <div className="hint" style={{ marginTop: "6px" }}>
                       Scene keyframes must run in <strong>Flux t2i</strong> mode — it is the only mode
                       that anchors on the approved character reference. The library reference stills
                       themselves always use the Flux Reference Image workflow (the saved prompt only).
-                      <div className="row" style={{ marginTop: 4 }}>
+                      <div className="row" style={{ marginTop: "4px" }}>
                         <button
                           className="btn sm"
                           onClick={() => { onImageMode?.("flux"); setMessage("the header image dropdown is now Flux t2i (img2img anchor)"); }}
@@ -363,23 +363,23 @@ export function KidsStoryStudioPanel({ projectId, onChanged }: {
               )}
             </div>
           ), "Topic → outline → characters → scene breakdown → dialogue → narration → storyboard → production plan.")}
-          {error && <div className="hint err-text" style={{ marginTop: 8 }}>{error}</div>}
-          {warnings.map((w) => <div key={w} className="hint warn-text" style={{ marginTop: 4 }}>{w}</div>)}
+          {error && <div className="hint err-text" style={{ marginTop: "8px" }}>{error}</div>}
+          {warnings.map((w) => <div key={w} className="hint warn-text" style={{ marginTop: "4px" }}>{w}</div>)}
           {job && (
-            <div className="hint" style={{ marginTop: 8 }}>
+            <div className="hint" style={{ marginTop: "8px" }}>
               job {job.id}: {job.status}
               {job.status === "PROCESSING" ? " — the local model is writing the story, this panel updates itself" : ""}
               {job.status === "FAILED" && job.error_message ? ` — ${job.error_message}` : ""}
             </div>
           )}
           {!story && !busy && (
-            <div className="hint" style={{ marginTop: 8 }}>
+            <div className="hint" style={{ marginTop: "8px" }}>
               No story yet — press <strong>Write the story</strong>. The Director Plan and the shared storyboard
               stay the source of truth; this document is the studio&apos;s editable layer on top of them.
             </div>
           )}
           {story && (
-            <div className="hint" style={{ marginTop: 8 }}>
+            <div className="hint" style={{ marginTop: "8px" }}>
               version {story.version} · {story.status} · {story.note || "no note"}
               {story.status === "approved" ? " — an approved story is locked until you edit it explicitly." : ""}
             </div>
@@ -407,7 +407,7 @@ export function KidsStoryStudioPanel({ projectId, onChanged }: {
             ) : (
               <>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{draft.title || "(untitled)"}</div>
-                <div className="hint" style={{ marginTop: 2 }}>
+                <div className="hint" style={{ marginTop: "2px" }}>
                   {draft.age_group || "no age group"} · {draft.learning_objective || "no learning objective"}
                 </div>
                 {draft.description && <p style={{ fontSize: 13, margin: "8px 0" }}>{draft.description}</p>}
@@ -421,7 +421,7 @@ export function KidsStoryStudioPanel({ projectId, onChanged }: {
                     <div style={{ fontSize: 13 }}>{draft.middle || "—"}</div>
                   </div>
                 </div>
-                <div className="hint" style={{ marginTop: 8 }}>Ending</div>
+                <div className="hint" style={{ marginTop: "8px" }}>Ending</div>
                 <div style={{ fontSize: 13 }}>{draft.ending || "—"}</div>
               </>
             )}
@@ -442,7 +442,7 @@ export function KidsStoryStudioPanel({ projectId, onChanged }: {
                     <span className="pill">{c.role || c.category || "character"}</span>
                     <span className="pill">{c.character_id}</span>
                   </div>
-                  <div className="hint" style={{ marginTop: 4 }}>{c.appearance}</div>
+                  <div className="hint" style={{ marginTop: "4px" }}>{c.appearance}</div>
                   {c.voice && <div className="hint">voice: {c.voice}</div>}
                   {c.movement && <div className="hint">movement: {c.movement}</div>}
                 </div>
@@ -465,7 +465,7 @@ export function KidsStoryStudioPanel({ projectId, onChanged }: {
                     {s.camera_shot && <span className="pill">{s.camera_shot}</span>}
                     {s.location && <span className="pill">{s.location}</span>}
                   </div>
-                  <div className="hint" style={{ marginTop: 4 }}>{s.action || s.description}</div>
+                  <div className="hint" style={{ marginTop: "4px" }}>{s.action || s.description}</div>
                   {s.image_prompt && <div className="hint">image prompt: {s.image_prompt.slice(0, 220)}</div>}
                 </div>
               ))}
@@ -584,7 +584,7 @@ export function KidsSongStudioPanel({ projectId, onChanged }: {
                     {s.lip_sync && <span className="pill ok">lip sync</span>}
                     {s.emotion && <span className="pill">{s.emotion}</span>}
                   </div>
-                  <div style={{ fontSize: 13, marginTop: 6, whiteSpace: "pre-wrap" }}>{s.text || "(no text)"}</div>
+                  <div style={{ fontSize: 13, marginTop: "6px", whiteSpace: "pre-wrap" }}>{s.text || "(no text)"}</div>
                   {s.choreography && <div className="hint">choreography: {s.choreography}</div>}
                 </div>
               ))}
@@ -654,7 +654,7 @@ export function KidsAudioStudioPanel({ projectId, onChanged }: {
           ), "The duration, the silence, the beats and the transcript — measured, never guessed.")}
           {error && <div className="hint err-text">{error}</div>}
           {analysis && (
-            <div className="row" style={{ marginTop: 8 }}>
+            <div className="row" style={{ marginTop: "8px" }}>
               {analysis.mood ? <span className="pill">{String(analysis.mood)}</span> : null}
               {analysis.structure ? <span className="pill">{String(analysis.structure)}</span> : null}
               {analysis.source ? <span className="pill">source: {String(analysis.source)}</span> : null}
@@ -839,7 +839,7 @@ export function KidsLibraryPanel({ projectId, onChanged }: {
               </button>
             </div>
           ), "Reusable characters, locations and props — an approved entry keeps the same look in every scene.")}
-          {error && <div className="hint err-text" style={{ marginTop: 8 }}>{error}</div>}
+          {error && <div className="hint err-text" style={{ marginTop: "8px" }}>{error}</div>}
         </>
       )}
 
@@ -905,9 +905,9 @@ export function KidsLibraryPanel({ projectId, onChanged }: {
                     <span className="pill">v{a.version}</span>
                     {files.length > 0 && <span className="pill ok">{files.length} reference(s)</span>}
                   </div>
-                  {a.prompt && <div className="hint" style={{ marginTop: 4 }}>{a.prompt}</div>}
+                  {a.prompt && <div className="hint" style={{ marginTop: "4px" }}>{a.prompt}</div>}
                   {(main || running) && (
-                    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 8 }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: "8px" }}>
                       {main && (
                         <img
                           src={kidsFileUrl(main.file_path)}
@@ -918,14 +918,14 @@ export function KidsLibraryPanel({ projectId, onChanged }: {
                       {running && (
                         <div style={{ fontSize: 12 }}>
                           <Spinner size={14} /> rendering the reference with the Flux Reference Image workflow…
-                          <div className="hint" style={{ marginTop: 4 }}>
+                          <div className="hint" style={{ marginTop: "4px" }}>
                             the saved prompt is passed exactly as written — only the prompt node changes
                           </div>
                         </div>
                       )}
                     </div>
                   )}
-                  <div className="row" style={{ marginTop: 6 }}>
+                  <div className="row" style={{ marginTop: "6px" }}>
                     <button
                       className="btn sm primary"
                       disabled={busy || !a.prompt || !!running}
@@ -1037,10 +1037,10 @@ export function KidsStoryboardPanel({ projectId, onChanged }: {
               <button className="btn sm" onClick={() => { void save(); }} disabled={busy || !editing}>Save the timeline</button>
             </div>
           ), "Scenes, timestamps, characters, prompts, references and the approval state. With a linked AI Director storyboard the timeline follows THAT storyboard (it is what gets rendered) — without one it follows the Story Studio plan.")}
-          {error && <div className="hint err-text" style={{ marginTop: 8 }}>{error}</div>}
-          {warnings.map((w) => <div key={w} className="hint warn-text" style={{ marginTop: 4 }}>{w}</div>)}
+          {error && <div className="hint err-text" style={{ marginTop: "8px" }}>{error}</div>}
+          {warnings.map((w) => <div key={w} className="hint warn-text" style={{ marginTop: "4px" }}>{w}</div>)}
           {rows.length > 0 && (
-            <div className="hint" style={{ marginTop: 6 }}>
+            <div className="hint" style={{ marginTop: "6px" }}>
               {rows.length} scene(s) · {total.toFixed(1)}s total
             </div>
           )}
@@ -1064,7 +1064,7 @@ export function KidsStoryboardPanel({ projectId, onChanged }: {
                     {row.approval && <span className="pill">{row.approval}</span>}
                     {row.generation_status && <span className="pill">{row.generation_status}</span>}
                   </div>
-                  {row.text && <div className="hint" style={{ marginTop: 4 }}>{row.text}</div>}
+                  {row.text && <div className="hint" style={{ marginTop: "4px" }}>{row.text}</div>}
                   {row.action && <div className="hint">action: {row.action}</div>}
                   {Array.isArray((row as unknown as { dialogue?: string[] }).dialogue)
                     && (row as unknown as { dialogue: string[] }).dialogue.length > 0 && (
@@ -1077,7 +1077,7 @@ export function KidsStoryboardPanel({ projectId, onChanged }: {
                     {row.characters?.length ? ` · characters: ${row.characters.join(", ")}` : ""}
                   </div>
                   {editing ? (
-                    <div className="grid" style={{ marginTop: 8 }}>
+                    <div className="grid" style={{ marginTop: "8px" }}>
                       <label style={{ fontSize: 12 }}>
                         start (s)
                         <input
@@ -1222,10 +1222,10 @@ export function KidsQualityPanel({ projectId, onChanged }: {
               </button>
             </div>
           ), "Automated checks only — a teacher still reviews the content before it is published.")}
-          {error && <div className="hint err-text" style={{ marginTop: 8 }}>{error}</div>}
-          {message && <div className="hint" style={{ marginTop: 8 }}>{message}</div>}
+          {error && <div className="hint err-text" style={{ marginTop: "8px" }}>{error}</div>}
+          {message && <div className="hint" style={{ marginTop: "8px" }}>{message}</div>}
           {run && (
-            <div className="row" style={{ marginTop: 8 }}>
+            <div className="row" style={{ marginTop: "8px" }}>
               <span className="pill err">{run.summary.errors} error(s)</span>
               <span className="pill warn">{run.summary.warnings} warning(s)</span>
               <span className="pill">{run.summary.infos} note(s)</span>
@@ -1378,8 +1378,8 @@ export function KidsFeedbackPanel({ projectId }: { projectId: string | null }) {
             <input type="checkbox" checked={useForTraining} onChange={(e) => setUseForTraining(e.target.checked)} />
             Store this as an approved training example
           </label>
-          {error && <div className="hint err-text" style={{ marginTop: 8 }}>{error}</div>}
-          {message && <div className="hint" style={{ marginTop: 8 }}>{message}</div>}
+          {error && <div className="hint err-text" style={{ marginTop: "8px" }}>{error}</div>}
+          {message && <div className="hint" style={{ marginTop: "8px" }}>{message}</div>}
         </>
       )}
 

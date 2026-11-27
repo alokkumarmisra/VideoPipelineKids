@@ -64,7 +64,7 @@ describe("sceneCountFor", () => {
     assert.equal(SCENE_BATCH_MAX, 12);
     const options = Array.from({ length: SCENE_BATCH_MAX - SCENE_BATCH_MIN + 1 }, (_, i) => SCENE_BATCH_MIN + i);
     assert.deepEqual(options, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    assert.equal(SCENE_BATCH, 10);
+    assert.equal(SCENE_BATCH, 8);
     assert.ok(SCENE_BATCH_MAX >= SCENE_BATCH);
   });
 });
@@ -330,6 +330,13 @@ describe("boardToScenario", () => {
     const cfg = boardToScenario(board);
     assert.ok(cfg.referencePrompt.includes("grey mouse"));
     assert.ok(cfg.referencePrompt.toLowerCase().includes("anime"));
+  });
+  it("carries uploaded narration audio through to the shared scenario config", () => {
+    const cfg = boardToScenario({
+      ...board,
+      input: { ...board.input, sourceAudio: { file: "wx_master_abc.wav", fileName: "voice.wav", durationSeconds: 42.25 } },
+    });
+    assert.deepEqual(cfg.sourceAudio, { file: "wx_master_abc.wav", fileName: "voice.wav", durationSeconds: 42.25 });
   });
   it("enforces missing cast identities and strips (id) artifacts", () => {
     const b = {

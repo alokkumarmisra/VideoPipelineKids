@@ -184,7 +184,7 @@ export const saveScenario = (name: string, config: Scenario) =>
     // must show the failure instead of closing as if the data was saved.
     const d = await r.json().catch(() => null);
     if (!r.ok) throw new Error(d?.error || `save failed (HTTP ${r.status})`);
-    return d as { ok: boolean; version: number | null; project_id: number | null; unchanged?: boolean; updated?: boolean };
+    return d as { ok: boolean; version: number | null; project_id: number | null; unchanged?: boolean; updated?: boolean; name?: string | null };
   });
 export const deleteScenario = (name: string) =>
   fetch(`/api/scenario/${name}`, { method: "DELETE" }).then((r) =>
@@ -928,6 +928,7 @@ export interface DirectorInput {
    * every image prompt (wins over the preset/custom text).
    */
   masterPrompt?: string;
+  directorTemplate?: string;
   targetSeconds: number;
   sceneSeconds: number;
   aspectRatio: string;
@@ -1119,6 +1120,9 @@ export interface DirectorBoard {
   // summary, lyric semantics, coverage snapshots). Optional; scenes stay the
   // executable source of truth.
   storyPlan?: Record<string, unknown> | null;
+  // Reviewed WhisperX lyric timeline (Story / Song). The transcript only
+  // supplies timing — `lines[].lyric_text` is always the user's own lyric.
+  lyric_timeline?: LyricTimeline | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }
@@ -1314,6 +1318,10 @@ export interface DirectorLive {
   batchTo?: number | null;
   startedAt?: number;
   chars?: number;
+  /** True while a thinking model streams reasoning_content and no content token has arrived yet. */
+  thinking?: boolean;
+  /** Server-trimmed tail of the thinking buffer — shown while `thinking`. */
+  reasoning?: string;
   scenes: DirectorLiveScene[];
   tail: string;
 }
@@ -1404,6 +1412,351 @@ export const directorSemantics = (id: string) =>
   get<DirectorSemantics>(`/api/director/boards/${encodeURIComponent(id)}/semantics`);
 export const directorAnalyzeSemantics = (id: string, body: { useModel?: boolean; language?: string } = {}) =>
   post<DirectorSemantics>(`/api/director/boards/${encodeURIComponent(id)}/semantics`, body);
+
+// ---- WhisperX lyric timeline (Story / Song) ------------------------------
+// The import is ANNOTATIVE: WhisperX supplies MEASURED timing, the user's own
+// lyric text stays authoritative (`lines[].lyric_text`) and `heard_text` keeps
+// what the transcript actually recognized. Stored on the board JSON, so it
+// survives reloads and feeds the existing scene planner.
+export interface LyricWordTiming {
+  word_index: number;
+  word: string;
+  start_seconds: number;
+  end_seconds: number;
+  confidence: number | null;
+  timing: "measured" | "estimated";
+}
+export interface LyricTimelineLine {
+  line_id: number;
+  lyric_text: string;
+  language: string;
+  start_seconds: number | null;
+  end_seconds: number | null;
+  timing: "measured" | "estimated" | "manual" | "unknown";
+  match: "whisperx" | "estimated" | "manual";
+  heard_text: string;
+  match_score: number;
+  confidence: number | null;
+  low_confidence: boolean;
+  occurrence: number;
+  edited?: boolean;
+  manual?: boolean;
+  ai_corrected?: boolean;
+  ai_match_confidence?: number;
+  words: LyricWordTiming[];
+}
+export interface LyricPhrase {
+  line_id: number;
+  phrase_index: number;
+  text: string;
+  start_seconds: number | null;
+  end_seconds: number | null;
+  timing: string;
+  occurrence: number;
+}
+export interface LyricActionItem {
+  line_id: number;
+  lyric: string;
+  heard_text: string;
+  occurrence: number;
+  start_seconds: number | null;
+  end_seconds: number | null;
+  timing: string;
+  kind: string;
+  meaning: string;
+  action: string;
+  body_part: string;
+  grounded: boolean;
+  camera: Record<string, unknown> | null;
+  beats: unknown[];
+  scene_number: number | null;
+  shot_id: string | null;
+}
+export interface LyricTimelineGap {
+  after_segment: number;
+  start_seconds: number;
+  end_seconds: number;
+  seconds: number;
+  reason: string;
+}
+export interface LyricTimelineValidation {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  stats: Record<string, number>;
+}
+export interface LyricTimeline {
+  schema_version: number;
+  language: string;
+  duration_seconds: number;
+  source: string;
+  imported_at?: string;
+  corrected_at?: string;
+  /** The REAL voice-activity rows the analysis measured (never transcript words). */
+  vocal_activity?: {
+    status: string;
+    method: string;
+    measured?: boolean;
+    voice_detectable?: boolean;
+    note?: string;
+    segments: { start: number; end: number; activity: string }[];
+  };
+  whisper: {
+    stats: Record<string, number>;
+    gaps: LyricTimelineGap[];
+    segments: { segment_index: number; start_seconds: number; end_seconds: number; text: string; instrumental: boolean; words: LyricWordTiming[] }[];
+  };
+  lines: LyricTimelineLine[];
+  phrases: LyricPhrase[];
+  actions: LyricActionItem[];
+  scene_map: {
+    line_id: number; start_seconds: number | null; end_seconds: number | null;
+    scene_number: number | null; shot_id: string | null;
+    /** Every scene the window touches (>1 = the cut runs through the words). */
+    scene_numbers?: number[]; crosses_scenes?: boolean;
+  }[];
+  warnings: string[];
+  stats: Record<string, number>;
+  validation?: LyricTimelineValidation;
+}
+export interface LyricTimelineResponse {
+  board_id: string;
+  timeline: LyricTimeline | null;
+  lyric_lines: { lyric_line_id: number; lyric_text: string }[];
+  /** The stored windows no longer cover the board's current lines (re-import). */
+  stale?: boolean;
+  duration_seconds: number;
+  validation: LyricTimelineValidation;
+}
+export interface LyricCorrection {
+  line_id: number;
+  start_seconds?: number | null;
+  end_seconds?: number | null;
+  lyric_text?: string;
+}
+export const directorLyricTimeline = (id: string) =>
+  get<LyricTimelineResponse>(`/api/director/boards/${encodeURIComponent(id)}/lyric-timeline`);
+export const importWhisperTimeline = (id: string, whisper: unknown, language?: string) =>
+  post<{ board_id: string; timeline: LyricTimeline; master?: MasterTimeline | null; stale?: boolean; validation: LyricTimelineValidation; warnings: string[]; export?: { folder: string; run_folder: string } }>(
+    `/api/director/boards/${encodeURIComponent(id)}/whisper-import`,
+    { whisper, ...(language ? { language } : {}) },
+  );
+export const saveLyricCorrections = (id: string, corrections: LyricCorrection[], segmentCorrections?: MasterSegmentCorrection[]) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/lyric-timeline`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ corrections, ...(segmentCorrections ? { segment_corrections: segmentCorrections } : {}) }),
+  }).then(directorOk<{ board_id: string; timeline: LyricTimeline; master?: MasterTimeline | null; clips?: MasterTimelineClip[] | null; stale?: boolean; validation: LyricTimelineValidation }>("lyric correction save failed"));
+export const aiCorrectLyricTimeline = (id: string) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/lyric-timeline/ai-correct`, { method: "POST" })
+    .then(directorOk<{ board_id: string; corrected: number; needs_review: { line_id: number; occurrence?: number; reason: string }[]; timeline?: LyricTimeline; message?: string; export?: { folder: string; run_folder: string } }>("AI lyric correction failed"));
+
+// ---- Master timeline (audio-aligned chronological segments) --------------
+// DERIVED from the lyric timeline + vocal-activity rows: one chronological
+// segment list covering the WHOLE song (instrumental / singing / dialogue /
+// mixed / unknown), with repeats, Song Director assignments and 3–5 s clip
+// windows. The timing source of truth is the MEASURED alignment — nothing is
+// invented here.
+export type MasterSegmentType = "instrumental" | "singing" | "dialogue" | "mixed" | "unknown";
+export interface MasterWordTiming {
+  word: string;
+  start_seconds: number | null;
+  end_seconds: number | null;
+  confidence: number | null;
+  timing: string;
+}
+export interface MasterSegment {
+  segment_id: string;
+  segment_index: number;
+  type: MasterSegmentType;
+  start_seconds: number;
+  end_seconds: number;
+  duration_seconds: number;
+  lyric_line_id: number | null;
+  lyric_text: string;
+  heard_text: string;
+  words: MasterWordTiming[];
+  timing_source: string;
+  confidence: number | null;
+  low_confidence: boolean;
+  review_status: string;
+  character_id: string;
+  speaker: string;
+  speaker_source: string;
+  action: string;
+  expression: string;
+  location: string;
+  props: string[];
+  style_refs: string[];
+  camera: { shot_type: string; angle: string; movement: string; rationale: string } | null;
+  occurrence: number;
+  repeat_group: string | null;
+  scene_clip_ids: string[];
+  notes: string[];
+}
+export interface MasterTimelineAction {
+  segment_id: string;
+  action: string;
+  expression: string;
+  character_id: string;
+  absolute_start: number;
+  absolute_end: number;
+  clip_relative_start: number;
+  clip_relative_end: number;
+}
+export interface MasterTimelineClip {
+  clip_id: string;
+  start_seconds: number;
+  end_seconds: number;
+  duration_seconds: number;
+  kind: MasterSegmentType;
+  segment_ids: string[];
+  lyric_text: string;
+  character_id: string;
+  actions: MasterTimelineAction[];
+  flags: string[];
+}
+export interface MasterTimelineRepeat {
+  group: string;
+  lines: { line_id: number | null; occurrence: number; start_seconds: number; end_seconds: number; lyric_text: string }[];
+  occurrences: number;
+}
+export interface MasterTimeline {
+  schema_version: number;
+  duration_seconds: number;
+  language: string;
+  source: string;
+  activity: {
+    status: string;
+    method: string;
+    measured: boolean;
+    voice_detectable: boolean;
+    note: string;
+    segments: { start: number; end: number; activity: string }[];
+  };
+  segments: MasterSegment[];
+  repeats: MasterTimelineRepeat[];
+  stats: Record<string, number | Record<string, number>>;
+  warnings: string[];
+  corrections?: MasterSegmentCorrection[];
+  approved?: string;
+  approval_released?: boolean;
+  validation: LyricTimelineValidation;
+  clips?: MasterTimelineClip[];
+}
+export interface MasterSegmentCorrection {
+  segment_id: string;
+  start_seconds?: number | null;
+  end_seconds?: number | null;
+  type?: MasterSegmentType;
+  character_id?: string;
+  action?: string;
+  expression?: string;
+  location?: string;
+  lyric_text?: string;
+}
+export interface MasterTimelineResponse extends LyricTimelineResponse {
+  master: MasterTimeline | null;
+  director_segments?: DirectorSegmentsExport | null;
+  director_segments_error?: string | null;
+  segment_types: MasterSegmentType[];
+  clip_bounds: { min: number; max: number };
+  characters: { character_id: string; name: string; visual_identity_prompt: string }[];
+  /** The board's uploaded WAV, served back for the sync'd audio player. */
+  whisperx_audio_url: string | null;
+}
+export interface DirectorSegmentsExport {
+  schema_version: number;
+  source: "whisperx";
+  target_seconds: { min: number; max: number; ideal: number };
+  transcript: string;
+  text_preserved: boolean;
+  validation: { ok: boolean; errors: string[]; segment_count: number; text_preserved: boolean };
+  segments: {
+    segment_id: string;
+    start_seconds: number;
+    end_seconds: number;
+    duration_seconds: number;
+    text: string;
+    cut_note: string;
+    words: Array<Record<string, unknown> & { word: string; start_seconds: number; end_seconds: number; segment_id: string }>;
+  }[];
+}
+export const directorMasterTimeline = (id: string) =>
+  get<MasterTimelineResponse>(`/api/director/boards/${encodeURIComponent(id)}/master-timeline`);
+export const saveMasterCorrections = (id: string, segmentCorrections: MasterSegmentCorrection[], opts: { unlock?: boolean } = {}) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/master-timeline`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ corrections: [], segment_corrections: segmentCorrections, ...(opts.unlock ? { unlock: true } : {}) }),
+  }).then(directorOk<{ board_id: string; timeline: LyricTimeline; master: MasterTimeline | null; clips: MasterTimelineClip[] | null; stale?: boolean; validation: LyricTimelineValidation }>("master correction save failed"));
+export const approveMasterTimeline = (id: string) =>
+  post<{ board_id: string; approved: boolean; approved_at: string; master: MasterTimeline; clips: MasterTimelineClip[] }>(
+    `/api/director/boards/${encodeURIComponent(id)}/master-timeline/approve`,
+    {},
+  );
+export const unlockMasterTimeline = (id: string) =>
+  post<{ board_id: string; approved: boolean; master: MasterTimeline }>(
+    `/api/director/boards/${encodeURIComponent(id)}/master-timeline/unlock`,
+    {},
+  );
+export const generateMasterTimelineClips = (id: string) =>
+  post<{ name: string; config: Scenario; clips: MasterTimelineClip[]; clip_count: number; note: string }>(
+    `/api/director/boards/${encodeURIComponent(id)}/master-timeline/generate`,
+    {},
+  );
+/** The board's uploaded audio (streamed) — the player's src when no local file. */
+export const directorBoardAudioUrl = (id: string) =>
+  `/api/director/boards/${encodeURIComponent(id)}/audio-file`;
+
+// Upload audio for WhisperX analysis (WAV/MP3/M4A)
+export const uploadLyricAudio = (id: string, data: string, fileName: string) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/audio-upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data, fileName }),
+  }).then(
+    directorOk<{
+      file: string;
+      fileName: string;
+      durationSeconds: number;
+      sizeBytes: number;
+      valid: boolean;
+    }>("audio upload failed")
+  );
+
+// Start WhisperX analysis job
+export const startWhisperXAnalysis = (id: string, opts: { language?: string; lyrics?: string } = {}) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/whisperx/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts),
+  }).then(directorOk<{ jobId: string; status: string }>("failed to start analysis"));
+
+// Get WhisperX analysis job status
+export const getWhisperXJobStatus = (id: string, jobId: string) =>
+  get<{
+    jobId: string;
+    status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
+    progress: number;
+    stage?: string;
+    message?: string;
+    log?: string | null;
+    error?: string;
+    timeline?: LyricTimeline;
+    export?: { folder: string; run_folder: string } | null;
+  }>(`/api/director/boards/${encodeURIComponent(id)}/whisperx/jobs/${encodeURIComponent(jobId)}`);
+
+// Cancel WhisperX analysis job
+export const cancelWhisperXJob = (id: string, jobId: string) =>
+  fetch(`/api/director/boards/${encodeURIComponent(id)}/whisperx/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: "POST",
+  }).then(directorOk<{ ok: boolean }>("cancel failed"));
+
+// Preflight check for WhisperX
+export const whisperXPreflight = () =>
+  get<{
+    ok: boolean;
+    checks: Record<string, { ok: boolean; message?: string }>;
+  }>("/api/whisperx/preflight");
 
 // Chief Director Story Plan + stage pipeline (read-only) — the authoritative
 // narrative source with per-stage done/ready/blocked status and approvals.
@@ -1587,7 +1940,11 @@ export const directorRegenScene = (id: string, index: number) =>
 export const directorApprove = (id: string) =>
   fetch(`/api/director/boards/${encodeURIComponent(id)}/approve`, {
     method: "POST",
-  }).then(directorOk<{ name: string; config: Scenario }>("approve failed"));
+  }).then(directorOk<{
+    name: string; config: Scenario; partial?: boolean; migrated?: number; sceneCount?: number;
+    /** Scenes whose windows were snapped to the approved master timeline. */
+    timing_corrections?: { scene_number: number; from: number[]; to: number[] }[];
+  }>("approve failed"));
 
 // Duplicate a board as a fresh version (exact copy of characters, locations,
 // objects, beats + scenes prompts; no linked project so images/videos

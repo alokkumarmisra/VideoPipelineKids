@@ -14,8 +14,24 @@ test("audio analysis reports bounded seconds-based estimates and does not fabric
   assert.equal(result.durationSeconds, 4);
   assert.ok(result.bpm === null || (result.bpm >= 60 && result.bpm <= 180));
   assert.ok(result.beatTimes.every(t => t >= 0 && t <= 4));
-  assert.equal(result.vocalActivity.status, "not_estimated");
+  // Honest audio ACTIVITY: "audio" means sound is present (voice OR music) —
+  // never a claim that vocals were detected.
+  assert.equal(result.vocalActivity.status, "estimated");
+  assert.match(result.vocalActivity.note, /voice OR instruments/);
+  assert.ok(result.vocalActivity.segments.length > 0);
+  assert.ok(result.vocalActivity.segments.every(s =>
+    s.start >= 0 && s.end <= 4 && (s.activity === "audio" || s.activity === "low")));
   assert.ok(result.keyEstimate.confidence >= 0 && result.keyEstimate.confidence <= 1);
+});
+
+test("solid activity blocks report all-audio, silence reports none", () => {
+  const rate = 8000;
+  const loud = new Float32Array(rate * 2);
+  for (let i = 0; i < loud.length; i++) loud[i] = Math.sin(i * 0.05) * 0.6;
+  const loudRun = analyzePcm(loud, rate).vocalActivity;
+  assert.ok(loudRun.segments.some(s => s.activity === "audio"));
+  const quiet = analyzePcm(new Float32Array(rate * 2), rate).vocalActivity;
+  assert.ok(!quiet.segments.some(s => s.activity === "audio"));
 });
 
 test("silence yields no confident beat estimate", () => {

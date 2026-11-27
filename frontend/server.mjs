@@ -12,7 +12,7 @@ import { Pool } from "pg";
 import { versionMap, setMain, clearRefMain, nextVersion } from "../lib/sequence_state.mjs";
 import {
   normalizeFormat, outDirName, cfgNameForDir, prefixForDir, engineForDir,
-  allDirsFor, folderSlug, fileSlug,
+  allDirsFor, folderSlug, fileSlug, configSlug,
 } from "../lib/variant.mjs";
 import {
   planDelta,
@@ -30,6 +30,7 @@ import {
 } from "../lib/presets.mjs";
 import { applyMasterToBeats } from "../lib/master_prompt.mjs";
 import { audioDuration, dialogueWavFile } from "../lib/tts.mjs";
+import { FFMPEG, FFPROBE } from "../lib/ffmpeg.mjs";
 import { analyzePcm } from "../lib/audio_analysis.mjs";
 import { resolveImageWorkflow, DEFAULT_IMAGE_WORKFLOW, isImageWorkflowId } from "../lib/image_workflows.mjs";
 import { buildAudioTimeline, audioTimelineDuration, validateAudioTimeline, syncAudioTimelineToScenes } from "../lib/audio_timeline.mjs";
@@ -39,6 +40,7 @@ import {
   buildSemanticAnalysisPrompt,
   mergeModelSemantics,
   buildSemanticContext,
+  buildSemanticVariationContext,
   attachSemantics,
   validateSceneSemantics,
   repairSceneSemantics,
@@ -47,7 +49,28 @@ import {
   alignSemanticsToTiming,
   buildLyricActionPlan,
   detectLanguage,
+  buildLyricTimeline,
+  applyLyricCorrections,
+  validateLyricTimeline,
+  buildLyricActionTimeline,
+  assignLyricLinesToScenes,
+  findCJKViolations,
 } from "../lib/semantics.mjs";
+import {
+  MASTER_SEGMENT_TYPES,
+  MASTER_CLIP_MIN,
+  MASTER_CLIP_MAX,
+  buildMasterTimeline,
+  planTimelineClips,
+  timelineClipsToStoryboard,
+  detectRepeatedLyrics,
+  applyMasterCorrections,
+  approveMasterTimeline,
+  unlockMasterTimeline,
+  validateMasterTimeline,
+  applyApprovedTimelineToScenes,
+} from "../lib/master_timeline.mjs";
+import { splitWhisperTranscript, directorSegmentsToSrt } from "../lib/director_segments.mjs";
 import {
   beatDialogueStatus,
   lineWavFile,
@@ -71,6 +94,7 @@ import {
   normalizeScene,
   canonicalizeSceneRefs,
   dedupeScenes,
+  flagRepeatStaging,
   sameLine,
   buildBiblePrompt,
   buildScenesPrompt,
@@ -128,6 +152,17 @@ import {
   buildRenderJob,
   buildQCReport,
 } from "../lib/director.mjs";
+import {
+  STORYBOARD_PHASES,
+  STORYBOARD_TRACKS,
+  normalizeStoryboardTimeline,
+  storyboardBatchContext,
+  buildStoryboardPromptBlock,
+  auditStoryboardCoverage,
+  validateStoryboardForApproval,
+  buildDirectorHandoff,
+  buildStoryboardView,
+} from "../lib/storyboard_planner.mjs";
 import { storyboardToScenario } from "../lib/project_import.mjs";
 import {
   KIDS_SCHEMA,
@@ -198,6 +233,16 @@ import {
   kidsListExports,
   kidsInsertFeedback,
   kidsListFeedback,
+  kidsInsertAudioAsset,
+  kidsListAudioAssets,
+  kidsSaveTimeline as kidsSaveUnifiedTimeline,
+  kidsListTimelines,
+  kidsApproveTimeline,
+  kidsSaveBlueprint,
+  kidsListBlueprints,
+  kidsApproveBlueprint,
+  kidsSaveSnapshot,
+  kidsListSnapshots,
 } from "../lib/kids_store.mjs";
 import {
   KIDS_PIPELINE_STAGES,
@@ -222,6 +267,14 @@ import {
   KIDS_LIBRARY_CATEGORIES,
   buildKidsVoiceMap,
 } from "../lib/kids_pipeline.mjs";
+import { buildUnifiedTimeline, validateUnifiedTimeline } from "../lib/studio_engines.mjs";
+import { buildDurationPacingBlueprint } from "../lib/durationPacing.mjs";
+import {
+  resolveProductionMode,
+  canRunDirector,
+  buildDirectorInputSnapshot,
+  isSnapshotStale,
+} from "../lib/production_modes.mjs";
 import {
   DOC_STATUSES,  validateDocBrief,
   normalizeDocCharacter,
@@ -550,9 +603,14 @@ function mergeStateMains(surviveDir, absorbedDir, from, to) {
 }
 // Legacy rename entry point (prompts JSON only — outputs dirs are immutable
 // storage now and move exclusively via moveOutputDirs during migration).
+// Prompts files are SPACE-FREE (slug names): the old file may exist under the
+// legacy raw display name OR the slug — either source moves to the new slug.
 function renameScenarioFiles(oldName, newName) {
-  const pj = path.join(PROMPTS, oldName + ".json");
-  if (fs.existsSync(pj)) fs.renameSync(pj, path.join(PROMPTS, newName + ".json"));
+  const dst = promptsSlugFile(newName);
+  for (const src of [promptsLegacyFile(oldName), promptsSlugFile(oldName)]) {
+    if (!fs.existsSync(src) || src === dst) continue;
+    try { fs.renameSync(src, dst); break; } catch { /* best-effort */ }
+  }
 }
 // Slugify legacy filenames inside one output dir using the CURRENT config
 // beat titles: "<prefix>_{seq,clip}<n>_<raw title>[(_vN)].<ext>" ->
@@ -736,6 +794,12 @@ const pgPool = new Pool({
   connectionTimeoutMillis: 3000,
 });
 let pgUp = false;
+// NOTE: the old `/api/story/*` audio-analysis scaffolding (an Express-style
+// handler — `req.body` / `res.status().json()` / `require()` — inside this
+// zero-dependency ESM server) crashed with "Unexpected end of JSON input" on
+// the client. Story audio analysis now rides the REAL WhisperX board flow:
+// POST /api/director/boards/:id/audio-upload → POST .../whisperx/analyze →
+// GET .../master-timeline (review + approve). No parallel store.
 // ---------------------------------------------------------------- kids studio store
 // The Sanskriti Kids Studio is a PROJECT LAYER on top of the existing
 // Director pipeline — it never renders on its own. Its own tables live in a
@@ -813,6 +877,28 @@ try {
       try { kidsDb.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`); }
       catch (e) { console.warn(`[kids] sqlite migration ${table}.${name} failed:`, e.message); }
     }
+  }
+  // Seed the configurable option lists (age groups, categories, languages,
+  // platforms, resolutions, visual styles) at startup so the UI always has
+  // defaults even when the Postgres Sanskriti_kids database is unreachable.
+  // This mirrors what kidsInit() does for the PG branch, but uses SQLite
+  // prepared statements so it works independently of the PG connection.
+  try {
+    for (const key of KIDS_OPTION_KEYS) {
+      const defaults = KIDS_DEFAULT_OPTIONS[key] || [];
+      // Check if options already exist (idempotent on restart).
+      const existingRows = kidsDb.prepare(
+        "SELECT option_key, option_value FROM kids_options WHERE option_key = ?").all(key);
+      if (existingRows.length > 0) continue; // already seeded
+      let order = 0;
+      for (const value of defaults) {
+        kidsDb.prepare(
+          "INSERT INTO kids_options (option_key, option_value, sort_order) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
+          .run(key, String(value).trim(), order++);
+      }
+    }
+  } catch (e) {
+    console.warn("[kids] option seeding failed:", e.message);
   }
 } catch (e) {
   console.warn("[kids] sqlite fallback unavailable:", e.message);
@@ -2302,6 +2388,29 @@ async function pgRefreshProjectFiles(projectName, outputFolder) {
 // output dirs, filenames and DB paths stay stable and media keeps resolving.
 const folderName = folderSlug;
 
+// INTERNAL KEY vs DISPLAY NAME: the user may type "Pyari billi" in the UI;
+// the application stores and routes everything by a SPACE-FREE key
+// ("pyari_billi" — configSlug, same rule as the storage folder). The key is
+// the scenarios/projects identity: /api/scenario/<key>/... URLs, output
+// dirs, image/video/reference file names all derive from it and never carry
+// a space. The typed name rides along as cfg.display_name for UI labels;
+// the UI falls back to the key when a project has none.
+const spaceFreeName = configSlug;
+
+// Prompts-JSON paths: SPACE-FREE file names like every other storage name.
+// Writers always use the slug (`pyari_billi.json`); readers resolve the slug
+// first and fall back to the legacy raw display-name file so exports written
+// before slugification keep loading. configName (what the CLI runners get via
+// --config-name) stays the display name — the runners do the same fallback.
+const promptsSlugFile = (name) => path.join(PROMPTS, `${configSlug(name)}.json`);
+const promptsLegacyFile = (name) => path.join(PROMPTS, `${String(name ?? "")}.json`);
+function promptsReadFile(name) {
+  const slugF = promptsSlugFile(name);
+  if (fs.existsSync(slugF)) return slugF;
+  const rawF = promptsLegacyFile(name);
+  return fs.existsSync(rawF) ? rawF : slugF;
+}
+
 // Get existing folder_name from the database row for a given project.
 const getFolderNameFromRow = async (name) => {
   if (!pgUp) return null;
@@ -2796,6 +2905,12 @@ const liveReset = (id, note) => {
   const st = directorLive.get(id);
   if (st) { st.text = note ? `${note}\n` : ""; st.reasoning = ""; }
 };
+// Storyboard Planner 2.0 phase labels: updates only the LABEL in the existing
+// read-only buffer. It never resets tokens, changes polling, or calls the LLM.
+const livePhase = (id, phase) => {
+  const st = directorLive.get(id);
+  if (st && st.active) st.phase = phase;
+};
 const liveEnd = (id) => { directorLive.delete(id); };
 // Streaming twin of llmChatJson for director scene batches: same payload +
 // stream:true, same retry policy (transport drops re-issue the whole request,
@@ -2839,6 +2954,22 @@ async function llmChatJson({ system, user, maxTokens = 8000, temperature = 0.7, 
   }
 }
 
+// The studio is Hindi / English / Hinglish ONLY. Some chat models default to
+// Chinese when the prompt does not pin the language, so every director JSON
+// payload is scanned for CJK / kana / hangul before it is saved. A leak
+// fails honestly (with the offending field paths) instead of persisting
+// Chinese text into the board — retrying usually returns the correct language
+// now that every prompt carries an explicit OUTPUT LANGUAGE rule.
+function assertNoCJK(value, what = "the model response") {
+  const hits = findCJKViolations(value, "", 5);
+  if (hits.length) {
+    throw new Error(
+      `${what} came back in Chinese/Japanese/Korean (fields: ${hits.join(", ")}) — ` +
+      `the studio supports Hindi, English and Hinglish only. Try again; the prompt now pins the output language explicitly.`
+    );
+  }
+}
+
 async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 0.5, timeoutMs = REQUEST_TIMEOUT_MS, rawTag = null, liveId = null, tag = "director" }) {
   const base = (process.env.LLM_BASE || "").replace(/\/+$/, "");
   if (!base) throw new Error("LLM_BASE not set — the director needs the local LLM (LM Studio / llama-server).");
@@ -2869,6 +3000,13 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
         if (n >= attempts) break; // exhausted — fall through to the annotated throw below
       } else {
         let text = "";
+        // Thinking-model bookkeeping (see the delta loop below): when the
+        // stream ends with an EMPTY content but a non-empty reasoning buffer,
+        // the model spent its whole output budget thinking (LM Studio does
+        // not honor enable_thinking:false / reasoning_budget:0 for qwen3.5)
+        // and the error should say THAT, not the generic "empty response".
+        let reasoningBuf = "";
+        let finishReason = "";
         const ct = String(r.headers.get("content-type") || "");
         if (ct.includes("text/event-stream") && r.body) {
           // OpenAI-compatible SSE: "data: {...}" per token-batch, "data: [DONE]" at the end.
@@ -2894,7 +3032,12 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
               // live view shows activity during thinking; `text` (what gets
               // parsed) keeps ONLY the content.
               const think = String(payload?.choices?.[0]?.delta?.reasoning_content || "");
-              if (think && liveId) liveAppendReasoning(liveId, think);
+              if (think) {
+                reasoningBuf += think;
+                if (liveId) liveAppendReasoning(liveId, think);
+              }
+              const fr = payload?.choices?.[0]?.finish_reason;
+              if (fr) finishReason = String(fr);
             }
           }
         } else {
@@ -2902,6 +3045,11 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
           const d = await r.json();
           text = String(d.choices?.[0]?.message?.content ?? "");
           if (liveId && text) { liveReset(liveId); liveAppend(liveId, text); }
+        }
+        if (!String(text).trim() && reasoningBuf.trim()) {
+          throw new Error(
+            `LLM returned an empty response — the model streamed ONLY reasoning (finish_reason: ${finishReason || "unknown"}) and produced no JSON content. The output limit is spent inside the thinking phase: turn OFF "Thinking" for this model in LM Studio (or raise its output limit), then retry.`,
+          );
         }
         try {
           return stripJson(text);
@@ -2928,8 +3076,11 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
       lastErr = e;
       if (n >= attempts) break; // exhausted — fall through to the annotated throw below
     } finally { clearTimeout(t); }
+    // `msg` above is catch-block scoped — computing the retry log line from
+    // lastErr (same rule as llmPostChat) instead avoids a ReferenceError that
+    // used to crash the retry path itself as "msg is not defined".
     const wait = Math.min(30000, LLM_RETRY_BASE_MS * 2 ** (n - 1)) + Math.floor(Math.random() * 1000);
-    console.warn(`[llm:${tag}] attempt ${n}/${attempts} failed (${msg.slice(0, 160)}) — retrying in ${wait}ms`);
+    console.warn(`[llm:${tag}] attempt ${n}/${attempts} failed (${String((lastErr && lastErr.message) || lastErr).slice(0, 160)}) — retrying in ${wait}ms`);
     await sleep(wait);
   }
   const err = lastErr instanceof Error ? lastErr : new Error(String(lastErr));
@@ -2951,6 +3102,11 @@ async function llmChatJsonLive({ system, user, maxTokens = 16000, temperature = 
 // there AI Craft + Generate behave like any other project.
 const RESOURCES = path.join(ROOT, "resources");
 const RES_META = path.join(RESOURCES, "meta.json");
+const WHISPERX_UPLOADS = path.join(DATA_DIR, "whisperx-uploads");
+const WHISPERX_JOBS = path.join(DATA_DIR, "whisperx-jobs");
+const WAV_ANALYSIS_DIR = path.join(ROOT, "WavAnalysis");
+fs.mkdirSync(WHISPERX_UPLOADS, { recursive: true });
+fs.mkdirSync(WHISPERX_JOBS, { recursive: true });
 // AI Story Director boards (file-persisted JSON, one per story — resumable,
 // debuggable, works with or without Postgres like prompts/*.json).
 const DIRECTOR = path.join(ROOT, "director");
@@ -2973,8 +3129,12 @@ const resMimeExt = (mime) => ({
 }[String(mime || "").toLowerCase()] ?? null);
 const newResId = () => `res_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
 // Shell out to ffmpeg/ffprobe (same binaries the stitch path relies on).
+// The bare names are resolved through lib/ffmpeg.mjs so a machine without
+// ffmpeg on PATH uses the static build / FFMPEG_PATH override instead of
+// dying with ENOENT.
 const runCmd = (cmd, args, timeoutMs = 60000) => new Promise((res, rej) => {
-  const p = spawn(cmd, args, { windowsHide: true });
+  const bin = cmd === "ffmpeg" ? FFMPEG : cmd === "ffprobe" ? FFPROBE : cmd;
+  const p = spawn(bin, args, { windowsHide: true });
   let out = "", err = "";
   const t = setTimeout(() => { try { p.kill(); } catch { /* already dead */ } rej(new Error(`${cmd} timed out`)); }, timeoutMs);
   p.stdout.on("data", (c) => (out += c));
@@ -2982,6 +3142,82 @@ const runCmd = (cmd, args, timeoutMs = 60000) => new Promise((res, rej) => {
   p.on("error", (e) => { clearTimeout(t); rej(e); });
   p.on("close", (code) => { clearTimeout(t); code === 0 ? res(out || err) : rej(new Error(`${cmd} exited ${code}: ${err.slice(0, 300)}`)); });
 });
+
+const runCmdStream = (cmd, args, { timeoutMs = 600000, onStderr } = {}) => new Promise((res, rej) => {
+  const p = spawn(cmd, args, { windowsHide: true });
+  let out = "", err = "";
+  const t = timeoutMs > 0 ? setTimeout(() => { try { p.kill(); } catch { /* already dead */ } rej(new Error(`${cmd} timed out`)); }, timeoutMs) : null;
+  p.stdout.on("data", (c) => { out += c.toString(); });
+  p.stderr.on("data", (c) => { const s = c.toString(); err += s; if (typeof onStderr === "function") try { onStderr(s); } catch {} });
+  p.on("error", (e) => { if (t) clearTimeout(t); rej(e); });
+  p.on("close", (code) => { if (t) clearTimeout(t); code === 0 ? res({ out, err, code }) : rej(new Error(`${cmd} exited ${code}: ${err.slice(0, 500)}`)); });
+});
+
+const whisperxJobs = new Map(); // jobId -> { proc, boardId, cancelled, ... }
+
+// WhisperX owns the same GPU the render queue uses. Two large-v2 jobs at once
+// starve VRAM and look like "analysis failed" to the user, so only ONE may run.
+// In-memory jobs are the authority here: a job is active from creation until
+// its close/error handler clears it (the brief window before `proc` is set is
+// still active — checking `proc` used to let a second click through).
+const whisperxActiveJob = () => [...whisperxJobs.values()].find((j) =>
+  (j.status === "pending" || j.status === "running") && !j.cancelled);
+
+// A server restart kills the spawned python but leaves job.json saying
+// "running". Recover those honestly instead of polling a dead job forever.
+for (const name of fs.readdirSync(WHISPERX_JOBS)) {
+  const file = path.join(WHISPERX_JOBS, name, "job.json");
+  if (!fs.existsSync(file)) continue;
+  try {
+    const j = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (j.status === "pending" || j.status === "running") {
+      j.status = "failed";
+      j.error = "server restarted while this WhisperX job was running — run the analysis again";
+      j.proc = undefined;
+      fs.writeFileSync(file, JSON.stringify(j, null, 2));
+    }
+  } catch { /* a corrupt job.json is never a reason to fail boot */ }
+}
+
+const whisperxConfig = () => ({
+  python: process.env.WHISPERX_PYTHON || process.env.PYTHON || "python",
+  whisperxCmd: process.env.WHISPERX_CMD || null,
+  model: process.env.WHISPERX_MODEL || "large-v2",
+  device: process.env.WHISPERX_DEVICE || "cuda",
+  batchSize: process.env.WHISPERX_BATCH_SIZE || "16",
+  computeType: process.env.WHISPERX_COMPUTE_TYPE || "float16",
+});
+
+const whisperxPreflightCheck = async () => {
+  const checks = {};
+  const python = process.env.WHISPERX_PYTHON || process.env.PYTHON || "python";
+  const whisperxCmd = process.env.WHISPERX_CMD || "whisperx";
+  try {
+    const r = await runCmd(python, ["--version"], 10000).catch(() => null);
+    checks.python = { ok: !!r, message: r ? String(r).trim() : "not found" };
+  } catch (e) {
+    checks.python = { ok: false, message: e.message };
+  }
+  try {
+    // try to import whisperx
+    const r = await runCmd(python, ["-c", "import whisperx; print('ok')"], 15000).catch((e) => null);
+    checks.whisperx = { ok: !!r, message: r ? "available" : "not importable" };
+  } catch (e) {
+    checks.whisperx = { ok: false, message: e.message };
+  }
+  try {
+    const r = await runCmd("ffmpeg", ["-version"], 10000).catch(() => null);
+    checks.ffmpeg = { ok: !!r, message: r ? "ok" : "not found" };
+  } catch (e) {
+    checks.ffmpeg = { ok: false, message: e.message };
+  }
+  checks.writable = { ok: fs.existsSync(WHISPERX_UPLOADS) && fs.existsSync(WHISPERX_JOBS), message: "ok" };
+  const ok = checks.python?.ok && checks.whisperx?.ok && checks.ffmpeg?.ok && checks.writable?.ok;
+  // Report WHICH interpreter is used — the dedicated venv (C:\WhisperX-env by
+  // default via .env) is the common source of confusion when a job misbehaves.
+  return { ok, checks, config: whisperxConfig() };
+};
+
 async function videoDurationSec(full) {
   try {
     const out = await runCmd("ffprobe",
@@ -2993,13 +3229,15 @@ async function videoDurationSec(full) {
 async function analyzeDirectorAudio(full) {
   // Decode to low-rate mono float PCM so the analysis remains bounded even
   // for longer songs. The upload itself is never modified.
-  const cacheFile = `${full}.features-v1.json`;
+  const cacheFile = `${full}.features-v2.json`;
   try {
     const cached = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
-    if (cached && cached.version === 1) return cached.analysis;
+    // v2 carries the audio-activity estimate (v1 was shapeless vocalActivity) —
+    // an old v1 cache is treated as stale, never served.
+    if (cached && cached.version === 2) return cached.analysis;
   } catch { /* first analysis or stale/corrupt cache */ }
   const sampleRate = 11025;
-  const child = spawn("ffmpeg", ["-v", "error", "-i", full, "-vn", "-ac", "1", "-ar", String(sampleRate), "-f", "f32le", "pipe:1"], { windowsHide: true });
+  const child = spawn(FFMPEG, ["-v", "error", "-i", full, "-vn", "-ac", "1", "-ar", String(sampleRate), "-f", "f32le", "pipe:1"], { windowsHide: true });
   const chunks = [];
   let bytes = 0, stderr = "";
   const timeout = setTimeout(() => { try { child.kill(); } catch {} }, 240000);
@@ -3014,7 +3252,7 @@ async function analyzeDirectorAudio(full) {
   const pcm = new Float32Array(aligned / 4);
   for (let i = 0; i < pcm.length; i++) pcm[i] = pcmBuffer.readFloatLE(i * 4);
   const analysis = analyzePcm(pcm, sampleRate);
-  try { fs.writeFileSync(cacheFile, JSON.stringify({ version: 1, analysis }), "utf8"); } catch { /* cache is best-effort */ }
+  try { fs.writeFileSync(cacheFile, JSON.stringify({ version: 2, analysis }), "utf8"); } catch { /* cache is best-effort */ }
   return analysis;
 }
 // One song / narration analysis for BOTH the Director and the Sanskriti Kids
@@ -3129,8 +3367,8 @@ async function analyzeSongAudio(body = {}) {
   try {
     const raw = await llmChatJson({
       system: audioMode === "story"
-        ? `Analyze uploaded spoken narration/dialogue for a children's story video. Reply JSON only. Use transcript and measured facts provided: infer narration delivery, emotional tone, pauses and broad story-audio sections; do not invent words or measurements and do not impose music/beat-cut rules. Return mood, structure, narrationStyle, visualStyle, educationalFocus and 2-6 segments (start/end seconds, label, mood, action) covering 0-${durationSeconds}s.`
-        : `You analyze children's songs for AI video generation. Reply with JSON only. Given title, lyrics, duration, genre/language and measured audio features, infer mood, likely narrative/song style and visual recommendations. Do not claim audio measurements. When measured beat times exist, use them as anchors and return 2-6 broad musical sections with approximate boundaries; do not claim verse/chorus as certain without lyric evidence. Return mood, structure, narrationStyle, visualStyle, educationalFocus and segments (start/end seconds, label, mood, action). Segment times must cover 0-${durationSeconds}s.`,
+        ? `Analyze uploaded spoken narration/dialogue for a children's story video. Reply JSON only. Use transcript and measured facts provided: infer narration delivery, emotional tone, pauses and broad story-audio sections; do not invent words or measurements and do not impose music/beat-cut rules. Return mood, structure, narrationStyle, visualStyle, educationalFocus and 2-6 segments (start/end seconds, label, mood, action) covering 0-${durationSeconds}s. Write everything in English. NEVER write Chinese, Japanese or Korean.`
+        : `You analyze children's songs for AI video generation. Reply with JSON only. Given title, lyrics, duration, genre/language and measured audio features, infer mood, likely narrative/song style and visual recommendations. Do not claim audio measurements. When measured beat times exist, use them as anchors and return 2-6 broad musical sections with approximate boundaries; do not claim verse/chorus as certain without lyric evidence. Return mood, structure, narrationStyle, visualStyle, educationalFocus and segments (start/end seconds, label, mood, action). Segment times must cover 0-${durationSeconds}s. Write everything in English. NEVER write Chinese, Japanese or Korean.`,
       user: JSON.stringify({
         title,
         lyrics: hasLyrics ? lyrics.slice(0, 4000) : "(no lyrics — instrumental)",
@@ -3244,6 +3482,11 @@ async function enrichSemanticsWithModel(lines, { language = "auto", bible = null
       liveId: null,
       tag: "semantics",
     });
+    try {
+      assertNoCJK(raw, "the semantic analysis");
+    } catch (e) {
+      return { rows: [], source: "offline", warning: `${e.message} — the deterministic analysis is used` };
+    }
     const merged = mergeModelSemantics(raw, src, { language, genre });
     if (!Array.isArray(merged) || merged.length !== src.length) {
       return { rows: [], source: "malformed", warning: "the model returned an unexpected number of lines — the deterministic analysis is used" };
@@ -3309,6 +3552,9 @@ function boardSemanticIssues(board) {
     for (const e of check.errors.slice(0, 3)) issues.push(`Scene ${scene.scene_number}: ${e}`);
     for (const w of (check.warnings || []).slice(0, 2)) issues.push(`Scene ${scene.scene_number}: ${w}`);
   }
+  // Camera-only repeats feed the SAME staged repair as the per-scene issues.
+  // Each note names its scene numbers so the repair route auto-targets them.
+  for (const note of flagRepeatStaging(arr(board && board.scenes))) issues.push(note);
   return issues;
 }
 
@@ -3320,6 +3566,25 @@ function semanticsForBatch(board, batchLines) {
   if (!wanted.size) return rows.slice(0, 12);
   const picked = rows.filter((r) => wanted.has(Number(r.line_id)));
   return picked.length ? picked : rows.slice(0, 12);
+}
+
+/**
+ * Meaning-variation guard for THIS batch only. Reads the same stored semantic
+ * rows the real batch just wrote, so Show prompt (prompt-preview) and the real
+ * Generate / Continue call render the identical block. Strict line-id filters
+ * (never the fallback in semanticsForBatch) keep unrelated lines out.
+ */
+function semanticVariationForBatch(board, batchLines, freshRows = null) {
+  const ids = new Set(arr(batchLines)
+    .map((l) => Number(l && (l.lyric_line_id || l.line_id))).filter((n) => n > 0));
+  const texts = new Set(arr(batchLines)
+    .map((l) => String((l && (l.lyric_text ?? l.text ?? l.line)) ?? "")).filter(Boolean));
+  if (!ids.size && !texts.size) return "";
+  const stored = arr(board && board.semantics && board.semantics.lines);
+  const rows = arr(freshRows).length ? arr(freshRows) : stored;
+  const picked = rows.filter((r) => r && (ids.has(Number(r.line_id))
+    || texts.has(String(r.source_text ?? r.text ?? ""))));
+  return buildSemanticVariationContext(picked);
 }
 
 // ---------------------------------------------------------------------------
@@ -3538,6 +3803,7 @@ async function syncLibraryFromStory(store, db, project, story) {
       liveId: null,
       tag: "kids_story",
     });
+    assertNoCJK(raw, "the kids story");
     story = normalizeKidsStory(raw);
   } catch (e) {
     throw kidsFail(`the story could not be written: ${String(e.message || e).slice(0, 300)}`, 502);
@@ -4370,7 +4636,7 @@ async function dashboardPayload() {
     // as fallback (a project row can exist before its first Save).
     let text = r.configText;
     if (text == null) {
-      try { text = fs.readFileSync(path.join(PROMPTS, r.name + ".json"), "utf8"); }
+      try { text = fs.readFileSync(promptsReadFile(r.name), "utf8"); }
       catch { text = null; }
     }
     try { cfgs.set(r.name, text != null ? JSON.parse(text) : null); }
@@ -4549,7 +4815,7 @@ async function loadStoredBrief(name) {
     if (raw) return { config: JSON.parse(raw), from: "database" };
   } catch { /* fall through to the JSON export */ }
   try {
-    const f = path.join(PROMPTS, name + ".json");
+    const f = promptsReadFile(name);
     if (fs.existsSync(f)) return { config: JSON.parse(fs.readFileSync(f, "utf8")), from: "json" };
   } catch { /* no stored brief */ }
   return null;
@@ -5061,7 +5327,9 @@ async function outputsPayload(name) {
   let cfg = null;
   const { base: folderBase } = splitDirSuffix(name);
   const cfgName = (pgUp ? await displayNameForFolder(folderBase) : null) || cfgNameFor(name);
-  const cfgPath = path.join(PROMPTS, cfgName + ".json");
+  // SPACE-FREE prompts files: resolve the slug-named export first, legacy
+  // raw display-name file second (see promptsReadFile).
+  const cfgPath = promptsReadFile(cfgName);
   try {
     if (fs.existsSync(cfgPath)) cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
   } catch { cfg = null; }
@@ -5069,6 +5337,17 @@ async function outputsPayload(name) {
     try {
       const raw = await dbGetScenario(cfgName);
       if (raw) cfg = JSON.parse(raw);
+    } catch { cfg = null; }
+  }
+  if (!cfg) {
+    try {
+      // Folder-keyed fallback: the config may live only in the store under a
+      // legacy display name whose slug IS this folder ("Pyari billi_2" ->
+      // "pyari_billi_2"). Slug-matching finds it in SQLite mode too (where
+      // the projects table can't map folder -> display name).
+      const rows = await dbListScenarios();
+      const hit = rows.find((r) => configSlug(r.name) === configSlug(folderBase));
+      if (hit) cfg = JSON.parse(hit.config);
     } catch { cfg = null; }
   }
   if (files.length && cfg?.referencePrompt && Array.isArray(cfg?.sequence)) {
@@ -5187,6 +5466,10 @@ const server = http.createServer(async (req, res) => {
         const c = JSON.parse(r.config);
         return {
           name: r.name,
+          // The user-typed project name ("Pyari billi") — the identity `name`
+          // is the space-free internal KEY ("pyari_billi"). UI labels prefer
+          // display_name and fall back to the key.
+          display_name: (c && typeof c === "object" && typeof c.display_name === "string" && c.display_name.trim()) || null,
           // A character-sequence project = has a sequence array. The Master
           // Prompt is optional (blank = AI prompt only), so it must not
           // gate listing — otherwise master-less projects vanish.
@@ -5222,8 +5505,14 @@ const server = http.createServer(async (req, res) => {
       let converted;
       try { converted = storyboardToScenario(raw); }
       catch (e) { return json(res, 400, { error: e instanceof Error ? e.message : "invalid project JSON" }); }
-      const wanted = body && typeof body.name === "string" && body.name.trim() ? body.name.trim() : converted.name;
+      const wantedRaw = body && typeof body.name === "string" && body.name.trim() ? body.name.trim() : converted.name;
+      // INTERNAL KEY: the import name becomes a space-free scenario key; the
+      // typed name rides along as display_name for UI labels.
+      const wanted = spaceFreeName(wantedRaw);
       if (!isSafe(wanted)) return json(res, 400, { error: "bad name" });
+      if (converted.config && typeof converted.config === "object" && !converted.config.display_name) {
+        converted.config.display_name = wantedRaw;
+      }
       const overwrite = !!(body && body.overwrite);
       let prevRaw = null;
       try { prevRaw = await dbGetScenario(wanted); }
@@ -5250,12 +5539,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (USE_SQLITE) {
         await dbSaveScenario(wanted, cfg);
-        fs.writeFileSync(path.join(PROMPTS, wanted + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(wanted), JSON.stringify(cfg, null, 2));
         pgSaveScenarioMirror(wanted, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
       } else {
         if (!pgUp) return json(res, 503, { error: "database unavailable" });
         await dbSaveScenario(wanted, cfg);
-        fs.writeFileSync(path.join(PROMPTS, wanted + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(wanted), JSON.stringify(cfg, null, 2));
       }
       let version = null;
       let project_id = null;
@@ -5376,8 +5665,17 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { name, config: JSON.parse(raw), ...(project_type ? { project_type } : {}) });
     }
     if (p.startsWith("/api/scenario/") && req.method === "PUT" && p.split("/").length === 4) {
-      const name = pathName(p.split("/")[3]);
+      let name = pathName(p.split("/")[3]);
       if (!isSafe(name)) return json(res, 400, { error: "bad name" });
+      // INTERNAL KEY: a NEW project whose URL name is a display name (spaces/
+      // caps) is stored under its space-free key ("Pyari billi" ->
+      // "pyari_billi") so /api/scenario/<key>/... URLs never need %20. A
+      // legacy row saved under the raw spelling keeps working untouched
+      // (renaming it migrates it).
+      if (/\s/.test(name)) {
+        const legacy = await dbGetScenario(name).catch(() => null);
+        if (legacy == null) name = spaceFreeName(name);
+      }
       const cfg = await readJson(req);
       // project_type is a projects-TABLE column (VIDEO/AUDIO), not scenario
       // content: extract it as the save signal, then strip it so it never
@@ -5440,14 +5738,14 @@ const server = http.createServer(async (req, res) => {
       if (USE_SQLITE) {
         await dbSaveScenario(name, cfg);
         // Keep the JSON export for the CLI runners.
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
         pgSaveScenarioMirror(name, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
       } else {
         // Postgres is the canonical store: persist first, fail loudly when down.
         if (!pgUp) return json(res, 503, { error: "database unavailable" });
         await dbSaveScenario(name, cfg);
         // Keep the JSON export for the CLI runners.
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
       }
       // Explicit save updates the CURRENT project in place — never a new
       // project row and never a new version row. The scenarios row, the
@@ -5492,7 +5790,7 @@ const server = http.createServer(async (req, res) => {
         }
         catch (e) { console.warn("[pg] version save failed:", e.message); }
       }
-      return json(res, 200, { ok: true, version, project_id, updated: true });
+      return json(res, 200, { ok: true, version, project_id, updated: true, name });
     }
     // Rename a project (POST /api/scenario/:name/rename { newName }).
     // DISPLAY NAME ONLY: scenarios, scenario_versions, projects.name,
@@ -5506,7 +5804,10 @@ const server = http.createServer(async (req, res) => {
       let body;
       try { body = await readJson(req); }
       catch { return json(res, 400, { error: "bad json" }); }
-      const newName = String(body.newName || "").trim();
+      // SPACE-FREE: the new name is stored without whitespace (underscore),
+      // so the renamed project's URLs never carry %20. Renaming a legacy
+      // space-named project to its own name migrates it to the clean spelling.
+      const newName = spaceFreeName(String(body.newName || "").trim());
       if (!isSafe(oldName) || !isSafe(newName)) return json(res, 400, { error: "bad name" });
       if (oldName === newName) return json(res, 200, { ok: true, name: newName });
       let oldRaw;
@@ -5522,6 +5823,18 @@ const server = http.createServer(async (req, res) => {
       try {
         await dbRenameScenario(oldName, newName);
         renameScenarioFiles(oldName, newName);
+        // Keep the display name in sync with what the user typed (the KEY is
+        // the slug; display_name carries the raw text for UI labels).
+        try {
+          const moved = await dbGetScenario(newName);
+          if (moved != null) {
+            const movedCfg = JSON.parse(moved);
+            if (typeof movedCfg === "object" && movedCfg) {
+              movedCfg.display_name = String(body.newName || "").trim() || movedCfg.display_name;
+              await dbSaveScenario(newName, movedCfg);
+            }
+          }
+        } catch { /* display sync is best-effort */ }
         try { await renameDirectorBoardsForProject(oldName, newName); }
         catch (e) { console.warn("[pg] director boards rename failed:", e.message); }
         const favs = readFavs();
@@ -5556,7 +5869,7 @@ const server = http.createServer(async (req, res) => {
           const cfg = nxt.rows[0].config;
           latest = nxt.rows[0].version;
           await dbSaveScenario(name, cfg);
-          fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+          fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
           if (USE_SQLITE) pgSaveScenarioMirror(name, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
         }
       }
@@ -5572,8 +5885,10 @@ const server = http.createServer(async (req, res) => {
       catch (e) { return json(res, 503, { error: "database unavailable" }); }
       if (raw === null) return json(res, 404, { error: "no such scenario" });
       await dbDeleteScenario(name);
-      const f = path.join(PROMPTS, name + ".json");
-      if (fs.existsSync(f)) fs.unlinkSync(f);
+      // Remove the slug-named export AND any legacy raw display-name file.
+      for (const f of [promptsSlugFile(name), promptsLegacyFile(name)]) {
+        try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch { /* best-effort */ }
+      }
       // Linked storyboards go with the project (DB rows cascade via the FK;
       // files are removed here so the file backfill can't resurrect them).
       try {
@@ -5871,7 +6186,11 @@ const server = http.createServer(async (req, res) => {
       // New project FROM this resource: the caption becomes the Master
       // Prompt and the pixels become the pinned reference visual — then the
       // exact Project workflow takes over (AI Craft beats, Generate).
-      const newName = String(body.name || body.project || "").trim();
+      // INTERNAL KEY: the resource title (which may contain spaces) becomes
+      // the space-free scenario key; the typed title rides along as
+      // display_name for UI labels.
+      const rawName = String(body.name || body.project || "").trim();
+      const newName = spaceFreeName(rawName);
       if (!isSafe(newName)) return json(res, 400, { error: "project name required" });
       let taken = false;
       try { taken = (await dbGetScenario(newName)) !== null; }
@@ -5883,7 +6202,7 @@ const server = http.createServer(async (req, res) => {
           if (r.rowCount > 0) return json(res, 409, { error: "a project with that name already exists" });
         } catch { /* row check best-effort — the scenario check above governs */ }
       }
-      const cfg = { description: "", referencePrompt: refPrompt, duration: 3, sequence: [] };
+      const cfg = { description: "", referencePrompt: refPrompt, duration: 3, sequence: [], ...(rawName ? { display_name: rawName } : {}) };
       if (pgUp) {
         try {
           await pgEnsureProject(newName, cfg);
@@ -5893,7 +6212,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (!cfg.folder_name) cfg.folder_name = folderName(newName);
       await dbSaveScenario(newName, cfg);
-      fs.writeFileSync(path.join(PROMPTS, newName + ".json"), JSON.stringify(cfg, null, 2));
+      fs.writeFileSync(promptsSlugFile(newName), JSON.stringify(cfg, null, 2));
       let project_id = null;
       if (pgUp) {
         try {
@@ -5977,11 +6296,11 @@ const server = http.createServer(async (req, res) => {
       cfg.folder_name = folder;
       if (USE_SQLITE) {
         await dbSaveScenario(name, cfg);
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
         pgSaveScenarioMirror(name, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
       } else {
         await dbSaveScenario(name, cfg);
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
       }
       // Install every resource's pixels under the pipeline filename pattern.
       // Images convert to real PNG via ffmpeg (the keyframe scanner only
@@ -6138,7 +6457,7 @@ const server = http.createServer(async (req, res) => {
       const { base: kfBase } = splitDirSuffix(scenario);
       const kfOwner = (pgUp ? await displayNameForFolder(kfBase) : null) || cfgNameFor(scenario);
       let title = null;
-      const cfgPath = path.join(PROMPTS, kfOwner + ".json");
+      const cfgPath = promptsReadFile(kfOwner);
       try {
         if (fs.existsSync(cfgPath)) {
           const seq = JSON.parse(fs.readFileSync(cfgPath, "utf8")).sequence;
@@ -6191,6 +6510,244 @@ const server = http.createServer(async (req, res) => {
       // (fire-and-forget; the file write above already succeeded).
       pgUpsertDirectorBoard(board).catch((e) => console.warn("[pg] director board mirror failed:", e.message));
       return board;
+    };
+    // The audio length a lyric timeline is measured against: the uploaded song
+    // wins (that IS the audio), then the Story/Song workspace's own WAV upload
+    // (`whisperxAudio` — its duration is measured at upload time), then the
+    // planned story duration, else unknown.
+    const lyricTimelineDuration = (board) => {
+      const song = board && board.input && board.input.song;
+      const wx = board && board.input && board.input.whisperxAudio;
+      const d = Number(song && song.durationSeconds) || Number(wx && wx.durationSeconds)
+        || Number(board && board.input && board.input.targetSeconds) || 0;
+      return d > 0 ? d : 0;
+    };
+    // The lyric lines the CURRENT board would align against: the bible's own
+    // lyric lines when analyzed, else the pasted story. The import, the stale
+    // check and the scene planner all read this ONE list so they can never
+    // disagree about which lines the timeline is supposed to cover.
+    const lyricTimelineSourceLines = (board) => {
+      const lines = boardLyricLines(board);
+      return lines.length ? lines : parseLyricLines((board.input && board.input.story) || "");
+    };
+    const wavAnalysisSlug = (board) => configSlug(
+      board.wav_analysis_project_slug || board.scenarioName || board.input?.title || board.id || "project",
+    ) || "project";
+    const srtTime = (seconds) => {
+      const ms = Math.max(0, Math.round((Number(seconds) || 0) * 1000));
+      const hh = String(Math.floor(ms / 3600000)).padStart(2, "0");
+      const mm = String(Math.floor(ms / 60000) % 60).padStart(2, "0");
+      const ss = String(Math.floor(ms / 1000) % 60).padStart(2, "0");
+      return `${hh}:${mm}:${ss},${String(ms % 1000).padStart(3, "0")}`;
+    };
+    const vttTime = (seconds) => srtTime(seconds).replace(",", ".");
+    const timelineSrt = (rows, textOf) => arr(rows).filter((r) => Number.isFinite(Number(r.start_seconds)) && Number.isFinite(Number(r.end_seconds)) && Number(r.end_seconds) > Number(r.start_seconds))
+      .map((r, i) => `${i + 1}\n${srtTime(r.start_seconds)} --> ${srtTime(r.end_seconds)}\n${textOf(r) || ""}`).join("\n\n") + "\n";
+    const persistWavAnalysis = (board, rawWhisper = null) => {
+      const timeline = board.lyric_timeline;
+      if (!timeline?.whisper?.segments?.length) return null;
+      const slug = wavAnalysisSlug(board);
+      board.wav_analysis_project_slug ||= slug;
+      timeline.analysis_id ||= `analysis_${String(timeline.imported_at || Date.now()).replace(/[^a-zA-Z0-9]/g, "")}`;
+      const root = path.join(WAV_ANALYSIS_DIR, slug);
+      const run = path.join(root, "runs", configSlug(timeline.analysis_id) || "analysis");
+      fs.mkdirSync(run, { recursive: true });
+      const whisperData = rawWhisper && typeof rawWhisper === "object" ? rawWhisper : timeline.whisper;
+      const transcriptSegments = arr(whisperData?.segments).filter((s) => typeof (s.text || "") === "string").map((s) => ({
+        start_seconds: Number(s.start_seconds ?? s.start), end_seconds: Number(s.end_seconds ?? s.end), text: String(s.text || "").trim(),
+      })).filter((s) => Number.isFinite(s.start_seconds) && Number.isFinite(s.end_seconds) && s.end_seconds > s.start_seconds);
+      const whisperSrt = timelineSrt(transcriptSegments, (s) => s.text);
+      const whisperVtt = "WEBVTT\n\n" + transcriptSegments.map((s, i) => `${i + 1}\n${vttTime(s.start_seconds)} --> ${vttTime(s.end_seconds)}\n${s.text}`).join("\n\n") + "\n";
+      const whisperTsv = ["start\tend\ttext", ...transcriptSegments.map((s) => `${Math.round(s.start_seconds * 1000)}\t${Math.round(s.end_seconds * 1000)}\t${s.text.replace(/[\r\n\t]+/g, " ")}`)].join("\n") + "\n";
+      let directorSegments = null;
+      try { directorSegments = splitWhisperTranscript({ segments: timeline.whisper.segments }); } catch { /* transcript artifact remains available */ }
+      const lyricJson = { board_id: board.id, project_slug: slug, analysis_id: timeline.analysis_id, timeline, master: timeline.master || null };
+      const masterRows = arr(timeline.master?.segments);
+      const artifacts = {
+        "whisperx.json": JSON.stringify(whisperData, null, 2),
+        "whisperx_raw.json": JSON.stringify(whisperData, null, 2),
+        "whisperx.srt": whisperSrt,
+        "whisperx.tsv": whisperTsv,
+        "whisperx.txt": transcriptSegments.map((s) => s.text).join("\n") + "\n",
+        "whisperx.vtt": whisperVtt,
+        "original_lyrics_alignment.json": JSON.stringify(lyricJson, null, 2),
+        "original_lyrics_alignment.srt": timelineSrt(timeline.lines, (l) => l.lyric_text),
+        "master_timeline.json": JSON.stringify({ board_id: board.id, project_slug: slug, analysis_id: timeline.analysis_id, master: timeline.master || null }, null, 2),
+        "master_timeline.srt": timelineSrt(masterRows, (s) => s.lyric_text || `[${s.type || "instrumental"}]`),
+      };
+      if (directorSegments) {
+        artifacts["director_segments.json"] = JSON.stringify(directorSegments, null, 2);
+        artifacts["director_segments.srt"] = directorSegmentsToSrt(directorSegments.segments);
+      }
+      const manifest = {
+        board_id: board.id, project_slug: slug, project_name: board.scenarioName || board.input?.title || board.id,
+        analysis_id: timeline.analysis_id, exported_at: new Date().toISOString(), duration_seconds: timeline.duration_seconds,
+        audio_file: board.input?.whisperxAudio?.fileName || board.input?.sourceAudio?.fileName || null,
+        artifacts: [...Object.keys(artifacts), "analysis_manifest.json"],
+      };
+      artifacts["analysis_manifest.json"] = JSON.stringify(manifest, null, 2);
+      for (const [name, content] of Object.entries(artifacts)) {
+        for (const folder of [root, run]) {
+          const target = path.join(folder, name);
+          const temp = `${target}.${process.pid}.tmp`;
+          fs.writeFileSync(temp, content, "utf8");
+          fs.renameSync(temp, target);
+        }
+      }
+      const audio = board.input?.whisperxAudio;
+      if (audio?.file) {
+        const source = path.join(WHISPERX_UPLOADS, path.basename(audio.file));
+        if (fs.existsSync(source)) {
+          const ext = path.extname(source) || ".wav";
+          const target = path.join(run, `source_audio${ext}`);
+          if (!fs.existsSync(target)) fs.copyFileSync(source, target);
+        }
+      }
+      return { folder: path.relative(ROOT, root).replace(/\\/g, "/"), run_folder: path.relative(ROOT, run).replace(/\\/g, "/"), artifacts: manifest.artifacts };
+    };
+    // A stored lyric timeline is STALE when the board's current lines no longer
+    // match it (the story was edited/rewritten after the import): the measured
+    // windows no longer belong to these lines, so the planner falls back to the
+    // honest estimate and the Lyric panel asks for a re-import instead of
+    // silently timing new scenes with old audio.
+    const lyricTimelineStale = (board, timeline) => {
+      const stored = arr(timeline && timeline.lines).map((l) => Number(l.line_id)).filter((n) => Number.isFinite(n));
+      if (!stored.length) return false;
+      const current = lyricTimelineSourceLines(board)
+        .map((l) => Number(l.lyric_line_id)).filter((n) => Number.isFinite(n));
+      if (!current.length) return false;
+      const have = new Set(stored);
+      return current.some((id) => !have.has(id));
+    };
+    // Ask the configured local model to match uncertain lyric lines to spans
+    // in measured WhisperX words. It can cite word indices only; the server
+    // derives timestamps and never accepts replacement lyric text.
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/lyric-timeline\/ai-correct$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const timeline = board.lyric_timeline;
+      if (!timeline?.lines?.length || !timeline?.whisper?.segments?.length) return json(res, 409, { error: "analyze audio with WhisperX before running AI correction" });
+      if (lyricTimelineStale(board, timeline)) return json(res, 409, { error: "the board lyrics changed after this audio analysis — re-import WhisperX before auto-correcting" });
+      if (timeline.master?.approved) return json(res, 409, { error: "unlock the approved master timeline before AI correction" });
+      const words = arr(timeline.whisper.segments).flatMap((s) => arr(s.words)).sort((a, b) => Number(a.start_seconds) - Number(b.start_seconds))
+        .map((w, word_index) => ({ word_index, word: String(w.word || ""), start_seconds: Number(w.start_seconds), end_seconds: Number(w.end_seconds), confidence: Number.isFinite(Number(w.confidence)) ? Number(w.confidence) : null }));
+      if (!words.length) return json(res, 409, { error: "WhisperX has no word-level timings; AI correction needs word timings" });
+      const targets = arr(timeline.lines).filter((l) => !l.manual && l.timing !== "manual" && (l.start_seconds == null || l.timing !== "measured" || l.low_confidence || Number(l.match_score) < 0.62));
+      if (!targets.length) return json(res, 200, { board_id: id, corrected: 0, needs_review: [], message: "all lyric lines already have confident measured timing", timeline });
+      const proposals = await llmChatJson({
+        system: "Align user-provided lyric lines to the existing WhisperX transcript. Return JSON only: {\"matches\":[{\"line_id\":number,\"start_word\":number,\"end_word\":number,\"confidence\":number}]}. Indices refer to the supplied words array. Select only a contiguous span in audio order that corresponds to the complete lyric line. Omit uncertain lines. Never invent indices, timestamps, words, or modify lyrics. Repeated lines use distinct occurrences in chronological order.",
+        user: JSON.stringify({ lyrics: targets.map((l) => ({ line_id: l.line_id, occurrence: l.occurrence, lyric_text: l.lyric_text })), words }),
+        maxTokens: Math.min(8000, Math.max(1200, targets.length * 100)), temperature: 0, rawTag: id + "_lyric_ai_correct_raw.log",
+      });
+      const matches = arr(proposals?.matches);
+      const targetById = new Map(targets.map((l) => [Number(l.line_id), l]));
+      const targetIds = new Set(targets.map((l) => Number(l.line_id)));
+      const token = (v) => String(v || "").normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+      const lyricTokens = (v) => String(v || "").split(/\s+/).map(token).filter(Boolean);
+      const equivalent = (a, b) => a === b || (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)));
+      const lockedWords = new Set();
+      for (const line of arr(timeline.lines)) if (!targetIds.has(Number(line.line_id)) && (line.timing === "measured" || line.timing === "manual")) {
+        for (const w of arr(line.words)) if (Number.isInteger(Number(w.word_index))) lockedWords.add(Number(w.word_index));
+      }
+      const accepted = [], needsReview = [], seen = new Set();
+      const matchById = new Map(matches.map((m) => [Number(m?.line_id), m]));
+      let priorAcceptedEnd = -1;
+      for (const line of targets) {
+        const m = matchById.get(Number(line.line_id));
+        if (!m) { needsReview.push({ line_id: line.line_id, occurrence: line.occurrence, reason: "AI found no safe transcript match" }); continue; }
+        const lineId = Number(m?.line_id), startWord = Number(m?.start_word), endWord = Number(m?.end_word);
+        if (seen.has(lineId)) continue;
+        seen.add(lineId);
+        const confidence = Number(m.confidence);
+        if (!Number.isInteger(startWord) || !Number.isInteger(endWord) || startWord < 0 || endWord < startWord || endWord >= words.length || !Number.isFinite(confidence) || confidence < 0.82) {
+          needsReview.push({ line_id: lineId, occurrence: line.occurrence, reason: "AI confidence or word span was not strong enough" }); continue;
+        }
+        const span = words.slice(startWord, endWord + 1), source = lyricTokens(line.lyric_text), heard = span.map((w) => token(w.word)).filter(Boolean);
+        const coverage = source.length ? source.filter((t) => heard.some((h) => equivalent(t, h))).length / source.length : 0;
+        const spanDuration = span.at(-1).end_seconds - span[0].start_seconds;
+        if (coverage < 0.75 || !(spanDuration > 0 && spanDuration <= 30) || span.some((w) => !Number.isFinite(w.start_seconds) || !Number.isFinite(w.end_seconds))) {
+          needsReview.push({ line_id: lineId, occurrence: line.occurrence, reason: "transcript words do not sufficiently cover the original lyric" }); continue;
+        }
+        const indexes = Array.from({ length: endWord - startWord + 1 }, (_, i) => startWord + i);
+        if (startWord <= priorAcceptedEnd || indexes.some((n) => lockedWords.has(n)) || accepted.some((a) => indexes.some((n) => n >= a.start_word && n <= a.end_word))) {
+          needsReview.push({ line_id: lineId, occurrence: line.occurrence, reason: "proposed words overlap another line's measured match" }); continue;
+        }
+        accepted.push({ line_id: lineId, start_seconds: span[0].start_seconds, end_seconds: span.at(-1).end_seconds, start_word: startWord, end_word: endWord, confidence, coverage });
+        priorAcceptedEnd = endWord;
+      }
+      if (accepted.length) {
+        const corrected = applyLyricCorrections(timeline, accepted);
+        const acceptedIds = new Set(accepted.map((a) => a.line_id));
+        corrected.lines = corrected.lines.map((l) => {
+          const match = accepted.find((a) => a.line_id === Number(l.line_id));
+          if (!match || !acceptedIds.has(Number(l.line_id))) return l;
+          const span = words.slice(match.start_word, match.end_word + 1);
+          return { ...l, words: span.map((w) => ({ word_index: w.word_index, word: w.word, start_seconds: w.start_seconds, end_seconds: w.end_seconds, confidence: w.confidence, timing: "measured" })), heard_text: span.map((w) => w.word).join(" "), match_score: match.coverage, timing: "measured", match: "whisperx", manual: false, ai_corrected: true, ai_match_confidence: match.confidence };
+        });
+        corrected.stats = { ...corrected.stats, measured: corrected.lines.filter((l) => l.timing === "measured").length, manual: corrected.lines.filter((l) => l.timing === "manual" || l.manual === true).length, estimated: corrected.lines.filter((l) => l.timing === "estimated").length };
+        corrected.validation = validateLyricTimeline(corrected, { duration: lyricTimelineDuration(board) });
+        corrected.actions = buildLyricActionTimeline(corrected.lines, (board.semantics && board.semantics.lines) || [], { scenes: board.scenes || [] });
+        corrected.scene_map = assignLyricLinesToScenes(corrected.lines, board.scenes || []);
+        const input = board.input || {};
+        const master = buildMasterTimeline({
+          lyricTimeline: corrected,
+          vocalActivity: corrected.vocal_activity || input.whisperxAudio?.activity || null,
+          duration: lyricTimelineDuration(board),
+          characters: arr(board.blueprint?.characters),
+          style: [input.visualStyle, input.artStyle, input.style].filter((v) => typeof v === "string" && v.trim()),
+          semantics: (board.semantics && board.semantics.lines) || [],
+          previous: corrected.master || null,
+        });
+        if (master) { master.approved = false; master.corrections = arr(timeline.master?.corrections); corrected.master = master; }
+        board.lyric_timeline = corrected;
+        const exportInfo = persistWavAnalysis(board);
+        writeDirectorBoard(board);
+        return json(res, 200, { board_id: id, corrected: accepted.length, auto_corrected: accepted, needs_review: needsReview, timeline: board.lyric_timeline, export: exportInfo });
+      }
+      return json(res, 200, { board_id: id, corrected: 0, auto_corrected: [], needs_review: needsReview, timeline, message: "no suggestions passed the evidence checks" });
+    }
+
+    // ---- Master timeline (audio-aligned chronological segments) -----------
+    // DERIVED from the stored lyric timeline + the board's current cast and
+    // meaning layer, so it can never drift from them; the stored `master`
+    // object only carries the manual corrections and the approval state.
+    const mstr = (v) => String(v ?? "").trim();
+    const boardVisualStyles = (board) => {
+      const input = (board && board.input) || {};
+      return [input.visualStyle, input.artStyle, input.style].filter((v) => typeof v === "string" && v.trim());
+    };
+    const castForBoard = (board) => arr(board && board.blueprint && board.blueprint.characters);
+    const characterIdentityOf = (board) => {
+      const cast = castForBoard(board);
+      const map = new Map(cast.map((c) => {
+        const id = mstr(c.character_id ?? c.name ?? c.id);
+        const identity = mstr(c.visual_identity_prompt || c.identity || c.description).slice(0, 300)
+          || mstr(c.name || id);
+        return [id, identity];
+      }));
+      return (id) => (id && map.get(mstr(id))) || "";
+    };
+    const masterViewForBoard = (board, timeline = (board && board.lyric_timeline) || null) => {
+      if (!timeline || !Array.isArray(timeline.lines) || !timeline.lines.length) return null;
+      const duration = lyricTimelineDuration(board);
+      const view = buildMasterTimeline({
+        lyricTimeline: timeline,
+        vocalActivity: timeline.vocal_activity || (board.input && board.input.whisperxAudio && board.input.whisperxAudio.activity) || null,
+        duration,
+        characters: castForBoard(board),
+        style: boardVisualStyles(board),
+        semantics: (board.semantics && board.semantics.lines) || [],
+        previous: timeline.master || null,
+      });
+      return view;
+    };
+    const persistMaster = (board, view) => {
+      // The corrections list lives on the stored object so every later rebuild
+      // (GET) re-applies it — the derivation itself stays pure.
+      board.lyric_timeline.master = view;
+      persistWavAnalysis(board);
+      writeDirectorBoard(board);
+      return view;
     };
     // Connected-OFF scrub: a normalized scene (or shot) on a board with
     // chainContinuity !== true must carry no handoff state — clear the
@@ -6325,10 +6882,13 @@ const server = http.createServer(async (req, res) => {
         genreCustom: genre === "Custom" ? String(b.genreCustom || "").trim() : "",
         visualStyle,
         styleCustom: visualStyle === "Custom" ? String(b.styleCustom || "").trim() : "",
-        // Master Prompt: the UI auto-fills it from the visual-style preset and
-        // the user may edit it — a non-empty value becomes THE style lock
-        // (styleLockFor prefers it over the preset/custom text).
-        masterPrompt: String(b.masterPrompt || "").trim().slice(0, 2000),
+        // Master Prompt: the UI auto-fills it from the analyzer directive +
+        // visual-style preset and the user may edit it — a non-empty value
+        // becomes THE style lock (styleLockFor prefers it over the
+        // preset/custom text). 20000 chars: the sectioned Song Director
+        // directive is ~12k and must reach the model complete.
+        masterPrompt: String(b.masterPrompt || "").trim().slice(0, 20000),
+        directorTemplate: b.directorTemplate === "mahadev_devotional" ? "mahadev_devotional" : "standard",
         targetSeconds,
         sceneSeconds,
         aspectRatio,
@@ -6383,7 +6943,6 @@ const server = http.createServer(async (req, res) => {
       if (!ext) return json(res, 400, { error: `unsupported audio type ${mime} — upload mp3 or wav` });
       const buf = Buffer.from(m[2], "base64");
       if (!buf.length) return json(res, 400, { error: "empty file" });
-      if (buf.length > 30 * 1024 * 1024) return json(res, 400, { error: "song over 30MB — trim it and re-upload" });
       const file = `song_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}${ext}`;
       fs.mkdirSync(DIRECTOR, { recursive: true });
       fs.writeFileSync(path.join(DIRECTOR, file), buf);
@@ -6441,6 +7000,16 @@ const server = http.createServer(async (req, res) => {
       const finalDur = await videoDurationSec(path.join(full, from));
       return json(res, 200, { file: out, from, songDuration: songDur, finalDuration: finalDur });
     }
+    // WhisperX preflight
+    if (p === "/api/whisperx/preflight" && req.method === "GET") {
+      try {
+        const resPre = await whisperxPreflightCheck();
+        return json(res, 200, resPre);
+      } catch (e) {
+        return json(res, 200, { ok: false, checks: { error: { ok: false, message: e.message } } });
+      }
+    }
+
     if (p === "/api/director/boards" && req.method === "GET") {
       fs.mkdirSync(DIRECTOR, { recursive: true });
       // DB-first: every board write is mirrored into director_boards.
@@ -6534,6 +7103,12 @@ const server = http.createServer(async (req, res) => {
           : null,
       });
     }
+    // Story audio analysis rides the REAL WhisperX board flow:
+    // POST /api/director/boards/:id/audio-upload → .../whisperx/analyze →
+    // .../master-timeline (see AGENTS.md). The old /api/story/* stub routes
+    // were removed — they were Express-style handlers inside this zero-dep
+    // server and returned an empty body (client: "Unexpected end of JSON
+    // input").
     if (p === "/api/director/analyze" && req.method === "POST") {
       const bodyRaw = await readJson(req);
       const input = directorValidateInput(bodyRaw);
@@ -6564,6 +7139,7 @@ const server = http.createServer(async (req, res) => {
       } finally {
         if (liveId) liveEnd(liveId);
       }
+      assertNoCJK(raw, "the director bible");
       const blueprint = normalizeBlueprint(raw);
       if (!blueprint.characters.length && !blueprint.beats.length)
         throw new Error("director returned an empty blueprint — try again");
@@ -6738,7 +7314,7 @@ const server = http.createServer(async (req, res) => {
               try { board.styleLock = styleLockFor(board.input.visualStyle, board.input.styleCustom, board.input.masterPrompt); } catch { /* keep old lock */ }
             }
             if (typeof patch.input.masterPrompt === "string") {
-              board.input.masterPrompt = patch.input.masterPrompt.trim().slice(0, 2000);
+              board.input.masterPrompt = patch.input.masterPrompt.trim().slice(0, 20000);
               // The Master Prompt is THE style lock when set — refresh so
               // future batches ground on the edited text.
               try { board.styleLock = styleLockFor(board.input.visualStyle, board.input.styleCustom, board.input.masterPrompt); } catch { /* keep old lock */ }
@@ -6855,6 +7431,12 @@ const server = http.createServer(async (req, res) => {
           line: String((d && d.line) || "").slice(0, 160),
         })) : [],
       }));
+      // Thinking models (qwen3.5 on LM Studio — enable_thinking:false and
+      // reasoning_budget:0 are both ignored) stream delta.reasoning_content
+      // for the WHOLE thinking phase before the first content token, so
+      // st.text stays empty and the LIVE row would show nothing while the
+      // model is visibly generating. Surface the reasoning buffer too.
+      const reasoning = String(st.reasoning || "");
       return json(res, 200, {
         active: true,
         phase: st.phase || "scenes",
@@ -6862,6 +7444,8 @@ const server = http.createServer(async (req, res) => {
         batchTo: st.batchTo ?? null,
         startedAt: st.startedAt,
         chars: st.text.length,
+        thinking: !st.text && !!reasoning,
+        reasoning: reasoning.slice(-4000),
         scenes,
         tail: st.text.slice(-900),
       });
@@ -6963,12 +7547,111 @@ const server = http.createServer(async (req, res) => {
       // batch receives only the lines overlapping its time window.
       let lyricTiming = [];
       let lineRange = [];
+      // The approved-master slice for this batch (null without an approved
+      // timeline) — declared out here so the return below sees it even when
+      // the timing derivation above throws (it is best-effort).
+      let masterTiming = null;
+      let approvedApplied = false;
+      // Storyboard Planner 2.0: the richer read-only 19-track context. Built
+      // from the SAME approved master (never a second clock) and sliced to the
+      // identical batch window as masterTiming above. Null => old prompt.
+      let cinematicContext = null;
       try {
         const song = board.input && board.input.song;
         const transcriptSegments = Array.isArray(board.input?.songAnalysis?.transcript?.segments)
           ? board.input.songAnalysis.transcript.segments : [];
         const withWhisperTimes = (lines) => timeLinesFromTranscript(lines, transcriptSegments, planTarget);
-        if (song && song.hasLyrics !== false) {
+        // A reviewed WhisperX import wins: it is the ONLY word-accurate,
+        // user-approved timing on the board (a manual correction is marked
+        // `manual` and must never be replaced by the plain estimate). It is
+        // used ONLY while it still covers every line of the CURRENT story —
+        // an edited story would otherwise be timed by stale windows, so it
+        // falls back to the honest estimate instead (the Lyric panel flags
+        // the stale timeline and asks for a re-import).
+        // OPTIMIZATION: When an approved master timeline is present and covers
+        // the current lines, skip the stored timing analysis entirely since
+        // the approved master is the authoritative timing reference.
+        const masterStored = board.lyric_timeline && board.lyric_timeline.master;
+        const approvedMaster = masterStored && masterStored.approved
+          && Array.isArray(masterStored.segments) && masterStored.segments.length
+          ? masterStored : null;
+        const currentLineIds = lyricTimelineSourceLines(board)
+          .map((l) => Number(l.lyric_line_id)).filter((n) => Number.isFinite(n));
+        let lyricTiming = [];
+        let storedCoversCurrent = false;
+        let approvedApplied = false;
+        if (approvedMaster) {
+          const approvedTiming = approvedMaster.segments
+            .filter((s) => Number(s.lyric_line_id) > 0 && Number.isFinite(Number(s.start_seconds)) && Number(s.end_seconds) > Number(s.start_seconds))
+            .map((s) => ({
+              lyric_line_id: Number(s.lyric_line_id),
+              lyric_text: String(s.lyric_text || ""),
+              song_start_time: Number(s.start_seconds),
+              song_end_time: Number(s.end_seconds),
+              timing: s.timing_source === "manual" ? "manual" : "whisperx",
+            }));
+          const approvedIds = new Set(approvedTiming.map((l) => l.lyric_line_id));
+          approvedApplied = currentLineIds.length > 0
+            && currentLineIds.every((id) => approvedIds.has(id));
+          if (approvedApplied && approvedTiming.length) {
+            lyricTiming = approvedTiming;
+          }
+        }
+        if (!approvedApplied) {
+          // Fall back to stored timeline analysis
+          const storedTimeline = Array.isArray(board.lyric_timeline && board.lyric_timeline.lines)
+            ? board.lyric_timeline.lines : [];
+          const storedTiming = storedTimeline
+            .filter((l) => Number.isFinite(Number(l.start_seconds)) && Number.isFinite(Number(l.end_seconds)))
+            .map((l) => ({
+              lyric_line_id: Number(l.line_id) || 0,
+              lyric_text: String(l.lyric_text || ""),
+              song_start_time: Number(l.start_seconds),
+              song_end_time: Number(l.end_seconds),
+              timing: String(l.timing || "estimated"),
+            }))
+            .filter((l) => l.song_end_time > l.song_start_time);
+          const storedCoversCurrent = storedTiming.length > 0 && currentLineIds.length > 0
+            && currentLineIds.every((id) => storedTiming.some((l) => l.lyric_line_id === id));
+          if (storedCoversCurrent && storedTiming.length) {
+            lyricTiming = storedTiming;
+          }
+        }
+        // An APPROVED master timeline outranks even the raw stored windows:
+        // the user reviewed and locked those segments (manual corrections
+        // included), so they are the authoritative timing reference for scene
+        // planning (priority: user-approved > validated alignment > estimate).
+        // Its lyric-carrying segments become the timed line list, and the
+        // batch prompt receives the approved slice (segments + clips) for
+        // this batch's time window so the scenes are planned ON the timeline.
+        // (lyricTiming and approvedApplied already set above)
+        const winFrom = prog.plannedSeconds;
+          const winTo = prog.plannedSeconds + budget;
+          const inWin = (t) => Number(t.end_seconds ?? t.end) > winFrom - 0.001
+            && Number(t.start_seconds ?? t.start) < winTo + 0.001;
+          const slimSegs = approvedMaster.segments.filter(inWin).map((s) => ({
+            segment_id: s.segment_id, type: s.type,
+            start_seconds: Number(s.start_seconds), end_seconds: Number(s.end_seconds),
+            lyric_text: s.lyric_text, character_id: s.character_id, action: s.action,
+            repeat_group: s.repeat_group || null,
+          }));
+          if (slimSegs.length) {
+            masterTiming = {
+              approved_at: approvedMaster.approved || null,
+              duration_seconds: Number(approvedMaster.duration_seconds) || null,
+              from: winFrom, to: winTo,
+              segments: slimSegs,
+              clips: arr(approvedMaster.clips).filter(inWin).map((c) => ({
+                clip_id: c.clip_id, kind: c.kind,
+                start_seconds: Number(c.start_seconds), end_seconds: Number(c.end_seconds),
+              })),
+            };
+          }
+        if (!approvedApplied && storedCoversCurrent) {
+          // The approved slice above already replaced this when it covers the
+          // current lines; the raw stored windows are the next-best source.
+          if (!approvedApplied) lyricTiming = storedTiming;
+        } else if (song && song.hasLyrics !== false) {
           const parsed = parseLyricLines(board.input.story);
           if (parsed.length) {
             // Prefer the bible's own line analysis when present; fall back
@@ -6994,8 +7677,89 @@ const server = http.createServer(async (req, res) => {
           if (!lineRange.length) lineRange = lyricTiming.slice();
         }
       } catch { /* line timing is best-effort; the batch runs without it */ }
-      return { ready: false, done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange };
+      // Best-effort additive context: a board WITHOUT an approved timeline
+      // keeps the historical prompt byte-for-byte (normalize is read-only).
+      try {
+        const sbTimeline = normalizeStoryboardTimeline({ board });
+        if (sbTimeline.available) {
+          const ctx = storyboardBatchContext({
+            board,
+            timeline: sbTimeline,
+            from: prog.plannedSeconds,
+            to: prog.plannedSeconds + budget,
+          });
+          cinematicContext = buildStoryboardPromptBlock(ctx);
+        }
+      } catch (e) {
+        console.warn(`[director:${id}] cinematic context skipped: ${String(e?.message || e).slice(0, 160)}`);
+      }
+      // masterTiming stays the LAST field: existing wiring tests pin that
+      // exact tail, and the planning engine still reads it the same way.
+      return { ready: false, done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, cinematicContext, masterTiming };
     };
+    // -----------------------------------------------------------------------
+    // Storyboard Planner 2.0 — READ-ONLY views over the SAME board and the
+    // SAME approved timeline. No route here writes the board, moves a window,
+    // approves anything, or starts a run. They power the cinematic workspace
+    // without giving it a second planning engine.
+    // -----------------------------------------------------------------------
+    const storyboardRouteId = () => decodeURIComponent(p.split("/")[4] || "");
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const timeline = normalizeStoryboardTimeline({ board });
+      const audit = auditStoryboardCoverage({ board, timeline });
+      return json(res, 200, buildStoryboardView({ board, timeline, audit }));
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/timeline$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const tl = normalizeStoryboardTimeline({ board });
+      // Flat event list keeps the DAW-style ruler simple while the full 19
+      // lanes remain available for the lane view. Source ids are preserved.
+      const events = STORYBOARD_TRACKS.flatMap((track) => arr(tl.tracks[track]).map((e) => ({ ...e, track })))
+        .sort((a, b) => a.start - b.start || a.end - b.end);
+      return json(res, 200, {
+        board_id: id, source: tl.source, id: tl.id, version: tl.version,
+        approvedAt: tl.approvedAt, approved: tl.approved, available: tl.available,
+        durationSec: tl.durationSec, readOnly: true,
+        trackCounts: tl.trackCounts, tracks: tl.tracks, events,
+        note: tl.note,
+      });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/context$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const tl = normalizeStoryboardTimeline({ board });
+      const fromQ = Number(u.searchParams.get("from"));
+      const toQ = Number(u.searchParams.get("to"));
+      const from = Number.isFinite(fromQ) ? fromQ : 0;
+      const to = Number.isFinite(toQ) ? toQ : tl.durationSec;
+      const ctx = storyboardBatchContext({ board, timeline: tl, from, to });
+      return json(res, 200, { board_id: id, context: ctx, promptBlock: buildStoryboardPromptBlock(ctx) });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/coverage$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const timeline = normalizeStoryboardTimeline({ board });
+      return json(res, 200, { board_id: id, ...auditStoryboardCoverage({ board, timeline }) });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/validate$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const timeline = normalizeStoryboardTimeline({ board });
+      return json(res, 200, {
+        board_id: id,
+        ...validateStoryboardForApproval({ board, timeline }),
+        note: "Advisory pre-approval audit. The existing APPROVE route remains the authority; critical errors here are never silently waived.",
+      });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/storyboard\/handoff$/) && req.method === "GET") {
+      const id = storyboardRouteId();
+      const board = readDirectorBoard(id);
+      const timeline = normalizeStoryboardTimeline({ board });
+      return json(res, 200, { board_id: id, ...buildDirectorHandoff({ board, timeline }) });
+    }
     // Prompt preview (dry run): the EXACT system + user messages the next
     // Continue would send to the LLM — built by the same planner above, but
     // no model call and nothing saved. Powers Show prompt popup.
@@ -7086,6 +7850,749 @@ const server = http.createServer(async (req, res) => {
         repaired: attached.repaired,
         issues: attached.issues,
       });
+    }
+    // ---- WhisperX lyric timeline (Story / Song) -------------------------
+    // The transcript is ANNOTATIVE: it supplies MEASURED timing for the audio,
+    // while the user's own lyric text stays authoritative and is never
+    // replaced by what the model heard. Stored on the board JSON (no schema
+    // migration), exactly like `semantics`, so it survives reloads and rides
+    // the normal board mirror.
+    //
+    // GET  -> the stored timeline (+ the board's own parsed lyric lines)
+    // POST -> import a WhisperX export { segments:[{start,end,text,words}] }
+    // PUT  -> apply the review panel's manual corrections
+    if ((p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline$/) || p.match(/^\/api\/director\/boards\/[^/]+\/lyric-timeline$/)) && req.method === "GET") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      // Scene ownership (and the action link) is DERIVED from the CURRENT
+      // scene plan + semantics, so it is recomputed on read — a board that was
+      // re-planned after the import must not show a stale scene map.
+      const timeline = board.lyric_timeline && Array.isArray(board.lyric_timeline.lines)
+        ? {
+          ...board.lyric_timeline,
+          actions: buildLyricActionTimeline(
+            board.lyric_timeline.lines,
+            (board.semantics && board.semantics.lines) || [],
+            { scenes: board.scenes || [] },
+          ),
+          scene_map: assignLyricLinesToScenes(board.lyric_timeline.lines, board.scenes || []),
+        }
+        : null;
+      const duration = lyricTimelineDuration(board);
+      const lyricLines = lyricTimelineSourceLines(board);
+      const master = masterViewForBoard(board, board.lyric_timeline);
+      if (master) master.clips = planTimelineClips(master);
+      let directorSegments = null;
+      let directorSegmentsError = null;
+      if (timeline?.whisper?.segments?.length) {
+        try { directorSegments = splitWhisperTranscript({ segments: timeline.whisper.segments }); }
+        catch (e) { directorSegmentsError = String(e?.message || e); }
+      }
+      return json(res, 200, {
+        board_id: id,
+        timeline,
+        lyric_lines: lyricLines,
+        // The master timeline: chronological segments + clips covering the WHOLE
+        // audio (null until the board has an analyzed lyric timeline).
+        master,
+        segment_types: MASTER_SEGMENT_TYPES,
+        clip_bounds: { min: MASTER_CLIP_MIN, max: MASTER_CLIP_MAX },
+        characters: castForBoard(board).map((c) => ({
+          character_id: mstr(c.character_id ?? c.id ?? c.name),
+          name: mstr(c.name),
+          visual_identity_prompt: mstr(c.visual_identity_prompt),
+        })),
+        // The panel must say so honestly when the stored windows no longer
+        // belong to the current story (the planner ignores them too).
+        stale: lyricTimelineStale(board, timeline),
+        duration_seconds: duration,
+        whisperx_audio_url: board.input?.whisperxAudio?.file
+          ? `/api/director/boards/${encodeURIComponent(id)}/audio-file`
+          : null,
+        validation: timeline
+          ? validateLyricTimeline(timeline, { duration })
+          : { ok: true, errors: [], warnings: [], stats: {} },
+        director_segments: directorSegments,
+        director_segments_error: directorSegmentsError,
+      });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/whisperx\/director-segments$/) && req.method === "GET") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const source = board.lyric_timeline?.whisper;
+      if (!source || !Array.isArray(source.segments) || !source.segments.length) {
+        return json(res, 409, { error: "complete WhisperX analysis before exporting director segments" });
+      }
+      const plan = splitWhisperTranscript(source);
+      if (!plan.validation.ok || !plan.text_preserved) {
+        return json(res, 422, { error: "segment validation failed", validation: plan.validation });
+      }
+      const format = new URL(req.url, `http://${req.headers.host || "localhost"}`).searchParams.get("format") || "json";
+      if (format === "srt") {
+        res.writeHead(200, {
+          "Content-Type": "application/x-subrip; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${id}_director_segments.srt"`,
+          "Cache-Control": "no-store",
+        });
+        res.end(directorSegmentsToSrt(plan.segments));
+        return;
+      }
+      if (format !== "json") return json(res, 400, { error: "format must be json or srt" });
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${id}_director_segments.json"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(JSON.stringify(plan, null, 2));
+      return;
+    }
+    if ((p.match(/^\/api\/director\/boards\/[^/]+\/whisper-import$/) || p.match(/^\/api\/director\/boards\/[^/]+\/import-whisper$/) || p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline\/import$/)) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const body = await readJson(req).catch(() => ({}));
+      const payload = body && (body.whisper || body.data || body);
+      if (!payload || typeof payload !== "object") {
+        return json(res, 400, { error: "expected a WhisperX JSON object ({ segments: [...] })" });
+      }
+      // Lyrics come from the board (bible analysis, else the pasted story) —
+      // the import NEVER writes lyric text.
+      const lines = lyricTimelineSourceLines(board);
+      if (!lines.length) {
+        return json(res, 400, { error: "this board has no lyrics/story lines to align — paste them and analyze the story first" });
+      }
+      const duration = lyricTimelineDuration(board);
+      const language = String(body.language || (board.input && board.input.semanticsLanguage) || "auto");
+      const timeline = buildLyricTimeline({
+        lyrics: lines,
+        whisper: payload,
+        duration,
+        language,
+        semantics: (board.semantics && board.semantics.lines) || [],
+        scenes: board.scenes || [],
+        // Manual corrections already on the board outrank the fresh import.
+        previous: board.lyric_timeline || null,
+      });
+      if (!timeline.whisper.stats.segments) {
+        return json(res, 400, { error: "the WhisperX payload has no usable segments", warnings: timeline.warnings });
+      }
+      timeline.analysis_id = "import_" + Date.now().toString(36) + "_" + crypto.randomUUID().slice(0, 8);
+      board.lyric_timeline = timeline;
+      // The master timeline: derived rows + the vocal-activity source it used.
+      try {
+        const master = masterViewForBoard(board, timeline);
+        if (master) board.lyric_timeline.master = master;
+      } catch (e) { console.warn("[master-timeline] derive failed:", e.message); }
+      const exportInfo = persistWavAnalysis(board, payload);
+      const saved = writeDirectorBoard(board);
+      return json(res, 200, {
+        board_id: id,
+        timeline: saved.lyric_timeline,
+        master: saved.lyric_timeline.master || null,
+        stale: lyricTimelineStale(saved, saved.lyric_timeline),
+        validation: saved.lyric_timeline.validation,
+        warnings: saved.lyric_timeline.warnings,
+        export: exportInfo,
+      });
+    }
+    if ((p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline$/) || p.match(/^\/api\/director\/boards\/[^/]+\/lyric-timeline$/)) && req.method === "PUT") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const current = board.lyric_timeline;
+      if (!current || !Array.isArray(current.lines)) {
+        return json(res, 409, { error: "import a WhisperX timeline first" });
+      }
+      const body = await readJson(req).catch(() => ({}));
+      const corrections = Array.isArray(body.corrections) ? body.corrections : [];
+      const segCorrections = Array.isArray(body.segment_corrections)
+        ? body.segment_corrections
+        : corrections.filter((c) => c && typeof c === "object" && mstr(c.segment_id));
+      const lineCorrections = corrections.filter((c) => !(c && typeof c === "object" && c.segment_id));
+      const unlock = body.unlock === true;
+      const existing = current.master || null;
+      const approved = existing && existing.approved;
+      if (!corrections.length && !segCorrections.length) {
+        return json(res, 400, { error: "no corrections supplied" });
+      }
+      // An approved timeline refuses corrections until an explicit unlock —
+      // approved timings are never silently modified.
+      if (approved && segCorrections.length && !unlock) {
+        return json(res, 409, {
+          error: "this master timeline is approved — unlock it before correcting it",
+          approved: approved,
+        });
+      }
+      const duration = lyricTimelineDuration(board);
+      const timeline = lineCorrections.length
+        ? applyLyricCorrections(current, lineCorrections)
+        : current;
+      timeline.validation = validateLyricTimeline(timeline, { duration });
+      // Manual timing changes scene ownership — recompute the Director link.
+      timeline.actions = buildLyricActionTimeline(timeline.lines, (board.semantics && board.semantics.lines) || [], { scenes: board.scenes || [] });
+      timeline.scene_map = assignLyricLinesToScenes(timeline.lines, board.scenes || []);
+      // Master: rebuild from the corrected lyric timeline, re-apply ALL stored
+      // segment corrections, then apply the fresh ones on top.
+      let master = masterViewForBoard({ ...board, lyric_timeline: timeline }, timeline) || null;
+      if (segCorrections.length && master) {
+        // `approved + unlock` releases the approval inside the same call —
+        // correcting an unlocked approved timeline is an explicit re-open.
+        const applied = applyMasterCorrections(
+          master,
+          [...arr(existing && existing.corrections).filter(Boolean), ...segCorrections],
+          { approved: Boolean(approved), unlock: true },
+        );
+        // Rebuild carries the corrections forward: the stored list re-applies
+        // on every later GET.
+        master = applied.timeline;
+        master.corrections = [...arr(existing && existing.corrections).filter(Boolean), ...segCorrections];
+      } else if (master && existing) {
+        master.corrections = arr(existing.corrections).filter(Boolean);
+      }
+      if (master) {
+        if (approved && !unlock) {
+          master.approved = approved;
+        }
+        master.validation = validateMasterTimeline(master, { duration });
+        master.clips = planTimelineClips(master);
+        board.lyric_timeline = { ...timeline, master };
+      } else {
+        board.lyric_timeline = timeline;
+      }
+      persistWavAnalysis(board);
+      const saved = writeDirectorBoard(board);
+      return json(res, 200, {
+        board_id: id,
+        timeline: saved.lyric_timeline,
+        master: saved.lyric_timeline.master,
+        clips: saved.lyric_timeline.master ? saved.lyric_timeline.master.clips : null,
+        stale: lyricTimelineStale(saved, saved.lyric_timeline),
+        validation: saved.lyric_timeline.validation,
+      });
+    }
+
+    // ---- Master timeline: approval gate ------------------------------------
+    // Explicit approve BEFORE any clip generation; explicit unlock to edit.
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline\/approve$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const view = masterViewForBoard(board);
+      if (!view) return json(res, 409, { error: "no master timeline to approve — analyze the audio first" });
+      const gate = approveMasterTimeline(view);
+      if (!gate.approved) {
+        return json(res, 400, { error: gate.error || "timeline validation failed", errors: gate.errors });
+      }
+      gate.timeline.clips = planTimelineClips(gate.timeline);
+      persistMaster(board, gate.timeline);
+      return json(res, 200, { board_id: id, approved: true, approved_at: gate.timeline.approved, master: gate.timeline, clips: gate.timeline.clips });
+    }
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline\/unlock$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const current = board.lyric_timeline && board.lyric_timeline.master;
+      if (!current || !current.approved) return json(res, 409, { error: "the timeline is not approved" });
+      const opened = unlockMasterTimeline(current);
+      persistMaster(board, opened.timeline);
+      return json(res, 200, { board_id: id, approved: false, master: opened.timeline });
+    }
+
+    // ---- Master timeline: scene-clip generation ----------------------------
+    // From the APPROVED timeline only: 3–5 s clips with clip-relative action
+    // times → the canonical scenario config → the user saves + starts the
+    // standard pipeline run (resumable, per-beat). Timing arrives pre-filled.
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/master-timeline\/generate$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const view = masterViewForBoard(board);
+      if (!view) return json(res, 409, { error: "no master timeline — analyze the audio first" });
+      if (!view.approved) return json(res, 409, { error: "approve the master timeline before generating clips", approved: false });
+      const clips = planTimelineClips(view);
+      if (!clips.length) return json(res, 400, { error: "the timeline produced no clips (empty or sub-min length)" });
+      const identityOf = characterIdentityOf(board);
+      const styles = view.segments.map((s) => arr(s.style_refs)).flat();
+      const styleRefs = [...new Set(styles)].filter(Boolean);
+      const firstIdentity = clips.map((c) => identityOf(c.character_id)).filter(Boolean)[0] || "";
+      const raw = timelineClipsToStoryboard(clips, {
+        title: mstr(board.input && board.input.title).slice(0, 100) || "Song Timeline",
+        description: mstr(board.input && board.input.story).slice(0, 600),
+        referencePrompt: firstIdentity
+          ? `${firstIdentity}. main character of "${mstr(board.input && board.input.title) || "the song"}"`
+          : "main character of the song timeline",
+        characterIdentity: identityOf,
+        styleRefs,
+      });
+      // The canonical config via the SAME import path the board approve uses.
+      const config = storyboardToScenario(raw);
+      const approveTitle = mstr(board.input && board.input.title).slice(0, 120);
+      let target = board.scenarioName || spaceFreeName(approveTitle) || id;
+      if (approveTitle) config.display_name = approveTitle;
+      if (!board.scenarioName) {
+        try {
+          const taken = new Set((await dbListScenarios()).map((r) => r.name));
+          if (taken.has(target)) {
+            for (let i = 2; ; i++) {
+              if (!taken.has(`${target}_${i}`)) { target = `${target}_${i}`; break; }
+            }
+          }
+        } catch { /* name check is best-effort; save enforces uniqueness */ }
+      }
+      try {
+        const pid = await pgProjectId(target);
+        board.project_id = pid;
+      } catch { /* link is best-effort */ }
+      board.error = null;
+      board.scenarioName = target;
+      board.timelineScenario = target;
+      writeDirectorBoard(board);
+      return json(res, 200, {
+        name: target,
+        config,
+        clips,
+        clip_count: clips.length,
+        note: "the client saves this config via the standard scenario PUT and starts the run — no timestamps to enter by hand",
+      });
+    }
+
+    // ---- Master timeline: the uploaded audio, served back for the player ---
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/audio-file$/) && req.method === "GET") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const file = board.input && board.input.whisperxAudio && board.input.whisperxAudio.file;
+      if (!file || !/\.wav$|\.mp3$|\.m4a$/i.test(file)) return json(res, 404, { error: "no uploaded audio" });
+      const full = path.join(WHISPERX_UPLOADS, file);
+      if (!fs.existsSync(full)) return json(res, 404, { error: "audio file missing" });
+      res.writeHead(200, {
+        "Content-Type": file.toLowerCase().endsWith(".wav") ? "audio/wav" : "audio/mpeg",
+        "Cache-Control": "no-store",
+      });
+      fs.createReadStream(full).pipe(res);
+      return;
+    }
+
+    // WhisperX audio upload for a board
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/audio-upload$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const body = await readJson(req);
+      if (typeof body.data !== "string") return json(res, 400, { error: "data (base64) required" });
+      const m = body.data.match(/^data:(audio\/[\w.+-]+);base64,(.+)$/s);
+      if (!m) return json(res, 400, { error: "expected a data:audio/* base64 payload (mp3 or wav)" });
+      const mime = m[1].toLowerCase();
+      const ext = mime.includes("wav") ? ".wav" : mime.includes("mp4") || mime.includes("m4a") ? ".m4a"
+        : mime.includes("mpeg") || mime.includes("mp3") ? ".mp3" : null;
+      if (!ext) return json(res, 400, { error: `unsupported audio type ${mime} — upload mp3 or wav` });
+      const buf = Buffer.from(m[2], "base64");
+      if (!buf.length) return json(res, 400, { error: "empty file" });
+      // validate WAV if wav
+      if (ext === ".wav") {
+        // basic RIFF/WAVE check
+        if (buf.length < 12 || buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
+          return json(res, 400, { error: "invalid WAV file" });
+        }
+      }
+      fs.mkdirSync(WHISPERX_UPLOADS, { recursive: true });
+      const file = `wx_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}${ext}`;
+      const full = path.join(WHISPERX_UPLOADS, file);
+      fs.writeFileSync(full, buf);
+      const durationSeconds = await videoDurationSec(full);
+      if (durationSeconds == null) {
+        try { fs.unlinkSync(full); } catch {}
+        return json(res, 400, { error: "could not read audio duration — is it a valid audio file?" });
+      }
+      // attach to board
+      board.input = board.input || {};
+      board.input.whisperxAudio = {
+        file,
+        fileName: String(body.fileName || "audio").slice(0, 120),
+        durationSeconds: Math.round(durationSeconds * 1000) / 1000,
+        uploadedAt: new Date().toISOString(),
+      };
+      // The same source audio is also the final soundtrack for Story/Song.
+      // Keep the WhisperX working copy in its own directory and a safe handle
+      // in director/ so the shared scenario renderer can mux it at final stitch.
+      fs.mkdirSync(DIRECTOR, { recursive: true });
+      const soundtrackFile = `wx_master_${crypto.randomUUID().replace(/-/g, "")}${ext}`;
+      fs.copyFileSync(full, path.join(DIRECTOR, soundtrackFile));
+      board.input.sourceAudio = {
+        file: soundtrackFile,
+        fileName: String(body.fileName || "audio").slice(0, 120),
+        durationSeconds: Math.round(durationSeconds * 1000) / 1000,
+      };
+      // A new recording invalidates any previous alignment and becomes the
+      // timing target for the storyboard that will be planned from it.
+      delete board.lyric_timeline;
+      board.input.targetSeconds = Math.max(0.001, Math.min(3600, durationSeconds));
+      board.sceneCount = Math.max(board.scenes?.length || 0, sceneCountFor(board.input.targetSeconds, board.input.sceneSeconds));
+      writeDirectorBoard(board);
+      return json(res, 200, {
+        file,
+        fileName: String(body.fileName || "audio").slice(0, 120),
+        durationSeconds: Math.round(durationSeconds * 1000) / 1000,
+        sizeBytes: buf.length,
+        valid: true,
+        soundtrackAttached: true,
+      });
+    }
+
+    // Start WhisperX analysis
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/whisperx\/analyze$/) && req.method === "POST") {
+      const id = decodeURIComponent(p.split("/")[4] || "");
+      const board = readDirectorBoard(id);
+      const body = await readJson(req).catch(() => ({}));
+      const audio = board.input?.whisperxAudio;
+      if (!audio || !audio.file) return json(res, 400, { error: "upload audio first" });
+      const audioPath = path.join(WHISPERX_UPLOADS, audio.file);
+      if (!fs.existsSync(audioPath)) return json(res, 400, { error: "audio file missing" });
+      const active = whisperxActiveJob();
+      if (active && active.boardId === id) {
+        // Idempotent: a second Analyze click ATTACHES to the job already
+        // transcribing this board instead of spawning a competing process
+        // (which used to surface as a bare HTTP 409 in the browser console).
+        return json(res, 200, {
+          jobId: active.id,
+          status: active.status,
+          alreadyRunning: true,
+          stage: active.stage || "queued",
+        });
+      }
+      if (active) return json(res, 409, {
+        error: `WhisperX analysis already running on another board (job ${active.id}, ${active.stage || "queued"}) — wait for it to finish or cancel it first.`,
+        jobId: active.id,
+      });
+      const jobId = `wx_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
+      const jobDir = path.join(WHISPERX_JOBS, jobId);
+      fs.mkdirSync(jobDir, { recursive: true });
+      const job = {
+        id: jobId,
+        boardId: id,
+        status: "pending",
+        progress: 0,
+        stage: "queued",
+        message: "queued",
+        createdAt: Date.now(),
+        cancelled: false,
+        proc: null,
+      };
+      whisperxJobs.set(jobId, job);
+      fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+
+      // Start async job
+      setImmediate(async () => {
+        try {
+          job.status = "running";
+          job.stage = "preflight";
+          job.progress = 5;
+          const pf = await whisperxPreflightCheck();
+          if (!pf.ok) {
+            job.status = "failed";
+            job.error = "WhisperX preflight failed";
+            job.message = JSON.stringify(pf.checks);
+            fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+            return;
+          }
+          job.stage = "transcribing";
+          job.progress = 20;
+          fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+          const python = process.env.WHISPERX_PYTHON || process.env.PYTHON || "python";
+          const model = process.env.WHISPERX_MODEL || "large-v2";
+          const device = process.env.WHISPERX_DEVICE || "cuda";
+          const batchSize = process.env.WHISPERX_BATCH_SIZE || "16";
+          const computeType = process.env.WHISPERX_COMPUTE_TYPE || "float16";
+          const language = body.language || board.input?.semanticsLanguage || "auto";
+          const outJson = path.join(jobDir, "result.json");
+          // Try to call whisperx CLI if configured, else use python module via
+          // ONE embedded script. The script also runs a separate VOICE-ACTIVITY
+          // pass (whisperx's own VAD when importable) so the master timeline
+          // never derives instrumental-versus-vocal from the transcript words.
+          const whisperxCmd = process.env.WHISPERX_CMD;
+          let args = [];
+          let script = null;
+          if (whisperxCmd) {
+            args = [audioPath, "--model", model, "--device", device, "--batch_size", batchSize, "--compute_type", computeType, "--output_dir", jobDir, "--output_format", "json"];
+            if (language && language !== "auto") args.push("--language", language);
+          }
+          if (!whisperxCmd) {
+            script = `
+import json,sys,os
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Windows 'charmap' stdout cannot encode Devanagari transcript lines
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")  # our own [wx] lines replace hf's bar spam
+import warnings
+# pyannote's optional torchcodec decoder is NOT used here: WhisperX decodes via
+# ffmpeg and VAD gets a preloaded waveform. Its missing native DLLs are noise.
+warnings.filterwarnings("ignore", category=UserWarning, module="pyannote.audio.core.io")
+warnings.filterwarnings("ignore", category=UserWarning, module="lightning")
+warnings.filterwarnings("ignore", message="TensorFloat-32")
+warnings.filterwarnings("ignore", message="Xet Storage is enabled")
+warnings.filterwarnings("ignore", message=".*cache-system uses symlinks")
+def say(msg):
+  # flushed immediately so the node-side job log streams it live to the UI
+  print(msg, flush=True)
+def transcribe_batched(model, audio, batch_size, lang):
+  # A big batch can exhaust VRAM on the shared GPU. Halve it on an OOM instead
+  # of failing the whole analysis — the audio clock/timings stay identical.
+  bs = max(1, int(batch_size))
+  while True:
+    try:
+      return model.transcribe(audio, batch_size=bs, language=None if lang == 'auto' else lang)
+    except Exception as e:
+      msg = str(e).lower()
+      retryable = ('out of memory' in msg or 'alloc_failed' in msg
+                   or 'cuda error' in msg or 'bad_alloc' in msg)
+      if not retryable or bs <= 1:
+        raise
+      say('[wx] batch %d hit a memory error — retrying at batch %d' % (bs, max(1, bs // 2)))
+      bs = max(1, bs // 2)
+def prefetch_progress(model_name, say):
+  # Best-effort PRE-DOWNLOAD of the model with live progress lines: hf_hub's
+  # own tqdm bars are disabled on non-TTY pipes, so a first-run download
+  # otherwise looks like a silent hang. On ANY failure we fall back silently —
+  # load_model below downloads/loads exactly as before.
+  try:
+    import threading, time, glob
+    import huggingface_hub as hfhub
+    repo = "Systran/faster-whisper-" + model_name
+    info = hfhub.HfApi().repo_info(repo, files_metadata=True)
+    total = sum((s.size or 0) for s in (info.siblings or []))
+    if not total:
+      return
+    state = {"err": None}
+    def dl():
+      try:
+        hfhub.snapshot_download(repo_id=repo)
+      except Exception as e:
+        state["err"] = str(e)
+    t = threading.Thread(target=dl, daemon=True)
+    t.start()
+    blobs = os.path.join(hfhub.constants.HF_HUB_CACHE, "models--" + repo.replace("/", "--"), "blobs")
+    def got_bytes():
+      got = 0
+      for fn in os.listdir(blobs):
+        try:
+          got += os.path.getsize(os.path.join(blobs, fn))
+        except OSError:
+          pass
+      return got
+    time.sleep(1)
+    if not t.is_alive() and not state["err"]:
+      say("[wx] model %s already cached" % model_name)
+      return
+    lastp = -5
+    while t.is_alive():
+      time.sleep(3)
+      pct = int(100 * got_bytes() / total)
+      if pct >= lastp + 2:
+        lastp = pct
+        say("[wx] downloading model %s: %d%% (%.1f / %.1f GB)" % (model_name, min(99, pct), got_bytes()/1e9, total/1e9))
+    if state["err"]:
+      say("[wx] model prefetch failed, load_model will retry: " + state["err"][:200])
+    else:
+      say("[wx] model download complete")
+  except Exception as e:
+    say("[wx] download progress unavailable: " + str(e)[:200])
+try:
+  import whisperx
+  audio=sys.argv[1]; model_name=sys.argv[2]; device=sys.argv[3]; batch_size=int(sys.argv[4]); compute_type=sys.argv[5]; outdir=sys.argv[6]; lang=sys.argv[7]
+  say("[wx] loading model "+model_name+" on "+device+" ...")
+  prefetch_progress(model_name, say)
+  model=whisperx.load_model(model_name,device=device,compute_type=compute_type)
+  say("[wx] decoding audio ...")
+  audio_loaded=whisperx.load_audio(audio)
+  say("[wx] transcribing (batch "+str(batch_size)+") ...")
+  res=transcribe_batched(model,audio_loaded,batch_size,lang)
+  segs=list(res.get("segments") or [])
+  say("[wx] transcript: "+str(len(segs))+" segments")
+  for s in segs:
+    txt=" ".join(str(s.get("text","")).split())
+    if txt:
+      say("[wx] %s - %ss  %s" % (round(float(s.get("start",0)),1), round(float(s.get("end",0)),1), txt))
+  say("[wx] aligning words ...")
+  model_a,metadata=whisperx.load_align_model(language_code=res["language"],device=device)
+  res=whisperx.align(res["segments"],model_a,metadata,audio_loaded,device,return_char_alignments=False)
+  # Voice-activity pass, SEPARATE from the transcript: whisperx's VAD model
+  # (silero/pyannote) when importable. Served feedback on failure — the
+  # node-side energy fallback covers the rest, so "vocal vs instrumental"
+  # evidence is never faked here.
+  va={"status":"unavailable","method":"none","segments":[],"note":""}
+  try:
+    from whisperx import vad as wx_vad
+    import torch
+    vad_model = wx_vad.load_vad_model(torch.device(device), use_auth_token=None)
+    wav16 = whisperx.load_audio(audio, sr=16000)
+    chunks = vad_model({"waveform": wav16, "sample_rate": 16000}).get("chunks", [])
+    va={"status":"ok","method":"whisperx-vad","segments":[
+      {"start":float(c.get("start",0)),"end":float(c.get("end",0)),"activity":"vocal"} for c in chunks if "start" in c and "end" in c
+    ]}
+  except Exception as _ve:
+    va["note"]=str(_ve)[:300]
+  res["vocal_activity"]=va
+  os.makedirs(outdir,exist_ok=True)
+  say("[wx] writing result ...")
+  with open(os.path.join(outdir,'result.json'),'w',encoding='utf-8') as f:
+    json.dump(res,f,ensure_ascii=False)
+  say("done")
+except Exception as e:
+  import traceback
+  lines = traceback.format_exc().strip().splitlines()
+  reason = lines[-1] if lines else str(e)
+  print('ERR %s: %s' % (type(e).__name__, reason[:400]), flush=True)
+  sys.exit(1)
+`;
+          }
+          job.progress = 40;
+          fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+          const spawnArgs = whisperxCmd
+            ? args
+            : ["-c", script, audioPath, model, device, batchSize, computeType, jobDir, language];
+          const proc = spawn(whisperxCmd || python, spawnArgs, { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+          job.proc = proc;
+          // A wrong WHISPERX_PYTHON path emits 'error' (ENOENT). Without this
+          // listener Node treats it as unhandled and the whole API dies — the
+          // HTTP 500 the UI showed. Fail the JOB honestly instead.
+          proc.on("error", (e) => {
+            job.status = "failed";
+            job.error = `WhisperX could not start: ${e.message} (interpreter: ${whisperxCmd || python})`;
+            job.proc = null;
+            try { fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2)); } catch {}
+          });
+          let out = "", err = "";
+          // Rolling process log (stdout + stderr) streamed live to the status
+          // poll — the UI renders it under the analyzing progress bar.
+          job.log = "";
+          const appendLog = (d) => { job.log = ((job.log || "") + d.toString()).slice(-8000); };
+          proc.stdout.on("data", (d) => { out += d.toString(); appendLog(d); job.message = out.slice(-200);
+            // A model download line maps its percent onto the 10–40% band so
+            // the bar moves during a first-run download instead of sitting still.
+            const m = out.match(/downloading model \S+: (\d+)%/g);
+            if (m) {
+              const pct = parseInt(m[m.length - 1].match(/(\d+)%/)[1], 10);
+              job.progress = Math.max(job.progress, 10 + Math.round(pct * 0.3));
+            } else {
+              job.progress = Math.min(90, job.progress + 5);
+            }
+          });
+          proc.stderr.on("data", (d) => { err += d.toString(); appendLog(d); job.message = err.slice(-200); });
+          proc.on("close", async (code) => {
+            job.proc = null;
+            if (job.status === "failed") return; // spawn 'error' already reported it
+            if (job.cancelled) {
+              job.status = "cancelled";
+              fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+              return;
+            }
+            if (code !== 0) {
+              job.status = "failed";
+              // Prefer the script's own "ERR <reason>" line; otherwise the last
+              // real exception line. A stderr tail of warnings is NOT a reason.
+              const lines = (out + "\n" + err).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+              const errLine = lines.filter((l) => l.startsWith("ERR ")).pop()
+                || lines.filter((l) => /^(RuntimeError|OutOfMemoryError|AssertionError|CUDA|ValueError|KeyError|TypeError|ModuleNotFoundError|OSError|subprocess\.CalledProcessError|torch\.)/.test(l)).pop();
+              job.error = (errLine || err.slice(-500) || `WhisperX exited ${code}`).slice(0, 500);
+              fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+              return;
+            }
+            try {
+              job.stage = "importing";
+              job.progress = 95;
+              if (!fs.existsSync(outJson)) {
+                const cliJson = fs.readdirSync(jobDir).filter((name) => name.toLowerCase().endsWith(".json") && name !== "job.json").sort()[0];
+                if (cliJson) fs.copyFileSync(path.join(jobDir, cliJson), outJson);
+              }
+              if (!fs.existsSync(outJson)) throw new Error("WhisperX completed but did not produce a JSON transcript");
+              const result = JSON.parse(fs.readFileSync(outJson, "utf8"));
+              // import into board
+              const lines = lyricTimelineSourceLines(board);
+              if (!lines.length) throw new Error("no lyrics/story lines on board");
+              const duration = lyricTimelineDuration(board);
+              const timeline = buildLyricTimeline({
+                lyrics: lines,
+                whisper: result,
+                duration,
+                language,
+                semantics: (board.semantics && board.semantics.lines) || [],
+                scenes: board.scenes || [],
+                previous: board.lyric_timeline || null,
+              });
+              timeline.analysis_id = jobId;
+              // Vocal activity: the WhisperX VAD pass when the script emitted
+              // it, else the honest node-side energy/silence estimate decoded
+              // locally (never derived from the transcript words).
+              let activity = result && result.vocal_activity
+                && Array.isArray(result.vocal_activity.segments)
+                && result.vocal_activity.segments.length ? result.vocal_activity : null;
+              if (!activity) {
+                try {
+                  const measured = await analyzeDirectorAudio(audioPath);
+                  activity = measured && measured.vocalActivity && measured.vocalActivity.segments
+                    && measured.vocalActivity.segments.length ? measured.vocalActivity : null;
+                } catch (e) { console.warn("[whisperx] audio activity fallback failed:", e.message); }
+              }
+              timeline.vocal_activity = activity || null;
+              board.lyric_timeline = timeline;
+              try {
+                const master = masterViewForBoard(board, timeline);
+                if (master) board.lyric_timeline.master = master;
+              } catch (e) { console.warn("[master-timeline] derive failed:", e.message); }
+              job.export = persistWavAnalysis(board, result);
+              writeDirectorBoard(board);
+              job.status = "succeeded";
+              job.progress = 100;
+              job.timeline = timeline;
+              job.message = "done";
+            } catch (e) {
+              job.status = "failed";
+              job.error = e.message;
+            }
+            fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+          });
+        } catch (e) {
+          job.status = "failed";
+          job.error = e.message;
+          fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({ ...job, proc: undefined }, null, 2));
+        }
+      });
+
+      return json(res, 200, { jobId, status: "pending" });
+    }
+
+    // Get job status
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/whisperx\/jobs\/[^/]+$/) && req.method === "GET") {
+      const parts = p.split("/");
+      const jobId = decodeURIComponent(parts[7]);
+      const job = whisperxJobs.get(jobId);
+      if (!job) {
+        // try to read from disk
+        try {
+          const jobDir = path.join(WHISPERX_JOBS, jobId);
+          if (fs.existsSync(path.join(jobDir, "job.json"))) {
+            const j = JSON.parse(fs.readFileSync(path.join(jobDir, "job.json"), "utf8"));
+            return json(res, 200, { jobId, ...j });
+          }
+        } catch {}
+        return json(res, 404, { error: "job not found" });
+      }
+      return json(res, 200, {
+        jobId: job.id,
+        status: job.status,
+        progress: job.progress,
+        stage: job.stage,
+        message: job.message,
+        log: job.log || null,
+        error: job.error,
+        timeline: job.timeline,
+        export: job.export || null,
+      });
+    }
+
+    // Cancel job
+    if (p.match(/^\/api\/director\/boards\/[^/]+\/whisperx\/jobs\/[^/]+\/cancel$/) && req.method === "POST") {
+      const parts = p.split("/");
+      const jobId = decodeURIComponent(parts[7]);
+      const job = whisperxJobs.get(jobId);
+      if (job) {
+        job.cancelled = true;
+        try { if (job.proc) job.proc.kill(); } catch {}
+        job.status = "cancelled";
+      }
+      return json(res, 200, { ok: true });
     }
     if (p.match(/^\/api\/director\/boards\/[^/]+\/validate$/) && req.method === "GET") {
       const id = decodeURIComponent(p.split("/")[4] || "");
@@ -7266,6 +8773,7 @@ const server = http.createServer(async (req, res) => {
         system: DIRECTOR_SYSTEM, user, maxTokens: 6000, temperature: 0.5,
         rawTag: `_raw_${id}_repair.log`,
       });
+      assertNoCJK(raw, "the repaired scenes");
       const fixed = (Array.isArray(raw.scenes) ? raw.scenes : []).map((s, i) => {
         const num = Number(s && s.scene_number) || targets[i] || 0;
         const normed = normalizeScene(s, num || 1, board.input && board.input.sceneSeconds);
@@ -7327,6 +8835,13 @@ const server = http.createServer(async (req, res) => {
         lineRange: spec.lineRange, budgetSeconds: spec.budget,
         plannedSeconds: spec.prog.plannedSeconds, targetSeconds: spec.planTarget || null,
         totalLines: spec.lyricTiming.length || null,
+        // The approved master timeline rides the dry-run popup EXACTLY like
+        // the real batch — Show prompt must show the timing contract too.
+        masterTimeline: spec.masterTiming || null,
+        cinematicContext: spec.cinematicContext || null,
+        // Same gated abstract-line guidance the real batch sends (derived from
+        // the board's stored meaning for this line window).
+        semanticVariationContext: semanticVariationForBatch(board, spec.lineRange),
       });
       return json(res, 200, {
         ready: false,
@@ -7356,13 +8871,18 @@ const server = http.createServer(async (req, res) => {
         const body = await readJson(req).catch(() => ({}));
         const spec = nextSceneBatchSpec(board, body.count, id);
         if (spec.ready) return json(res, 200, spec.write ? writeDirectorBoard(spec.board) : spec.board);
-        const { done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange } = spec;
+        const { done, planTarget, prog, avgScene, remaining, n, budget, beats, prevScene, priorDialogue, lyricTiming, lineRange, masterTiming, cinematicContext } = spec;
         const scenesRawTag = `_raw_${id}_scenes_${done + 1}.log`;
+        // Read-only phase labels for the storyboard workspace. Same buffer,
+        // same SSE/LLM call — the UI merely names the step it is watching.
+        liveBegin(id, { phase: STORYBOARD_PHASES[0], batchFrom: done + 1, batchTo: done + n });
+        if (masterTiming || cinematicContext) livePhase(id, STORYBOARD_PHASES[1]);
         // The MEANING pass for THIS batch: the configured model enriches the
         // deterministic reading of the lines this batch covers (the meaning
         // the scenes are planned FROM). A failure keeps the deterministic
         // analysis — the batch is never blocked by a slow model.
         const batchLines = arr(lineRange).length ? arr(lineRange) : arr(lyricTiming);
+        livePhase(id, STORYBOARD_PHASES[2]);
         const semanticLanguage = String((board.input && board.input.semanticsLanguage) || "auto");
         const deterministicRows = analyzeLinesDeterministic(
           batchLines.map((l) => ({
@@ -7399,6 +8919,10 @@ const server = http.createServer(async (req, res) => {
             created_at: new Date().toISOString(),
           };
         }
+        // The abstract/unresolved lines of THIS batch get one explicit,
+        // distinct visible action each — never the placeholder that used to
+        // make every scene identical except for its camera fields.
+        const semanticVariationContext = semanticVariationForBatch(board, lineRange, semanticRows);
         // Huge batches can get cut off mid-array (model hits max_tokens /
         // context). Salvage path: bind every COMPLETED scene from the raw
         // text and continue the plan from there, instead of 500ing with
@@ -7419,8 +8943,8 @@ const server = http.createServer(async (req, res) => {
         let attemptN = n;
         let attemptTag = scenesRawTag;
         let attemptCompact = false;
-        liveBegin(id, { phase: "scenes", batchFrom: done + 1, batchTo: done + n });
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        livePhase(id, STORYBOARD_PHASES[3]);
+        for (let attempt = 1; attempt <= 2; attempt++) {
         try {
           raw = await llmChatJsonLive({
             system: DIRECTOR_SYSTEM,
@@ -7437,6 +8961,12 @@ const server = http.createServer(async (req, res) => {
               // The meaning of the lines this batch covers (the scenes are
               // planned FROM the meaning, not from the raw line).
               semantics: semanticRows,
+              // The APPROVED master timeline slice for this batch's window:
+              // the timing contract the LLM must plan against (absolute
+              // windows, instrumental/unknown rules, repeat occurrences).
+              masterTimeline: masterTiming || null,
+              cinematicContext: cinematicContext || null,
+              semanticVariationContext,
             }),
             maxTokens: 16000,
             temperature: 0.5,
@@ -7446,6 +8976,8 @@ const server = http.createServer(async (req, res) => {
             tag: `story_scenes_${done + 1}`,
           });
           batchComplete = raw && raw.complete === true;
+          assertNoCJK(raw, "the scene plan");
+          livePhase(id, STORYBOARD_PHASES[4]);
           break;
         } catch (e) {
           const msg = String((e && e.message) || "");
@@ -7500,6 +9032,7 @@ const server = http.createServer(async (req, res) => {
         }
         const got = Array.isArray(raw.scenes) ? raw.scenes : (Array.isArray(raw) ? raw : []);
         if (!got.length) throw new Error("director returned no scenes — try again");
+        assertNoCJK(got, "the scene plan");
       // Dedupe guard: the LLM sometimes repeats an earlier line verbatim
       // across batches. A repeated line carries no story value and is exactly
       // the "scene 1 copied to scene 45" report — drop the repeat so every
@@ -7596,6 +9129,7 @@ const server = http.createServer(async (req, res) => {
         // exact bible ids — free-text places, objects parked in the location
         // slot, and hallucinated cast are repaired/dropped here so every
         // stored scene actually grounds downstream (see canonicalizeSceneRefs).
+        livePhase(id, STORYBOARD_PHASES[5]);
         try {
           const { repairs, notes } = canonicalizeSceneRefs(normed, board.blueprint);
           for (const r of repairs.slice(0, 3)) {
@@ -7620,6 +9154,10 @@ const server = http.createServer(async (req, res) => {
         const warnBits = [];
         if (dropped > 0) warnBits.push(`${dropped} repeat scene${dropped === 1 ? "" : "s"} skipped (same title + action as an earlier scene)`);
         if (groundNotes.length) warnBits.push(...groundNotes);
+        // Meaning-aware repeat guard: different source lines staged with the
+        // same action/pose (only the camera changes) are reported, never
+        // dropped — dropping would leave a line uncovered.
+        for (const note of flagRepeatStaging(board.scenes).slice(0, 3)) warnBits.push(note);
         // The MEANING lands on the scenes: every scene carries its source
         // line, the interpretation, the visible action plan, the camera
         // rationale and the beats. A scene that does not show its line is
@@ -7688,7 +9226,10 @@ const server = http.createServer(async (req, res) => {
         // A clean full batch proves the model handles this size again —
         // drop the stall hint so planning returns to full batches.
         if (!salvageNote) board.planBatchHint = null;
-        return json(res, 200, writeDirectorBoard(board));
+        livePhase(id, STORYBOARD_PHASES[6]);
+        const savedBoard = writeDirectorBoard(board);
+        livePhase(id, completeOk ? STORYBOARD_PHASES[8] : STORYBOARD_PHASES[7]);
+        return json(res, 200, savedBoard);
       } finally {
         liveEnd(id);
         directorPlanning.delete(id);
@@ -8025,13 +9566,39 @@ const server = http.createServer(async (req, res) => {
           return json(res, 400, { error: `story QA failed: ${gate.errors[0]}`, errors: gate.errors.slice(0, 20), warnings: (gate.warnings || []).slice(0, 20), score: gate.score });
         }
       } catch { /* validator never blocks on internal failure — approve proceeds */ }
+      // The APPROVED master timeline is the authority on timing: scenes that
+      // drifted from the approved windows are snapped back BEFORE the config
+      // is built (priority: user-approved > validated alignment > estimate).
+      // Story boards and boards without an approved timeline pass through
+      // untouched; a snap beyond tolerance is reported, never moved.
+      let timingCorrections = [];
+      try {
+        const approvedMaster = board.lyric_timeline && board.lyric_timeline.master;
+        if (approvedMaster && approvedMaster.approved) {
+          const applied = applyApprovedTimelineToScenes(board.scenes, approvedMaster);
+          board.scenes = applied.scenes;
+          timingCorrections = applied.corrections;
+          for (const n of applied.notes.slice(0, 4)) console.warn(`[director:${id}] approve timing: ${n}`);
+          if (timingCorrections.length) {
+            console.warn(`[director:${id}] approve: ${timingCorrections.length} scene window(s) snapped to the approved master timeline`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[director:${id}] approve timing snap failed: ${e && e.message ? e.message : e}`);
+      }
       const config = boardToScenario(board);
       // Partial-migration flow: the first approve claims a project name (the
-      // story title verbatim, _2-suffixed on collision); every later
-      // "migrate remaining" re-approve reuses board.scenarioName so the rest
-      // of the scenes land in the SAME project (client PUTs = overwrite, and
-      // generation is resumable, so already-built scenes are kept).
-      let target = board.scenarioName || String(board.input.title || "").trim().slice(0, 120) || id;
+      // story title as a space-free KEY, _2-suffixed on collision); every
+      // later "migrate remaining" re-approve reuses board.scenarioName so the
+      // rest of the scenes land in the SAME project (client PUTs = overwrite,
+      // and generation is resumable, so already-built scenes are kept).
+      // INTERNAL KEY: the story title becomes the space-free scenario key
+      // ("Pyari billi" -> "pyari_billi") — /api/scenario/<key>/... URLs,
+      // output dirs and file names all use it; the typed title rides along
+      // as config.display_name for UI labels.
+      const approveTitle = String(board.input.title || "").trim().slice(0, 120);
+      let target = board.scenarioName || spaceFreeName(approveTitle) || id;
+      if (approveTitle) config.display_name = approveTitle;
       if (!board.scenarioName) {
         try {
           const taken = new Set((await dbListScenarios()).map((r) => r.name));
@@ -8059,7 +9626,7 @@ const server = http.createServer(async (req, res) => {
       // The CLIENT persists via the existing saveScenario (PUT
       // /api/scenario/:name) — identical semantics to the Scenario Editor
       // Save — then opens the workspace for standard generation.
-      return json(res, 200, { name: target, config, partial, migrated: board.scenes.length, sceneCount: board.sceneCount });
+      return json(res, 200, { name: target, config, partial, migrated: board.scenes.length, sceneCount: board.sceneCount, timing_corrections: timingCorrections });
     }
     // ------------------------------------------------- Sanskriti Kids Studio
     // A PROJECT LAYER on top of the EXISTING pipeline (never a parallel
@@ -8334,6 +9901,7 @@ const server = http.createServer(async (req, res) => {
             timeoutMs: REQUEST_TIMEOUT_MS,
             rawTag: `_raw_${id}_kids_plan.log`,
           });
+          assertNoCJK(raw, "the kids Director Plan");
           plan = normalizeKidsDirectorPlan(raw);
         } catch (e) {
           await kidsUpsertJob(store, db, {
@@ -8792,6 +10360,138 @@ const server = http.createServer(async (req, res) => {
         });
       }
       // ============================================================
+      // Unified production (audio-driven + story-only) — additive routes.
+      // Original WAV metadata is the timing authority; timelines, blueprints
+      // and snapshots store references + versions, never a second audio clock.
+      // ============================================================
+      if (rest === "production-mode" && req.method === "GET") {
+        const audios = await kidsListAudioAssets(store, db, id);
+        const mode = resolveProductionMode({ audioAsset: audios[0] ? { durationSec: audios[0].duration_sec } : null });
+        return json(res, 200, { productionMode: mode, audioAsset: audios[0] || null });
+      }
+      if (rest === "audio-asset" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const durationSec = Number(body.duration_sec ?? body.durationSec ?? 0);
+        if (!(durationSec > 0)) return json(res, 400, { error: "audio-asset requires a positive duration_sec (original WAV authority)" });
+        const row = await kidsInsertAudioAsset(store, db, {
+          id: String(body.id || `audio-${id}-${Date.now().toString(36)}`),
+          project_id: id,
+          original_filename: String(body.original_filename || body.originalFilename || "original.wav"),
+          file_path: String(body.file_path || body.filePath || ""),
+          duration_sec: durationSec,
+          sample_rate_hz: Number(body.sample_rate_hz || 48000),
+          channels: Number(body.channels || 2),
+          metadata: { lyrics_version: body.lyrics_version || null, language: body.language || project.language || "" },
+        });
+        return json(res, 200, { audioAsset: row, productionMode: "audio_driven" });
+      }
+      if (rest === "audio-asset" && req.method === "GET") {
+        return json(res, 200, { assets: await kidsListAudioAssets(store, db, id) });
+      }
+      if (rest === "unified-timeline" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        let timeline;
+        try {
+          timeline = buildUnifiedTimeline({
+            productionId: id,
+            audioAsset: body.audioAsset || { durationSec: Number(project.duration_seconds || 60) },
+            frameRate: Number(body.frame_rate || 30),
+            musicSections: body.musicSections || [],
+            lyricLines: body.lyricLines || [],
+            speakerEvents: body.speakerEvents || [],
+            narrativeEvents: body.narrativeEvents || [],
+            characterAppearances: body.characterAppearances || [],
+            characterActions: body.characterActions || [],
+            emotions: body.emotions || [],
+            choreography: body.choreography || [],
+            cameraDirections: body.cameraDirections || [],
+            soundEffects: body.soundEffects || [],
+            transitions: body.transitions || [],
+            subtitles: body.subtitles || [],
+          });
+        } catch (e) { return json(res, 400, { error: String(e.message || e) }); }
+        const check = validateUnifiedTimeline(timeline);
+        if (check.errors.length) return json(res, 400, { error: check.errors[0], errors: check.errors, warnings: check.warnings });
+        const saved = await kidsSaveUnifiedTimeline(store, db, id, timeline);
+        return json(res, 200, { timeline: saved.timeline || timeline, record: saved, warnings: check.warnings });
+      }
+      if (rest === "unified-timeline" && req.method === "GET") {
+        return json(res, 200, { timelines: await kidsListTimelines(store, db, id) });
+      }
+      if (rest === "unified-timeline/approve" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const version = Number(body.version || 0);
+        if (!(version > 0)) return json(res, 400, { error: "version is required" });
+        const approved = await kidsApproveTimeline(store, db, id, version);
+        if (!approved) return json(res, 404, { error: "no such timeline version" });
+        return json(res, 200, { timeline: approved });
+      }
+      if (rest === "pacing-blueprint" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const timelines = await kidsListTimelines(store, db, id);
+        const latest = timelines.find((t) => t.status === "approved") || timelines[0] || null;
+        let blueprint;
+        try {
+          blueprint = buildDurationPacingBlueprint({
+            productionId: id,
+            productionMode: body.productionMode || (latest ? "audio_driven" : "story_only"),
+            audioDurationMs: body.audioDurationMs ?? (latest ? latest.master_duration_ms : undefined),
+            frameRate: Number(body.frame_rate || latest?.frame_rate || 30),
+            timeline: latest?.timeline || body.timeline || { tracks: {} },
+            narrativeEvents: body.narrativeEvents || [],
+            lyricLines: body.lyricLines || [],
+            userOverrideMs: body.userOverrideMs,
+          });
+        } catch (e) { return json(res, 400, { error: String(e.message || e) }); }
+        if (blueprint.validation.errors.length) {
+          return json(res, 400, { error: blueprint.validation.errors[0], errors: blueprint.validation.errors, blueprint });
+        }
+        const saved = await kidsSaveBlueprint(store, db, id, blueprint);
+        return json(res, 200, { blueprint, record: saved });
+      }
+      if (rest === "pacing-blueprint" && req.method === "GET") {
+        return json(res, 200, { blueprints: await kidsListBlueprints(store, db, id) });
+      }
+      if (rest === "pacing-blueprint/approve" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const version = Number(body.version || 0);
+        if (!(version > 0)) return json(res, 400, { error: "version is required" });
+        const approved = await kidsApproveBlueprint(store, db, id, version);
+        if (!approved) return json(res, 404, { error: "no such blueprint version" });
+        return json(res, 200, { blueprint: approved });
+      }
+      if (rest === "director-snapshot" && req.method === "POST") {
+        const body = await readJson(req).catch(() => ({}));
+        const snapshot = buildDirectorInputSnapshot({ productionId: id, ...body });
+        const saved = await kidsSaveSnapshot(store, db, id, snapshot);
+        return json(res, 200, { snapshot, record: saved });
+      }
+      if (rest === "director-snapshot" && req.method === "GET") {
+        const snaps = await kidsListSnapshots(store, db, id);
+        return json(res, 200, { snapshots: snaps });
+      }
+      if (rest === "director-gate" && req.method === "GET") {
+        const [audios, timelines, blueprints, snaps] = await Promise.all([
+          kidsListAudioAssets(store, db, id), kidsListTimelines(store, db, id), kidsListBlueprints(store, db, id), kidsListSnapshots(store, db, id),
+        ]);
+        const approvedTl = timelines.find((t) => t.status === "approved");
+        const approvedBp = blueprints.find((b) => b.approved === true || b.approved === 1);
+        const mode = approvedTl || approvedBp || audios[0]
+          ? "audio_driven"
+          : resolveProductionMode({});
+        const gate = canRunDirector({
+          productionMode: mode,
+          timelineApprovalStatus: approvedTl ? "approved" : "pending",
+          durationBlueprintApproved: Boolean(approvedBp),
+          directorInputSnapshotId: snaps[0]?.id || null,
+        });
+        let staleness = { stale: false, affected: [], reasons: [] };
+        if (snaps[0]?.snapshot && approvedTl) {
+          staleness = isSnapshotStale(snaps[0].snapshot, { masterTimelineVersion: approvedTl.version });
+        }
+        return json(res, 200, { gate, staleness, mode });
+      }
+      // ============================================================
       // AI Learning and Feedback
       // ============================================================
       if (rest === "feedback" && req.method === "GET") {
@@ -9168,6 +10868,7 @@ const server = http.createServer(async (req, res) => {
           maxTokens: 4000, temperature: 0.3, timeoutMs: REQUEST_TIMEOUT_MS,
           rawTag: `_raw_doc_${id}_analysis.log`,
         });
+        assertNoCJK(araw, "the documentary analysis");
         analysis = normalizeDocAnalysis(araw);
         analysis.source = "llm";
       } catch (e) {
@@ -9185,6 +10886,7 @@ const server = http.createServer(async (req, res) => {
           maxTokens: 16000, temperature: 0.7, timeoutMs: REQUEST_TIMEOUT_MS,
           rawTag: `_raw_doc_${id}_bible.log`,
         });
+        assertNoCJK(raw, "the documentary blueprint");
         blueprint = raw && typeof raw === "object" ? raw : null;
       } catch (e) {
         console.warn(`[documentary] bible LLM failed, heuristic fallback: ${e.message}`);
@@ -9228,6 +10930,7 @@ const server = http.createServer(async (req, res) => {
               maxTokens: 16000, temperature: 0.7, timeoutMs: REQUEST_TIMEOUT_MS,
               rawTag: `_raw_doc_${id}_ch${c.chapter_number}.log`,
             });
+            assertNoCJK(raw, "the documentary shot plan");
             const seqs = raw && Array.isArray(raw.sequences) ? raw.sequences : null;
             if (seqs && seqs.length) {
               c.sequences = seqs.map((q, i) => {
@@ -9305,7 +11008,12 @@ const server = http.createServer(async (req, res) => {
       const board = readDocBoard(id);
       if (!countBoardShots(board)) throw new Error("nothing to approve — plan the documentary first");
       const config = docBoardToScenario(board);
-      let target = board.scenarioName || String(board.brief.title || "").trim().slice(0, 120) || id;
+      // INTERNAL KEY: the brief title becomes the space-free scenario key
+      // (same rule as the Story Director approve); the typed title rides
+      // along as config.display_name for UI labels.
+      const approveTitle = String(board.brief.title || "").trim().slice(0, 120);
+      let target = board.scenarioName || spaceFreeName(approveTitle) || id;
+      if (approveTitle) config.display_name = approveTitle;
       if (!board.scenarioName) {
         try {
           const taken = new Set((await dbListScenarios()).map((r) => r.name));
@@ -9764,7 +11472,7 @@ const server = http.createServer(async (req, res) => {
           const d = await llmPostChat(`${base}/v1/chat/completions`, {
             model: LLM_MODEL,
             messages: [
-              { role: "system", content: "You are an assistant film director for AI video generation. Reply with JSON only: {\"instructions\": \"<3-6 short imperative lines, newline-separated>\", \"reasoning\": \"<one short sentence>\"}. Suggest concrete visual-storytelling instructions tailored to the story (character consistency, mood, pacing, what to emphasize or avoid). Keep each line under 140 characters. Never repeat the story back." },
+              { role: "system", content: "You are an assistant film director for AI video generation. Reply with JSON only: {\"instructions\": \"<3-6 short imperative lines, newline-separated>\", \"reasoning\": \"<one short sentence>\"}. Suggest concrete visual-storytelling instructions tailored to the story (character consistency, mood, pacing, what to emphasize or avoid). Keep each line under 140 characters. Never repeat the story back. Write in English. NEVER write Chinese, Japanese or Korean." },
               {
                 role: "user",
                 content: JSON.stringify({
@@ -10161,12 +11869,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (USE_SQLITE) {
         await dbSaveScenario(name, cfg);
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
         pgSaveScenarioMirror(name, cfg).catch((e) => console.warn("[pg] scenario mirror failed:", e.message));
       } else {
         if (!pgUp) return json(res, 503, { error: "database unavailable" });
         await dbSaveScenario(name, cfg);
-        fs.writeFileSync(path.join(PROMPTS, name + ".json"), JSON.stringify(cfg, null, 2));
+        fs.writeFileSync(promptsSlugFile(name), JSON.stringify(cfg, null, 2));
       }
       let version = null;
       if (pgUp) {
@@ -10351,7 +12059,7 @@ if (p === "/api/database/rows" && (req.method === "POST" || req.method === "PUT"
         // Keep prompts/<name>.json in sync (CLI runners read it).
         try {
           fs.mkdirSync(PROMPTS, { recursive: true });
-          fs.writeFileSync(path.join(PROMPTS, `${values.name}.json`), String(values.config ?? "{}"));
+          fs.writeFileSync(promptsSlugFile(values.name), String(values.config ?? "{}"));
         } catch (e) { console.warn("[database] prompts mirror failed:", e.message); }
       }
       let row = null;
@@ -10391,7 +12099,7 @@ if (p === "/api/database/rows" && (req.method === "POST" || req.method === "PUT"
       if (table === "scenarios" && row) {
         try {
           fs.mkdirSync(PROMPTS, { recursive: true });
-          fs.writeFileSync(path.join(PROMPTS, `${row.name}.json`), String(row.config ?? "{}"));
+          fs.writeFileSync(promptsSlugFile(row.name), String(row.config ?? "{}"));
         } catch (e) { console.warn("[database] prompts mirror failed:", e.message); }
       }
       return json(res, 200, { ok: true, updated: info.changes, row });
@@ -10419,8 +12127,10 @@ if (p === "/api/database/rows" && (req.method === "POST" || req.method === "PUT"
     } catch (e) { return json(res, 400, { error: String(e.message || e) }); }
     if (!info.changes) return json(res, 404, { error: "row not found" });
     if (table === "scenarios" && doomed?.name) {
-      try { fs.unlinkSync(path.join(PROMPTS, `${doomed.name}.json`)); }
-      catch { /* prompt file may not exist */ }
+      // Remove the slug-named export AND any legacy raw display-name file.
+      for (const f of [promptsSlugFile(doomed.name), promptsLegacyFile(doomed.name)]) {
+        try { fs.unlinkSync(f); } catch { /* prompt file may not exist */ }
+      }
     }
     return json(res, 200, { ok: true, deleted: info.changes });
   } finally { try { h.close(); } catch { /* ignore */ } }

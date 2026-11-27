@@ -171,7 +171,7 @@ export default function ImportProjectDialog({
             spellCheck={false}
             style={{ fontFamily: "monospace", fontSize: 12 }}
           />
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: "8px", flexWrap: "wrap" }}>
             <button
               type="button"
               className="ghost"
@@ -199,7 +199,7 @@ export default function ImportProjectDialog({
               </span>
             )}
           </div>
-          <label htmlFor="import-name" style={{ marginTop: 12 }}>Project name (optional — defaults to project_title)</label>
+          <label htmlFor="import-name" style={{ marginTop: "12px" }}>Project name (optional — defaults to project_title)</label>
           <input
             id="import-name"
             value={nameOverride}

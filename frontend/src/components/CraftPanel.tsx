@@ -428,7 +428,7 @@ export default function CraftPanel({
         }}
       />
       <p className="hint">Edits save automatically before Craft scenario, or on the next explicit Save in the Scenario Editor.</p>
-      <div className="row craft-actions" style={{ marginTop: 12 }}>
+      <div className="row craft-actions" style={{ marginTop: "12px" }}>
         <button
           className="btn-blue"
           onClick={() => void openPromptPreview()}
@@ -482,7 +482,7 @@ export default function CraftPanel({
                 <div className="preset-rules" aria-label="System prompt (read-only)">
                   <pre>{previewSystem}</pre>
                 </div>
-                <label htmlFor="craft-prompt-user" style={{ marginTop: 12 }}>User prompt (editable)</label>
+                <label htmlFor="craft-prompt-user" style={{ marginTop: "12px" }}>User prompt (editable)</label>
                 <textarea
                   id="craft-prompt-user"
                   className="prompt-preview-edit"
@@ -549,7 +549,7 @@ export default function CraftPanel({
               aria-label="Master prompt to apply to all scenes (editable)"
             />
             {popupBusy && (
-              <div style={{ marginTop: 10 }} role="status" aria-live="polite">
+              <div style={{ marginTop: "10px" }} role="status" aria-live="polite">
                 <p className="hint">
                   {popupAt >= 0 && beats[popupAt]
                     ? "AI is working on scene " + (popupAt + 1) + " of " + beats.length + " — \u201c" + String(beats[popupAt].title || "beat" + (popupAt + 1)).slice(0, 60) + "\u201d…"
@@ -564,7 +564,7 @@ export default function CraftPanel({
               </div>
             )}
             {statuses.length > 0 && (popupBusy || popupDone || popupError) && (
-              <div className="beat-versions" style={{ marginTop: 10, maxHeight: 220, overflowY: "auto" }} aria-label="Per-scene apply progress">
+              <div className="beat-versions" style={{ marginTop: "10px", maxHeight: 220, overflowY: "auto" }} aria-label="Per-scene apply progress">
                 {statuses.map((s, i) => (
                   <div key={i} className="row" style={{ alignItems: "center", gap: 8, padding: "2px 0" }}>
                     <span className="beat-index" title={`Scene ${i + 1}`}>{i + 1}</span>

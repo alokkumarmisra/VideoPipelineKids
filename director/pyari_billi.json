@@ -17,7 +17,7 @@
     "includeDialogue": true,
     "chainContinuity": true
   },
-  "status": "scenes-partial",
+  "status": "approved",
   "blueprint": {
     "logline": "A heartwarming musical journey introducing 'Pyari Billi,' a playful and affectionate cat who dances, plays with balls, and eventually drifts into a sweet dream under the care of her loving child owner.",
     "analysis": {
@@ -243,41 +243,26 @@
     "lines": [
       {
         "line_id": 1,
-        "text": "नाच दिखाओ, म्याऊँ, म्याऊँ!",
-        "source_text": "नाच दिखाओ, म्याऊँ, म्याऊँ!",
-        "normalized_text": "नाच दिखाओ, म्याऊँ, म्याऊँ!",
+        "text": "म्याऊँ, म्याऊँ!",
+        "source_text": "म्याऊँ, म्याऊँ!",
+        "normalized_text": "म्याऊँ, म्याऊँ!",
         "language": "hi",
-        "line_kind": "dialogue",
+        "line_kind": "sound",
         "tokens": [
-          "नाच",
-          "दिखाओ",
           "म्याऊँ",
           "म्याऊँ"
         ],
         "entities": {
           "subjects": [
             {
-              "text": "दिखाओ",
+              "text": "म्याऊँ",
               "id": "",
               "kind": "noun",
               "source": "heuristic"
             }
           ],
           "targets": [],
-          "objects": [
-            {
-              "text": "म्याऊँ",
-              "id": "",
-              "kind": "noun",
-              "source": "heuristic"
-            },
-            {
-              "text": "म्याऊँ",
-              "id": "",
-              "kind": "noun",
-              "source": "heuristic"
-            }
-          ],
+          "objects": [],
           "locations": [],
           "matched": [],
           "language": "hi"
@@ -292,82 +277,31 @@
             }
           ]
         },
-        "matches": [
-          {
-            "id": "dance",
-            "kind": "locomotion",
-            "cues": {
-              "en": [
-                "dance",
-                "dances",
-                "dancing",
-                "danced",
-                "sway",
-                "sways"
-              ],
-              "hi": [
-                "नाच",
-                "नाचता",
-                "नाचती",
-                "नाचते",
-                "नाचना"
-              ]
-            },
-            "body_part": "whole_body",
-            "start_pose": "standing, arms relaxed",
-            "end_pose": "still dancing, weight shifted",
-            "motion": "the body sways rhythmically, the arms and hips move with the beat, the feet step lightly",
-            "camera": [
-              "Full Shot",
-              "Static"
-            ],
-            "duration": 3.5,
-            "cue": "नाच",
-            "token": "नाच"
-          }
-        ],
+        "matches": [],
         "action_plan": [
           {
             "id": "model",
             "kind": "model",
-            "verb": "Cat stands on hind legs and sways rhythmically to the beat",
+            "verb": "Cat tilts head and opens mouth to vocalize",
             "source_token": "",
-            "action": "Cat stands on hind legs and sways rhythmically to the beat",
+            "action": "Cat tilts head and opens mouth to vocalize",
             "object": "",
-            "body_part": "whole body",
-            "start_pose": "sitting or standing still",
-            "end_pose": "dancing pose with paws in air",
-            "motion": "swaying hips and head gently side to side",
+            "body_part": "head",
+            "start_pose": "sitting on floor",
+            "end_pose": "head tilted up",
+            "motion": "quick tilt followed by mouth opening",
             "camera_hint": [],
             "duration_hint": 2.5,
             "grounded": true,
             "source": "model",
-            "deterministic": {
-              "id": "dance",
-              "kind": "locomotion",
-              "verb": "नाच",
-              "source_token": "नाच",
-              "action": "dances the दिखाओ",
-              "action_phrase": "dances the दिखाओ",
-              "object": "दिखाओ",
-              "body_part": "whole_body",
-              "start_pose": "standing, arms relaxed",
-              "end_pose": "still dancing, weight shifted",
-              "motion": "the body sways rhythmically, the arms and hips move with the beat, the feet step lightly",
-              "camera_hint": [
-                "Full Shot",
-                "Static"
-              ],
-              "duration_hint": 3.5,
-              "grounded": true
-            }
+            "deterministic": null
           }
         ],
         "camera": {
-          "shot_type": "medium shot",
-          "angle": "eye level",
+          "shot_type": "close-up",
+          "angle": "eye-level",
           "movement": "static",
-          "rationale": "Clear static frame for demonstration of dance move, warm lighting highlights cute rounded character.",
+          "rationale": "capturing the expressive face of the cat in 3D animation style",
           "framing": "",
           "grounded": true
         },
@@ -376,18 +310,18 @@
             "start_seconds": 0,
             "end_seconds": 4,
             "duration_seconds": 4,
-            "action": "Cat stands on hind legs and sways rhythmically to the beat",
-            "start_pose": "sitting or standing still",
-            "end_pose": "dancing pose with paws in air",
+            "action": "Cat tilts head and opens mouth to vocalize",
+            "start_pose": "sitting on floor",
+            "end_pose": "head tilted up",
             "camera": {
-              "shot_type": "medium shot",
-              "angle": "eye level",
+              "shot_type": "close-up",
+              "angle": "eye-level",
               "movement": "static",
-              "rationale": "Clear static frame for demonstration of dance move, warm lighting highlights cute rounded character.",
+              "rationale": "capturing the expressive face of the cat in 3D animation style",
               "framing": "",
               "grounded": true
             },
-            "secondary": "whole body movement carries the detail",
+            "secondary": "head movement carries the detail",
             "estimated": true
           }
         ],
@@ -396,32 +330,31 @@
           "needed_seconds": 2.5,
           "warnings": []
         },
-        "abstract": false,
-        "interpretation": "The child invites the cat to dance while the cat meows playfully in response.",
+        "abstract": true,
+        "interpretation": "The cat meows loudly to demand attention from the owner.",
         "warnings": [],
         "model_note": "",
-        "model_subject": "Child Owner",
-        "model_target": "Pyari Billi",
+        "model_subject": "pyari_billi",
+        "model_target": "child_owner",
         "model_location": "living_room",
         "model_objects": []
       },
       {
         "line_id": 2,
-        "text": "इधर उछलती, उधर उछलती,",
-        "source_text": "इधर उछलती, उधर उछलती,",
-        "normalized_text": "इधर उछलती, उधर उछलती,",
+        "text": "मेरी प्यारी बिल्ली!",
+        "source_text": "मेरी प्यारी बिल्ली!",
+        "normalized_text": "मेरी प्यारी बिल्ली!",
         "language": "hi",
-        "line_kind": "action",
+        "line_kind": "dialogue",
         "tokens": [
-          "इधर",
-          "उछलती",
-          "उधर",
-          "उछलती"
+          "मेरी",
+          "प्यारी",
+          "बिल्ली"
         ],
         "entities": {
           "subjects": [
             {
-              "text": "उधर",
+              "text": "मेरी",
               "id": "",
               "kind": "noun",
               "source": "heuristic"
@@ -430,7 +363,7 @@
           "targets": [],
           "objects": [
             {
-              "text": "इधर",
+              "text": "बिल्ली",
               "id": "",
               "kind": "noun",
               "source": "heuristic"
@@ -441,100 +374,40 @@
           "language": "hi"
         },
         "emotion": {
-          "label": "energetic",
-          "intensity": "none",
+          "label": "loving",
+          "intensity": "medium",
           "cues": [
             {
-              "id": "energetic",
-              "cue": "energetic"
+              "id": "loving",
+              "cue": "प्यार"
             }
           ]
         },
-        "matches": [
-          {
-            "id": "jump",
-            "kind": "locomotion",
-            "cues": {
-              "en": [
-                "jump",
-                "jumps",
-                "jumping",
-                "jumped",
-                "leap",
-                "leaps",
-                "leaping",
-                "leaped",
-                "hop",
-                "hops",
-                "hopping"
-              ],
-              "hi": [
-                "कूद",
-                "कूदता",
-                "कूदती",
-                "कूड़ता",
-                "कूड़ती",
-                "कूड़ते",
-                "कूदना",
-                "कूदना",
-                "उछल"
-              ]
-            },
-            "body_part": "legs",
-            "start_pose": "knees bent, body compressed, weight on the feet",
-            "end_pose": "feet back on the ground, body extended after the landing",
-            "motion": "the knees bend to load the jump, the legs push off the ground, the body rises into the air, then the feet land and absorb the weight",
-            "camera": [
-              "Full Shot",
-              "Low Angle"
-            ],
-            "duration": 2.5,
-            "cue": "उछल",
-            "token": "उछलती"
-          }
-        ],
+        "matches": [],
         "action_plan": [
           {
             "id": "model",
             "kind": "model",
-            "verb": "Cat hops from one side of the room to the other",
+            "verb": "Child smiles and reaches out hand to pet the cat",
             "source_token": "",
-            "action": "Cat hops from one side of the room to the other",
+            "action": "Child smiles and reaches out hand to pet the cat",
             "object": "",
-            "body_part": "whole body",
-            "start_pose": "standing on all fours",
-            "end_pose": "landing on opposite side",
-            "motion": "quick jumps alternating sides with tail flicking",
+            "body_part": "hand",
+            "start_pose": "relaxed at side",
+            "end_pose": "touching cat's fur",
+            "motion": "gentle reach forward",
             "camera_hint": [],
             "duration_hint": 2.5,
             "grounded": true,
             "source": "model",
-            "deterministic": {
-              "id": "jump",
-              "kind": "locomotion",
-              "verb": "उछल",
-              "source_token": "उछलती",
-              "action": "jumps the इधर",
-              "action_phrase": "jumps the इधर",
-              "object": "इधर",
-              "body_part": "legs",
-              "start_pose": "knees bent, body compressed, weight on the feet",
-              "end_pose": "feet back on the ground, body extended after the landing",
-              "motion": "the knees bend to load the jump, the legs push off the ground, the body rises into the air, then the feet land and absorb the weight",
-              "camera_hint": [
-                "Full Shot",
-                "Low Angle"
-              ],
-              "duration_hint": 2.5,
-              "grounded": true
-            }
+            "deterministic": null
           }
         ],
         "camera": {
-          "shot_type": "medium tracking shot",
-          "angle": "slightly low",
-          "movement": "panning left to right",
-          "rationale": "Tracking shot follows the jumping movement, soft cinematic rendering keeps background clean.",
+          "shot_type": "medium shot",
+          "angle": "slightly high",
+          "movement": "slow push-in",
+          "rationale": "highlighting the warm interaction between characters",
           "framing": "",
           "grounded": true
         },
@@ -543,18 +416,18 @@
             "start_seconds": 0,
             "end_seconds": 4,
             "duration_seconds": 4,
-            "action": "Cat hops from one side of the room to the other",
-            "start_pose": "standing on all fours",
-            "end_pose": "landing on opposite side",
+            "action": "Child smiles and reaches out hand to pet the cat",
+            "start_pose": "relaxed at side",
+            "end_pose": "touching cat's fur",
             "camera": {
-              "shot_type": "medium tracking shot",
-              "angle": "slightly low",
-              "movement": "panning left to right",
-              "rationale": "Tracking shot follows the jumping movement, soft cinematic rendering keeps background clean.",
+              "shot_type": "medium shot",
+              "angle": "slightly high",
+              "movement": "slow push-in",
+              "rationale": "highlighting the warm interaction between characters",
               "framing": "",
               "grounded": true
             },
-            "secondary": "whole body movement carries the detail",
+            "secondary": "hand movement carries the detail",
             "estimated": true
           }
         ],
@@ -564,45 +437,36 @@
           "warnings": []
         },
         "abstract": false,
-        "interpretation": "The cat jumps back and forth energetically across the room.",
+        "interpretation": "The child owner calls out to the cat with affection.",
         "warnings": [],
         "model_note": "",
-        "model_subject": "Pyari Billi",
-        "model_target": "living_room",
+        "model_subject": "child_owner",
+        "model_target": "pyari_billi",
         "model_location": "living_room",
         "model_objects": []
       },
       {
         "line_id": 3,
-        "text": "गेंद के पीछे भागे!",
-        "source_text": "गेंद के पीछे भागे!",
-        "normalized_text": "गेंद के पीछे भागे!",
+        "text": "म्याऊँ, म्याऊँ!",
+        "source_text": "म्याऊँ, म्याऊँ!",
+        "normalized_text": "म्याऊँ, म्याऊँ!",
         "language": "hi",
-        "line_kind": "action",
+        "line_kind": "sound",
         "tokens": [
-          "गेंद",
-          "के",
-          "पीछे",
-          "भागे"
+          "म्याऊँ",
+          "म्याऊँ"
         ],
         "entities": {
           "subjects": [
             {
-              "text": "गेंद",
+              "text": "म्याऊँ",
               "id": "",
               "kind": "noun",
               "source": "heuristic"
             }
           ],
           "targets": [],
-          "objects": [
-            {
-              "text": "पीछे",
-              "id": "",
-              "kind": "noun",
-              "source": "heuristic"
-            }
-          ],
+          "objects": [],
           "locations": [],
           "matched": [],
           "language": "hi"
@@ -617,259 +481,31 @@
             }
           ]
         },
-        "matches": [
-          {
-            "id": "run",
-            "kind": "locomotion",
-            "cues": {
-              "en": [
-                "run",
-                "runs",
-                "running",
-                "ran",
-                "sprint",
-                "sprints",
-                "dash",
-                "dashes",
-                "chase",
-                "chases",
-                "flee",
-                "flees"
-              ],
-              "hi": [
-                "दौड़",
-                "दौड़ता",
-                "दौड़ती",
-                "दौड़ते",
-                "दौड़ना",
-                "भाग",
-                "भागता",
-                "भागती",
-                "भागते",
-                "भागना"
-              ]
-            },
-            "body_part": "legs",
-            "start_pose": "leaning forward, weight on the back foot, ready to move",
-            "end_pose": "still moving forward in a running stride",
-            "motion": "the legs alternate in a running stride, the arms swing opposite the legs, the torso leans into the direction of travel",
-            "camera": [
-              "Tracking Shot",
-              "Lateral Follow"
-            ],
-            "duration": 3,
-            "cue": "भाग",
-            "token": "भागे"
-          }
-        ],
+        "matches": [],
         "action_plan": [
           {
             "id": "model",
             "kind": "model",
-            "verb": "Cat sprints towards the rolling ball chasing it",
+            "verb": "Cat jumps up and rubs against the child's leg",
             "source_token": "",
-            "action": "Cat sprints towards the rolling ball chasing it",
-            "object": "",
-            "body_part": "legs and whole body",
-            "start_pose": "standing still",
-            "end_pose": "mid-run chase",
-            "motion": "accelerating forward motion with focused eyes",
-            "camera_hint": [],
-            "duration_hint": 2.5,
-            "grounded": true,
-            "source": "model",
-            "deterministic": {
-              "id": "run",
-              "kind": "locomotion",
-              "verb": "भाग",
-              "source_token": "भागे",
-              "action": "runs the पीछे",
-              "action_phrase": "runs the पीछे",
-              "object": "पीछे",
-              "body_part": "legs",
-              "start_pose": "leaning forward, weight on the back foot, ready to move",
-              "end_pose": "still moving forward in a running stride",
-              "motion": "the legs alternate in a running stride, the arms swing opposite the legs, the torso leans into the direction of travel",
-              "camera_hint": [
-                "Tracking Shot",
-                "Lateral Follow"
-              ],
-              "duration_hint": 3,
-              "grounded": true
-            }
-          }
-        ],
-        "camera": {
-          "shot_type": "low angle tracking shot",
-          "angle": "eye level with cat",
-          "movement": "following the chase",
-          "rationale": "Low angle emphasizes cute character size, movement follows the chase action.",
-          "framing": "",
-          "grounded": true
-        },
-        "beats": [
-          {
-            "start_seconds": 0,
-            "end_seconds": 4,
-            "duration_seconds": 4,
-            "action": "Cat sprints towards the rolling ball chasing it",
-            "start_pose": "standing still",
-            "end_pose": "mid-run chase",
-            "camera": {
-              "shot_type": "low angle tracking shot",
-              "angle": "eye level with cat",
-              "movement": "following the chase",
-              "rationale": "Low angle emphasizes cute character size, movement follows the chase action.",
-              "framing": "",
-              "grounded": true
-            },
-            "secondary": "legs and whole body movement carries the detail",
-            "estimated": true
-          }
-        ],
-        "feasibility": {
-          "feasible": true,
-          "needed_seconds": 2.5,
-          "warnings": []
-        },
-        "abstract": false,
-        "interpretation": "The cat runs after chasing the ball.",
-        "warnings": [],
-        "model_note": "",
-        "model_subject": "Pyari Billi",
-        "model_target": "ball",
-        "model_location": "living_room",
-        "model_objects": [
-          "ball"
-        ]
-      },
-      {
-        "line_id": 4,
-        "text": "नाच दिखाओ, म्याऊँ, म्याऊँ!",
-        "source_text": "नाच दिखाओ, म्याऊँ, म्याऊँ!",
-        "normalized_text": "नाच दिखाओ, म्याऊँ, म्याऊँ!",
-        "language": "hi",
-        "line_kind": "dialogue",
-        "tokens": [
-          "नाच",
-          "दिखाओ",
-          "म्याऊँ",
-          "म्याऊँ"
-        ],
-        "entities": {
-          "subjects": [
-            {
-              "text": "दिखाओ",
-              "id": "",
-              "kind": "noun",
-              "source": "heuristic"
-            }
-          ],
-          "targets": [],
-          "objects": [
-            {
-              "text": "म्याऊँ",
-              "id": "",
-              "kind": "noun",
-              "source": "heuristic"
-            },
-            {
-              "text": "म्याऊँ",
-              "id": "",
-              "kind": "noun",
-              "source": "heuristic"
-            }
-          ],
-          "locations": [],
-          "matched": [],
-          "language": "hi"
-        },
-        "emotion": {
-          "label": "energetic",
-          "intensity": "none",
-          "cues": [
-            {
-              "id": "energetic",
-              "cue": "energetic"
-            }
-          ]
-        },
-        "matches": [
-          {
-            "id": "dance",
-            "kind": "locomotion",
-            "cues": {
-              "en": [
-                "dance",
-                "dances",
-                "dancing",
-                "danced",
-                "sway",
-                "sways"
-              ],
-              "hi": [
-                "नाच",
-                "नाचता",
-                "नाचती",
-                "नाचते",
-                "नाचना"
-              ]
-            },
-            "body_part": "whole_body",
-            "start_pose": "standing, arms relaxed",
-            "end_pose": "still dancing, weight shifted",
-            "motion": "the body sways rhythmically, the arms and hips move with the beat, the feet step lightly",
-            "camera": [
-              "Full Shot",
-              "Static"
-            ],
-            "duration": 3.5,
-            "cue": "नाच",
-            "token": "नाच"
-          }
-        ],
-        "action_plan": [
-          {
-            "id": "model",
-            "kind": "model",
-            "verb": "Dancing and jumping",
-            "source_token": "",
-            "action": "Dancing and jumping",
+            "action": "Cat jumps up and rubs against the child's leg",
             "object": "",
             "body_part": "whole body",
-            "start_pose": "standing on hind legs",
-            "end_pose": "mid-air jump",
-            "motion": "cat hops around energetically interacting with the ball",
+            "start_pose": "standing on floor",
+            "end_pose": "paws on knee",
+            "motion": "energetic leap then rubbing motion",
             "camera_hint": [],
             "duration_hint": 2.5,
             "grounded": true,
             "source": "model",
-            "deterministic": {
-              "id": "dance",
-              "kind": "locomotion",
-              "verb": "नाच",
-              "source_token": "नाच",
-              "action": "dances the दिखाओ",
-              "action_phrase": "dances the दिखाओ",
-              "object": "दिखाओ",
-              "body_part": "whole_body",
-              "start_pose": "standing, arms relaxed",
-              "end_pose": "still dancing, weight shifted",
-              "motion": "the body sways rhythmically, the arms and hips move with the beat, the feet step lightly",
-              "camera_hint": [
-                "Full Shot",
-                "Static"
-              ],
-              "duration_hint": 3.5,
-              "grounded": true
-            }
+            "deterministic": null
           }
         ],
         "camera": {
-          "shot_type": "wide shot",
-          "angle": "eye-level",
-          "movement": "dynamic tracking",
-          "rationale": "follows the movement to capture the full range of playful action in colorful 3D animation",
+          "shot_type": "low angle",
+          "angle": "looking up",
+          "movement": "tilt up",
+          "rationale": "showing the cat's playful energy from below",
           "framing": "",
           "grounded": true
         },
@@ -878,14 +514,14 @@
             "start_seconds": 0,
             "end_seconds": 4,
             "duration_seconds": 4,
-            "action": "Dancing and jumping",
-            "start_pose": "standing on hind legs",
-            "end_pose": "mid-air jump",
+            "action": "Cat jumps up and rubs against the child's leg",
+            "start_pose": "standing on floor",
+            "end_pose": "paws on knee",
             "camera": {
-              "shot_type": "wide shot",
-              "angle": "eye-level",
-              "movement": "dynamic tracking",
-              "rationale": "follows the movement to capture the full range of playful action in colorful 3D animation",
+              "shot_type": "low angle",
+              "angle": "looking up",
+              "movement": "tilt up",
+              "rationale": "showing the cat's playful energy from below",
               "framing": "",
               "grounded": true
             },
@@ -898,146 +534,96 @@
           "needed_seconds": 2.5,
           "warnings": []
         },
-        "abstract": false,
-        "interpretation": "The owner asks the cat to perform a dance or play energetically.",
+        "abstract": true,
+        "interpretation": "The cat responds with another meow while moving closer.",
         "warnings": [],
         "model_note": "",
-        "model_subject": "Pyari Billi",
-        "model_target": "whole body",
+        "model_subject": "pyari_billi",
+        "model_target": "child_owner",
         "model_location": "living_room",
-        "model_objects": [
-          "ball"
-        ]
+        "model_objects": []
       },
       {
-        "line_id": 5,
-        "text": "इधर उछलती, उधर उछलती,",
-        "source_text": "इधर उछलती, उधर उछलती,",
-        "normalized_text": "इधर उछलती, उधर उछलती,",
+        "line_id": 4,
+        "text": "म्याऊँ, म्याऊँ!",
+        "source_text": "म्याऊँ, म्याऊँ!",
+        "normalized_text": "म्याऊँ, म्याऊँ!",
         "language": "hi",
-        "line_kind": "action",
+        "line_kind": "sound",
         "tokens": [
-          "इधर",
-          "उछलती",
-          "उधर",
-          "उछलती"
+          "म्याऊँ",
+          "म्याऊँ"
         ],
         "entities": {
           "subjects": [
             {
-              "text": "उधर",
+              "text": "म्याऊँ",
               "id": "",
               "kind": "noun",
               "source": "heuristic"
             }
           ],
           "targets": [],
-          "objects": [
-            {
-              "text": "इधर",
-              "id": "",
-              "kind": "noun",
-              "source": "heuristic"
-            }
-          ],
+          "objects": [],
           "locations": [],
           "matched": [],
           "language": "hi"
         },
         "emotion": {
-          "label": "",
+          "label": "insistent",
           "intensity": "none",
-          "cues": []
+          "cues": [
+            {
+              "id": "insistent",
+              "cue": "insistent"
+            }
+          ]
         },
-        "matches": [
-          {
-            "id": "jump",
-            "kind": "locomotion",
-            "cues": {
-              "en": [
-                "jump",
-                "jumps",
-                "jumping",
-                "jumped",
-                "leap",
-                "leaps",
-                "leaping",
-                "leaped",
-                "hop",
-                "hops",
-                "hopping"
-              ],
-              "hi": [
-                "कूद",
-                "कूदता",
-                "कूदती",
-                "कूड़ता",
-                "कूड़ती",
-                "कूड़ते",
-                "कूदना",
-                "कूदना",
-                "उछल"
-              ]
-            },
-            "body_part": "legs",
-            "start_pose": "knees bent, body compressed, weight on the feet",
-            "end_pose": "feet back on the ground, body extended after the landing",
-            "motion": "the knees bend to load the jump, the legs push off the ground, the body rises into the air, then the feet land and absorb the weight",
-            "camera": [
-              "Full Shot",
-              "Low Angle"
-            ],
-            "duration": 2.5,
-            "cue": "उछल",
-            "token": "उछलती"
-          }
-        ],
+        "matches": [],
         "action_plan": [
           {
-            "id": "jump",
-            "kind": "locomotion",
-            "verb": "उछल",
-            "source_token": "उछलती",
-            "action": "jumps the इधर",
-            "action_phrase": "jumps the इधर",
-            "object": "इधर",
-            "body_part": "legs",
-            "start_pose": "knees bent, body compressed, weight on the feet",
-            "end_pose": "feet back on the ground, body extended after the landing",
-            "motion": "the knees bend to load the jump, the legs push off the ground, the body rises into the air, then the feet land and absorb the weight",
-            "camera_hint": [
-              "Full Shot",
-              "Low Angle"
-            ],
+            "id": "model",
+            "kind": "model",
+            "verb": "Cat jumps slightly and paws at air",
+            "source_token": "",
+            "action": "Cat jumps slightly and paws at air",
+            "object": "",
+            "body_part": "whole body and paw",
+            "start_pose": "standing on hind legs",
+            "end_pose": "mid-air jump",
+            "motion": "bouncy upward movement",
+            "camera_hint": [],
             "duration_hint": 2.5,
-            "grounded": true
+            "grounded": true,
+            "source": "model",
+            "deterministic": null
           }
         ],
         "camera": {
-          "shot_type": "Full Shot",
-          "angle": "Low Angle",
-          "movement": "Tilt Up",
-          "rationale": "the body leaves the ground — the whole body and the vertical motion must stay in frame",
+          "shot_type": "medium shot",
+          "angle": "low angle looking up",
+          "movement": "tilt up to follow jump",
+          "rationale": "captures the playful energy and height of the cat's action in colorful 3D space",
           "framing": "",
           "grounded": true
         },
         "beats": [
           {
             "start_seconds": 0,
-            "end_seconds": 5,
-            "duration_seconds": 5,
-            "action": "jumps the इधर",
-            "start_pose": "knees bent, body compressed, weight on the feet",
-            "end_pose": "feet back on the ground, body extended after the landing",
+            "end_seconds": 4,
+            "duration_seconds": 4,
+            "action": "Cat jumps slightly and paws at air",
+            "start_pose": "standing on hind legs",
+            "end_pose": "mid-air jump",
             "camera": {
-              "shot_type": "Full Shot",
-              "angle": "Low Angle",
-              "movement": "Tilt Up",
-              "rationale": "the body leaves the ground — the whole body and the vertical motion must stay in frame",
+              "shot_type": "medium shot",
+              "angle": "low angle looking up",
+              "movement": "tilt up to follow jump",
+              "rationale": "captures the playful energy and height of the cat's action in colorful 3D space",
               "framing": "",
               "grounded": true
             },
-            "secondary": "legs movement carries the detail",
+            "secondary": "whole body and paw movement carries the detail",
             "estimated": true
           }
         ],
@@ -1046,41 +632,137 @@
           "needed_seconds": 2.5,
           "warnings": []
         },
-        "abstract": false,
-        "interpretation": "उधर jumps the इधर",
-        "warnings": []
+        "abstract": true,
+        "interpretation": "The cat meows again with more energy.",
+        "warnings": [],
+        "model_note": "Dynamic movement rendered with soft cinematic rendering.",
+        "model_subject": "pyari_billi",
+        "model_target": "child_owner",
+        "model_location": "living_room",
+        "model_objects": []
       },
       {
-        "line_id": 6,
-        "text": "गेंद के पीछे भागे!",
-        "source_text": "गेंद के पीछे भागे!",
-        "normalized_text": "गेंद के पीछे भागे!",
+        "line_id": 5,
+        "text": "म्याऊँ, म्याऊँ!",
+        "source_text": "म्याऊँ, म्याऊँ!",
+        "normalized_text": "म्याऊँ, म्याऊँ!",
         "language": "hi",
-        "line_kind": "action",
+        "line_kind": "sound",
         "tokens": [
-          "गेंद",
-          "के",
-          "पीछे",
-          "भागे"
+          "म्याऊँ",
+          "म्याऊँ"
         ],
         "entities": {
           "subjects": [
             {
-              "text": "गेंद",
+              "text": "म्याऊँ",
               "id": "",
               "kind": "noun",
               "source": "heuristic"
             }
           ],
           "targets": [],
-          "objects": [
+          "objects": [],
+          "locations": [],
+          "matched": [],
+          "language": "hi"
+        },
+        "emotion": {
+          "label": "playful",
+          "intensity": "none",
+          "cues": [
             {
-              "text": "पीछे",
+              "id": "playful",
+              "cue": "playful"
+            }
+          ]
+        },
+        "matches": [],
+        "action_plan": [
+          {
+            "id": "model",
+            "kind": "model",
+            "verb": "Cat rubs head against Child Owner's leg",
+            "source_token": "",
+            "action": "Cat rubs head against Child Owner's leg",
+            "object": "",
+            "body_part": "head and body",
+            "start_pose": "standing apart",
+            "end_pose": "leaning against leg",
+            "motion": "gentle rubbing motion",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": true,
+            "source": "model",
+            "deterministic": null
+          }
+        ],
+        "camera": {
+          "shot_type": "close-up",
+          "angle": "eye level",
+          "movement": "static",
+          "rationale": "focuses on the affectionate interaction and cute facial expression with warm lighting",
+          "framing": "",
+          "grounded": true
+        },
+        "beats": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 4,
+            "duration_seconds": 4,
+            "action": "Cat rubs head against Child Owner's leg",
+            "start_pose": "standing apart",
+            "end_pose": "leaning against leg",
+            "camera": {
+              "shot_type": "close-up",
+              "angle": "eye level",
+              "movement": "static",
+              "rationale": "focuses on the affectionate interaction and cute facial expression with warm lighting",
+              "framing": "",
+              "grounded": true
+            },
+            "secondary": "head and body movement carries the detail",
+            "estimated": true
+          }
+        ],
+        "feasibility": {
+          "feasible": true,
+          "needed_seconds": 2.5,
+          "warnings": []
+        },
+        "abstract": true,
+        "interpretation": "The cat continues meowing insistently.",
+        "warnings": [],
+        "model_note": "Clean simple background keeps focus on characters.",
+        "model_subject": "pyari_billi",
+        "model_target": "child_owner",
+        "model_location": "living_room",
+        "model_objects": []
+      },
+      {
+        "line_id": 6,
+        "text": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+        "source_text": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+        "normalized_text": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+        "language": "hi",
+        "line_kind": "narration",
+        "tokens": [
+          "म्याऊँ",
+          "म्याऊँ",
+          "म्याऊँ",
+          "म्याऊँ"
+        ],
+        "entities": {
+          "subjects": [
+            {
+              "text": "म्याऊँ",
               "id": "",
               "kind": "noun",
               "source": "heuristic"
             }
           ],
+          "targets": [],
+          "objects": [],
           "locations": [],
           "matched": [],
           "language": "hi"
@@ -1090,108 +772,64 @@
           "intensity": "none",
           "cues": []
         },
-        "matches": [
-          {
-            "id": "run",
-            "kind": "locomotion",
-            "cues": {
-              "en": [
-                "run",
-                "runs",
-                "running",
-                "ran",
-                "sprint",
-                "sprints",
-                "dash",
-                "dashes",
-                "chase",
-                "chases",
-                "flee",
-                "flees"
-              ],
-              "hi": [
-                "दौड़",
-                "दौड़ता",
-                "दौड़ती",
-                "दौड़ते",
-                "दौड़ना",
-                "भाग",
-                "भागता",
-                "भागती",
-                "भागते",
-                "भागना"
-              ]
-            },
-            "body_part": "legs",
-            "start_pose": "leaning forward, weight on the back foot, ready to move",
-            "end_pose": "still moving forward in a running stride",
-            "motion": "the legs alternate in a running stride, the arms swing opposite the legs, the torso leans into the direction of travel",
-            "camera": [
-              "Tracking Shot",
-              "Lateral Follow"
-            ],
-            "duration": 3,
-            "cue": "भाग",
-            "token": "भागे"
-          }
-        ],
+        "matches": [],
         "action_plan": [
           {
-            "id": "run",
-            "kind": "locomotion",
-            "verb": "भाग",
-            "source_token": "भागे",
-            "action": "runs the पीछे",
-            "action_phrase": "runs the पीछे",
-            "object": "पीछे",
-            "body_part": "legs",
-            "start_pose": "leaning forward, weight on the back foot, ready to move",
-            "end_pose": "still moving forward in a running stride",
-            "motion": "the legs alternate in a running stride, the arms swing opposite the legs, the torso leans into the direction of travel",
-            "camera_hint": [
-              "Tracking Shot",
-              "Lateral Follow"
-            ],
-            "duration_hint": 3,
-            "grounded": true
+            "id": "unspecified",
+            "kind": "unresolved",
+            "verb": "",
+            "source_token": "",
+            "action": "म्याऊँ performs the action described in the line",
+            "object": "",
+            "body_part": "whole_body",
+            "start_pose": "the pose before the described action",
+            "end_pose": "the pose after the described action",
+            "motion": "the visible action described in the source line, performed clearly",
+            "camera_hint": [],
+            "duration_hint": 2.5,
+            "grounded": false,
+            "note": "no known verb matched — the model (or the user) must state the visible action explicitly"
           }
         ],
         "camera": {
-          "shot_type": "Tracking Shot",
+          "shot_type": "Medium Shot",
           "angle": "Eye Level",
-          "movement": "Tracking",
-          "rationale": "the character travels through the frame, so the camera follows the movement",
+          "movement": "Static",
+          "rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
           "framing": "",
-          "grounded": true
+          "grounded": false
         },
         "beats": [
           {
             "start_seconds": 0,
             "end_seconds": 5,
             "duration_seconds": 5,
-            "action": "runs the पीछे",
-            "start_pose": "leaning forward, weight on the back foot, ready to move",
-            "end_pose": "still moving forward in a running stride",
+            "action": "म्याऊँ performs the action described in the line",
+            "start_pose": "the pose before the described action",
+            "end_pose": "the pose after the described action",
             "camera": {
-              "shot_type": "Tracking Shot",
+              "shot_type": "Medium Shot",
               "angle": "Eye Level",
-              "movement": "Tracking",
-              "rationale": "the character travels through the frame, so the camera follows the movement",
+              "movement": "Static",
+              "rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
               "framing": "",
-              "grounded": true
+              "grounded": false
             },
-            "secondary": "legs movement carries the detail",
+            "secondary": "whole_body movement carries the detail",
             "estimated": true
           }
         ],
         "feasibility": {
           "feasible": true,
-          "needed_seconds": 3,
+          "needed_seconds": 2.5,
           "warnings": []
         },
-        "abstract": false,
-        "interpretation": "गेंद runs the पीछे",
-        "warnings": []
+        "abstract": true,
+        "interpretation": "म्याऊँ performs the action described in the line (as written)",
+        "warnings": [
+          "no known verb matched this line — the visible action must be stated explicitly",
+          "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+        ]
       },
       {
         "line_id": 7,
@@ -4877,7 +4515,7 @@
       "parent_line_id": null,
       "lyric_text": "",
       "lyric_segment": "",
-      "semantic_meaning": "The cat meows repeatedly to express excitement or hunger.",
+      "semantic_meaning": "The cat meows loudly to demand attention from the owner.",
       "visual_event": "",
       "shot_id": null,
       "shot_number": 1,
@@ -4888,34 +4526,34 @@
       "continuity_refs": [],
       "line_from": 1,
       "line_to": 2,
-      "source_line": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+      "source_line": "म्याऊँ, म्याऊँ!",
       "source_line_id": 1,
       "language": "hi",
       "line_kind": "sound",
       "action_plan": [
         {
-          "action": "Meowing loudly",
-          "body_part": "mouth",
-          "start_pose": "mouth closed",
-          "end_pose": "mouth open wide",
-          "motion": "mouth opens and closes rapidly four times in sequence",
+          "action": "Cat tilts head and opens mouth to vocalize",
+          "body_part": "head",
+          "start_pose": "sitting on floor",
+          "end_pose": "head tilted up",
+          "motion": "quick tilt followed by mouth opening",
           "grounded": true
         }
       ],
-      "camera_rationale": "focus on facial expression to capture the sound source within warm lighting",
+      "camera_rationale": "capturing the expressive face of the cat in 3D animation style",
       "beats": [
         {
           "start_seconds": 0,
           "end_seconds": 4,
-          "action": "Meowing loudly",
-          "start_pose": "mouth closed",
-          "end_pose": "mouth open wide",
+          "action": "Cat tilts head and opens mouth to vocalize",
+          "start_pose": "sitting on floor",
+          "end_pose": "head tilted up",
           "camera": {
             "shot_type": "close-up",
             "angle": "eye-level",
             "movement": "static"
           },
-          "secondary": "mouth movement carries the detail",
+          "secondary": "head movement carries the detail",
           "estimated": true
         }
       ],
@@ -5037,7 +4675,7 @@
       "parent_line_id": null,
       "lyric_text": "",
       "lyric_segment": "",
-      "semantic_meaning": "The owner instructs the cat to wag its tail while it meows.",
+      "semantic_meaning": "The cat responds with another meow while moving closer.",
       "visual_event": "",
       "shot_id": null,
       "shot_number": 1,
@@ -5048,34 +4686,34 @@
       "continuity_refs": [],
       "line_from": 3,
       "line_to": 4,
-      "source_line": "पूँछ हिलाओ, म्याऊँ, म्याऊँ!",
+      "source_line": "म्याऊँ, म्याऊँ!",
       "source_line_id": 3,
       "language": "hi",
-      "line_kind": "dialogue",
+      "line_kind": "sound",
       "action_plan": [
         {
-          "action": "Wagging tail",
-          "body_part": "tail",
-          "start_pose": "tail resting still",
-          "end_pose": "tail swaying side to side",
-          "motion": "tail moves rhythmically left and right in a smooth motion",
+          "action": "Cat jumps up and rubs against the child's leg",
+          "body_part": "whole body",
+          "start_pose": "standing on floor",
+          "end_pose": "paws on knee",
+          "motion": "energetic leap then rubbing motion",
           "grounded": true
         }
       ],
-      "camera_rationale": "tracking shot to emphasize the movement of the tail against the clean background",
+      "camera_rationale": "showing the cat's playful energy from below",
       "beats": [
         {
           "start_seconds": 0,
           "end_seconds": 4,
-          "action": "Wagging tail",
-          "start_pose": "tail resting still",
-          "end_pose": "tail swaying side to side",
+          "action": "Cat jumps up and rubs against the child's leg",
+          "start_pose": "standing on floor",
+          "end_pose": "paws on knee",
           "camera": {
-            "shot_type": "medium close-up",
-            "angle": "side view",
-            "movement": "slow pan"
+            "shot_type": "low angle",
+            "angle": "looking up",
+            "movement": "tilt up"
           },
-          "secondary": "tail movement carries the detail",
+          "secondary": "whole body movement carries the detail",
           "estimated": true
         }
       ],
@@ -5197,7 +4835,7 @@
       "parent_line_id": null,
       "lyric_text": "",
       "lyric_segment": "",
-      "semantic_meaning": "उधर jumps the इधर",
+      "semantic_meaning": "The cat continues meowing insistently.",
       "visual_event": "",
       "shot_id": null,
       "shot_number": 1,
@@ -5208,34 +4846,34 @@
       "continuity_refs": [],
       "line_from": 5,
       "line_to": 6,
-      "source_line": "इधर उछलती, उधर उछलती,",
+      "source_line": "म्याऊँ, म्याऊँ!",
       "source_line_id": 5,
       "language": "hi",
-      "line_kind": "action",
+      "line_kind": "sound",
       "action_plan": [
         {
-          "action": "jumps the इधर",
-          "body_part": "legs",
-          "start_pose": "knees bent, body compressed, weight on the feet",
-          "end_pose": "feet back on the ground, body extended after the landing",
-          "motion": "the knees bend to load the jump, the legs push off the ground, the body rises into the air, then the feet land and absorb the weight",
+          "action": "Cat rubs head against Child Owner's leg",
+          "body_part": "head and body",
+          "start_pose": "standing apart",
+          "end_pose": "leaning against leg",
+          "motion": "gentle rubbing motion",
           "grounded": true
         }
       ],
-      "camera_rationale": "the body leaves the ground — the whole body and the vertical motion must stay in frame",
+      "camera_rationale": "focuses on the affectionate interaction and cute facial expression with warm lighting",
       "beats": [
         {
           "start_seconds": 0,
-          "end_seconds": 5,
-          "action": "jumps the इधर",
-          "start_pose": "knees bent, body compressed, weight on the feet",
-          "end_pose": "feet back on the ground, body extended after the landing",
+          "end_seconds": 4,
+          "action": "Cat rubs head against Child Owner's leg",
+          "start_pose": "standing apart",
+          "end_pose": "leaning against leg",
           "camera": {
-            "shot_type": "Full Shot",
-            "angle": "Low Angle",
-            "movement": "Tilt Up"
+            "shot_type": "close-up",
+            "angle": "eye level",
+            "movement": "static"
           },
-          "secondary": "legs movement carries the detail",
+          "secondary": "head and body movement carries the detail",
           "estimated": true
         }
       ],
@@ -5365,7 +5003,7 @@
       "parent_line_id": null,
       "lyric_text": "",
       "lyric_segment": "",
-      "semantic_meaning": "गेंद runs the पीछे",
+      "semantic_meaning": "म्याऊँ performs the action described in the line (as written)",
       "visual_event": "",
       "shot_id": null,
       "shot_number": 1,
@@ -5376,38 +5014,41 @@
       "continuity_refs": [],
       "line_from": 6,
       "line_to": 7,
-      "source_line": "गेंद के पीछे भागे!",
+      "source_line": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
       "source_line_id": 6,
       "language": "hi",
-      "line_kind": "action",
+      "line_kind": "narration",
       "action_plan": [
         {
-          "action": "runs the पीछे",
-          "body_part": "legs",
-          "start_pose": "leaning forward, weight on the back foot, ready to move",
-          "end_pose": "still moving forward in a running stride",
-          "motion": "the legs alternate in a running stride, the arms swing opposite the legs, the torso leans into the direction of travel",
-          "grounded": true
+          "action": "म्याऊँ performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
         }
       ],
-      "camera_rationale": "the character travels through the frame, so the camera follows the movement",
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
       "beats": [
         {
           "start_seconds": 0,
           "end_seconds": 5,
-          "action": "runs the पीछे",
-          "start_pose": "leaning forward, weight on the back foot, ready to move",
-          "end_pose": "still moving forward in a running stride",
+          "action": "म्याऊँ performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
           "camera": {
-            "shot_type": "Tracking Shot",
+            "shot_type": "Medium Shot",
             "angle": "Eye Level",
-            "movement": "Tracking"
+            "movement": "Static"
           },
-          "secondary": "legs movement carries the detail",
+          "secondary": "whole_body movement carries the detail",
           "estimated": true
         }
       ],
-      "semantic_warnings": [],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
       "shots": [
         {
           "shot_id": "4-A",
@@ -6048,14 +5689,2279 @@
           "continuity_refs": []
         }
       ]
+    },
+    {
+      "scene_number": 9,
+      "title": "Dance Continues",
+      "story_beat": "Beat 4: Playtime — Cat dances energetically then jumps back and forth",
+      "duration_seconds": 6,
+      "characters": [
+        "pyari_billi"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat dances energetically then jumps back and forth across the room",
+      "emotion": "energetic, playful",
+      "expression": "eyes wide open, mouth open for meow sounds",
+      "body_language": "whole body dancing with tail wagging, jumping in place then moving forward",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm sunlight streaming through window",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table",
+      "continuity_from_previous_scene": "same living_room from Scene 8 end state, cat still dancing after tail wag, camera holds Medium Shot framing",
+      "transition_to_next_scene": "cat's dance momentum leads into jumping motion toward ball",
+      "dialogue": [],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, dancing energetically in bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, tail wagging visibly, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat body swaying rhythmically with dance, tail wagging back and forth, slight hop in place, whole body moving with playful energy, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "म्याऊँ performs the action described in the line (as written)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 12,
+      "line_to": 13,
+      "source_line": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+      "source_line_id": 12,
+      "language": "hi",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "म्याऊँ performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "म्याऊँ performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "9-A",
+          "shot_number": 1,
+          "lyric_segment": "नाच दिखाओ, म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Cat performs dance for owner after request",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat dances with whole body movement",
+          "emotion": "energetic",
+          "expression": "eyes wide open, mouth open for meow sounds",
+          "body_language": "whole body dancing, tail wagging visibly",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, dancing energetically in bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, tail wagging visibly, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat body swaying rhythmically with dance, tail wagging back and forth, slight hop in place, whole body moving with playful energy, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3,
+          "start_time": 0,
+          "end_time": 3,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        },
+        {
+          "shot_id": "9-B",
+          "shot_number": 2,
+          "lyric_segment": "इधर उछलती, उधर उछलती,",
+          "semantic_meaning": "Cat jumps back and forth across room space",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat jumps forward then backward in place",
+          "emotion": "energetic",
+          "expression": "eyes wide open, mouth open for meow sounds",
+          "body_language": "jumping back and forth, whole body leaping motion",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, jumping back and forth in bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat jumping forward then backward in place, whole body leaping with energy, slight rotation during jumps, tail swaying with motion, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3,
+          "start_time": 3,
+          "end_time": 6,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": true,
+          "reference_source": "PREVIOUS_IMAGE",
+          "continuity_refs": [
+            "9-A"
+          ]
+        }
+      ]
+    },
+    {
+      "scene_number": 10,
+      "title": "Chase the Ball",
+      "story_beat": "Beat 4: Playtime — Cat chases ball across room with energy",
+      "duration_seconds": 7,
+      "characters": [
+        "pyari_billi"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat runs after colorful ball with energetic movement",
+      "emotion": "excited, playful",
+      "expression": "eyes wide open, mouth open for meow sounds",
+      "body_language": "whole body moving forward, tail extended for balance",
+      "camera": {
+        "shot_type": "Tracking Shot",
+        "angle": "Eye Level",
+        "movement": "Tracking"
+      },
+      "lighting": "warm sunlight streaming through window",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball visible",
+      "continuity_from_previous_scene": "same living_room from Scene 9 end state, cat's jumping momentum transitions to forward chase, camera begins tracking movement",
+      "transition_to_next_scene": "chase ends with cat pausing to meow sounds",
+      "dialogue": [],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, chasing colorful red and white spotted rubber ball in bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat running forward chasing ball, whole body moving smoothly across floor, tail extended for balance, camera tracking alongside movement, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "दूध performs the action described in the line (involving पियो)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 13,
+      "line_to": 14,
+      "source_line": "दूध पियो, म्याऊँ, म्याऊँ!",
+      "source_line_id": 13,
+      "language": "hi",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "दूध performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "दूध performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "10-A",
+          "shot_number": 1,
+          "lyric_segment": "इधर उछलती, उधर उछलती,",
+          "semantic_meaning": "Cat continues jumping motion from previous scene",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat jumps and moves toward ball location",
+          "emotion": "energetic",
+          "expression": "eyes wide open, mouth open for meow sounds",
+          "body_language": "jumping forward with momentum, tail swaying",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, jumping forward in bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat jumping forward with momentum, whole body leaping toward ball direction, tail swaying with motion, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 1.4,
+          "start_time": 0,
+          "end_time": 1.4,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": true,
+          "reference_source": "PREVIOUS_IMAGE",
+          "continuity_refs": [
+            "9-B"
+          ]
+        },
+        {
+          "shot_id": "10-B",
+          "shot_number": 2,
+          "lyric_segment": "गेंद के पीछे भागे!",
+          "semantic_meaning": "Cat runs after ball with full chase motion",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat runs across room chasing colorful ball",
+          "emotion": "excited",
+          "expression": "eyes wide open, mouth open for meow sounds",
+          "body_language": "whole body running forward, tail extended for balance",
+          "camera": {
+            "shot_type": "Tracking Shot",
+            "angle": "Eye Level",
+            "movement": "Tracking"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball visible ahead",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, running after colorful red and white spotted rubber ball in bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat running forward chasing ball, whole body moving smoothly across floor, tail extended for balance, camera tracking alongside movement, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 5.6,
+          "start_time": 1.4,
+          "end_time": 7,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": true,
+          "reference_source": "PREVIOUS_IMAGE",
+          "continuity_refs": [
+            "10-A"
+          ]
+        }
+      ]
+    },
+    {
+      "scene_number": 11,
+      "title": "Meow Sounds",
+      "story_beat": "Beat 4: Playtime — Cat meows excitedly after chase",
+      "duration_seconds": 3,
+      "characters": [
+        "pyari_billi"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat pauses and meows excitedly after ball chase",
+      "emotion": "excited, happy",
+      "expression": "eyes wide open, mouth open for meow sounds",
+      "body_language": "standing upright, tail wagging with excitement",
+      "camera": {
+        "shot_type": "Medium Close-Up",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm sunlight streaming through window",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby",
+      "continuity_from_previous_scene": "same living_room from Scene 10 end state, cat's chase ends with pause to meow, camera holds Medium Close-Up for facial expression",
+      "transition_to_next_scene": "meowing continues as story progresses toward applause beat",
+      "dialogue": [],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, standing upright in bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat's head bobbing slightly with meow sounds, tail wagging back and forth, slight body sway with excitement, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "म्याऊँ wags the पूँछ",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 14,
+      "line_to": 15,
+      "source_line": "पूँछ हिलाओ, म्याऊँ, म्याऊँ!",
+      "source_line_id": 14,
+      "language": "hi",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "wags the पूँछ",
+          "body_part": "tail_or_hand",
+          "start_pose": "still",
+          "end_pose": "still, after the movement",
+          "motion": "the appendage moves side to side in a repeated, rhythmic swing",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "wags the पूँछ",
+          "start_pose": "still",
+          "end_pose": "still, after the movement",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "tail_or_hand movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "11-A",
+          "shot_number": 1,
+          "lyric_segment": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Cat meows excitedly after ball chase",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat meows with whole body movement",
+          "emotion": "excited",
+          "expression": "eyes wide open, mouth open for meow sounds",
+          "body_language": "standing upright, tail wagging visibly, head bobbing slightly",
+          "camera": {
+            "shot_type": "Medium Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, standing upright in bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's head bobbing slightly with meow sounds, tail wagging back and forth, slight body sway with excitement, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3,
+          "start_time": 0,
+          "end_time": 3,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 12,
+      "title": "Adorable Close-Up",
+      "story_beat": "Beat 2: Physical Features — Close-up shots of paws, cheeks, and energetic movements.",
+      "duration_seconds": 9,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Close-up on cat's cute face/cheeks, child admiringly watching",
+      "emotion": "cute, joyful",
+      "expression": "eyes sparkling, cheeks puffed slightly, smiling",
+      "body_language": "standing upright, leaning towards child, tail curled gently",
+      "camera": {
+        "shot_type": "Extreme Close-Up",
+        "angle": "Eye Level",
+        "movement": "Slow Push In"
+      },
+      "lighting": "warm sunlight streaming through window",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby, ceramic white bowl filled with creamy milk nearby",
+      "continuity_from_previous_scene": "same living_room from Scene 11 end state, cat's meow subsides as child_owner enters frame from right, camera adjusts to Two Shot framing for the adorable close-up",
+      "transition_to_next_scene": "child_owner steps back slightly to give space for dance request, camera pulls back to Medium Shot",
+      "dialogue": [
+        {
+          "speaker": "child_owner",
+          "line": "सबको प्यारी लागे!",
+          "expression": "smiling, admiring",
+          "emotion": "joyful",
+          "pitch": "medium"
+        }
+      ],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, child_owner Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table colorful red and white spotted rubber ball nearby ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat's head tilting slightly with cuteness, cheeks puffing softly, eyes sparkling, child_owner's head nodding in approval, camera slowly pushing in towards cat's face, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "Verse performs the action described in the line (as written)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 16,
+      "line_to": 16,
+      "source_line": "**[Verse 2]**",
+      "source_line_id": 16,
+      "language": "en",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "Verse performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "Verse performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "12-A",
+          "shot_number": 1,
+          "lyric_segment": "सबको प्यारी लागे!",
+          "semantic_meaning": "Everyone finds the character adorable",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Close-up on cat's cute face/cheeks, child admiringly watching",
+          "emotion": "cute, joyful",
+          "expression": "eyes sparkling, cheeks puffed slightly, smiling",
+          "body_language": "standing upright, leaning towards child, tail curled gently",
+          "camera": {
+            "shot_type": "Extreme Close-Up",
+            "angle": "Eye Level",
+            "movement": "Slow Push In"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby, ceramic white bowl filled with creamy milk nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, child_owner Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table colorful red and white spotted rubber ball nearby ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's head tilting slightly with cuteness, cheeks puffing softly, eyes sparkling, child_owner's head nodding in approval, camera slowly pushing in towards cat's face, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 9,
+          "start_time": 0,
+          "end_time": 9,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "सबको प्यारी लागे!",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 13,
+      "title": "Dance Request",
+      "story_beat": "Beat 3: Dance Request — Cat drinks milk, wags tail, and dances for the owner.",
+      "duration_seconds": 9,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat wags tail and dances in place for the owner",
+      "emotion": "playful, energetic",
+      "expression": "eyes wide open, mouth open for meow sounds",
+      "body_language": "standing on hind legs slightly, tail wagging vigorously, body swaying rhythmically",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm sunlight streaming through window",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby, ceramic white bowl filled with creamy milk nearby",
+      "continuity_from_previous_scene": "same living_room from Scene 12 end state, child_owner steps back slightly to give space for dance request, camera pulls back to Medium Shot for full body dance",
+      "transition_to_next_scene": "dance continues as story progresses toward playtime beat",
+      "dialogue": [],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, child_owner Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table colorful red and white spotted rubber ball nearby ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat's tail wagging vigorously back and forth, body swaying rhythmically side to side, head bobbing with meow sounds, child_owner clapping hands gently in approval, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "उधर jumps the इधर",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 17,
+      "line_to": 17,
+      "source_line": "इधर उछलती, उधर उछलती,",
+      "source_line_id": 17,
+      "language": "hi",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "jumps the इधर",
+          "body_part": "legs",
+          "start_pose": "knees bent, body compressed, weight on the feet",
+          "end_pose": "feet back on the ground, body extended after the landing",
+          "motion": "the knees bend to load the jump, the legs push off the ground, the body rises into the air, then the feet land and absorb the weight",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the body leaves the ground — the whole body and the vertical motion must stay in frame",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "jumps the इधर",
+          "start_pose": "knees bent, body compressed, weight on the feet",
+          "end_pose": "feet back on the ground, body extended after the landing",
+          "camera": {
+            "shot_type": "Full Shot",
+            "angle": "Low Angle",
+            "movement": "Tilt Up"
+          },
+          "secondary": "legs movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "13-A",
+          "shot_number": 1,
+          "lyric_segment": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Cat meows repeatedly while dancing",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat wags tail and dances in place for the owner",
+          "emotion": "playful, energetic",
+          "expression": "eyes wide open, mouth open for meow sounds",
+          "body_language": "standing on hind legs slightly, tail wagging vigorously, body swaying rhythmically",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby, ceramic white bowl filled with creamy milk nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, child_owner Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table colorful red and white spotted rubber ball nearby ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's tail wagging vigorously back and forth, body swaying rhythmically side to side, head bobbing with meow sounds, child_owner clapping hands gently in approval, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 9,
+          "start_time": 0,
+          "end_time": 9,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 14,
+      "title": "Meow and Call",
+      "story_beat": "Beat 2: Physical Features — Close-up shots of paws, cheeks, and energetic movements.",
+      "duration_seconds": 6,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat meows repeatedly while standing on hind legs; Child Owner calls out to the cat",
+      "emotion": "playful, excited",
+      "expression": "Cat: mouth open wide for meow sounds; Child: smiling with hands gesturing towards cat",
+      "body_language": "Cat: standing on hind legs slightly, tail wagging vigorously; Child: leaning forward gently",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm sunlight streaming through window",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, ceramic white bowl filled with creamy milk nearby",
+      "continuity_from_previous_scene": "same living_room from Scene 13 end state, cat still dancing on hind legs slightly, child_owner watching from the side, camera holds Medium Shot for full body dance",
+      "transition_to_next_scene": "dance continues as story progresses toward playtime beat",
+      "dialogue": [
+        {
+          "speaker": "child_owner",
+          "line": "मेरी बिल्ली, म्याऊँ, म्याऊँ!",
+          "expression": "smiling, encouraging",
+          "emotion": "joyful",
+          "pitch": "high"
+        }
+      ],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat's mouth opening wide for meow sounds repeatedly, tail wagging vigorously back and forth, body swaying rhythmically side to side, child_owner gesturing hands towards cat with open palms, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "उधर jumps the इधर",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 17,
+      "line_to": 18,
+      "source_line": "इधर उछलती, उधर उछलती,",
+      "source_line_id": 17,
+      "language": "hi",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "jumps the इधर",
+          "body_part": "legs",
+          "start_pose": "knees bent, body compressed, weight on the feet",
+          "end_pose": "feet back on the ground, body extended after the landing",
+          "motion": "the knees bend to load the jump, the legs push off the ground, the body rises into the air, then the feet land and absorb the weight",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the body leaves the ground — the whole body and the vertical motion must stay in frame",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "jumps the इधर",
+          "start_pose": "knees bent, body compressed, weight on the feet",
+          "end_pose": "feet back on the ground, body extended after the landing",
+          "camera": {
+            "shot_type": "Full Shot",
+            "angle": "Low Angle",
+            "movement": "Tilt Up"
+          },
+          "secondary": "legs movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "14-A",
+          "shot_number": 1,
+          "lyric_segment": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Cat vocalizes meow sounds repeatedly while dancing",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat meows repeatedly",
+          "emotion": "playful, energetic",
+          "expression": "mouth open wide for meow sounds, eyes wide",
+          "body_language": "standing on hind legs slightly, tail wagging vigorously",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, ceramic white bowl filled with creamy milk nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, standing in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's mouth opening wide for meow sounds repeatedly, tail wagging vigorously back and forth, body swaying rhythmically side to side, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 2.5,
+          "start_time": 0,
+          "end_time": 2.5,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        },
+        {
+          "shot_id": "14-B",
+          "shot_number": 2,
+          "lyric_segment": "मेरी बिल्ली, म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Child Owner calls out to the cat affectionately",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Child Owner calls out 'My cat'",
+          "emotion": "joyful, loving",
+          "expression": "smiling with hands gesturing towards cat",
+          "body_language": "leaning forward gently, child_owner clapping hands gently in approval",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, ceramic white bowl filled with creamy milk nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's tail wagging vigorously back and forth, body swaying rhythmically side to side, child_owner gesturing hands towards cat with open palms, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3.5,
+          "start_time": 2.5,
+          "end_time": 6,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 15,
+      "title": "Clap and Sing",
+      "story_beat": "Beat 3: Dance Request — Cat drinks milk, wags tail, and dances for the owner.",
+      "duration_seconds": 12,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat claps paws together rhythmically; Both sing and sway together happily",
+      "emotion": "playful, joyful",
+      "expression": "Cat: eyes wide open, mouth moving for singing sounds; Child: smiling broadly, hands clapping or gesturing to sing",
+      "body_language": "Cat: standing on hind legs slightly, paws touching in a clap motion; Child: swaying body rhythmically",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm sunlight streaming through window",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby, ceramic white bowl filled with creamy milk nearby",
+      "continuity_from_previous_scene": "same living_room from Scene 14 end state, cat still dancing on hind legs slightly, child_owner watching beside cat, camera holds Medium Shot for full body dance",
+      "transition_to_next_scene": "dance continues as story progresses toward playtime beat",
+      "dialogue": [
+        {
+          "speaker": "child_owner",
+          "line": "ताली बजाओ, म्याऊँ, म्याऊँ!",
+          "expression": "encouraging, rhythmic",
+          "emotion": "excited",
+          "pitch": "medium"
+        },
+        {
+          "speaker": "child_owner",
+          "line": "साथ में गाओ, म्याऊँ, म्याऊँ!",
+          "expression": "smiling, inviting",
+          "emotion": "joyful",
+          "pitch": "high"
+        }
+      ],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table colorful red and white spotted rubber ball nearby ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat's paws touching together in a clap motion rhythmically, body swaying side to side, child_owner clapping hands gently in approval and swaying with cat, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "म्याऊँ performs the action described in the line (as written)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 19,
+      "line_to": 20,
+      "source_line": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+      "source_line_id": 19,
+      "language": "hi",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "म्याऊँ performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "म्याऊँ performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "15-A",
+          "shot_number": 1,
+          "lyric_segment": "ताली बजाओ, म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Cat plays the clapping action (paws) while meowing",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat claps paws together rhythmically",
+          "emotion": "playful, energetic",
+          "expression": "eyes wide open, mouth open for meow sounds",
+          "body_language": "standing on hind legs slightly, paws touching in a clap motion",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby, ceramic white bowl filled with creamy milk nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table colorful red and white spotted rubber ball nearby ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's paws touching together in a clap motion rhythmically, body swaying side to side, child_owner clapping hands gently in approval and swaying with cat, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 4,
+          "start_time": 0,
+          "end_time": 4,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        },
+        {
+          "shot_id": "15-B",
+          "shot_number": 2,
+          "lyric_segment": "साथ में गाओ, म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Both cat and child sing together in harmony",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Both sing and sway together happily",
+          "emotion": "joyful, harmonious",
+          "expression": "smiling broadly, mouth moving for singing sounds",
+          "body_language": "swaying body rhythmically, eyes closed in enjoyment",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, colorful red and white spotted rubber ball nearby, ceramic white bowl filled with creamy milk nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table colorful red and white spotted rubber ball nearby ceramic white bowl filled with creamy milk nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's paws touching together in a clap motion rhythmically, body swaying side to side, child_owner clapping hands gently in approval and swaying with cat, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 8,
+          "start_time": 4,
+          "end_time": 12,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 16,
+      "title": "Dance Request",
+      "story_beat": "Beat 3: Dance Request — Cat drinks milk, wags tail, and dances for the owner.",
+      "duration_seconds": 18,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat sings with child, wags tail, eyes sparkle, then meows loudly.",
+      "emotion": "playful, affectionate, joyful",
+      "expression": "Cat: mouth moving for singing/meowing; Child: smiling broadly, gesturing to sing",
+      "body_language": "Cat: swaying body rhythmically, tail wagging; Child: swaying and clapping gently",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm sunlight streaming through window",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+      "continuity_from_previous_scene": "same living_room from Scene 15 end state, cat still singing/swaying with child_owner beside cat, camera holds Medium Shot for full body dance",
+      "transition_to_next_scene": "dance transitions into playtime beat as cat finishes meowing and prepares to jump",
+      "dialogue": [
+        {
+          "speaker": "child_owner",
+          "line": "देखो, कितनी मुलायम पूँछ!",
+          "expression": "admiring, affectionate",
+          "emotion": "joyful",
+          "pitch": "medium"
+        },
+        {
+          "speaker": "child_owner",
+          "line": "आँखें चमक रही हैं!",
+          "expression": "amazed, delighted",
+          "emotion": "excited",
+          "pitch": "high"
+        },
+        {
+          "speaker": "pyari_billi",
+          "line": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+          "expression": "mouth open wide for meow sounds",
+          "emotion": "energetic",
+          "pitch": "medium"
+        }
+      ],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat swaying body rhythmically with tail wagging side to side, child_owner swaying gently and smiling, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "सबको performs the action described in the line (involving लागे)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 20,
+      "line_to": 23,
+      "source_line": "सबको प्यारी लागे!",
+      "source_line_id": 20,
+      "language": "hi",
+      "line_kind": "emotion",
+      "action_plan": [
+        {
+          "action": "सबको performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries an emotion or a state change, so the face is the subject of the frame",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "सबको performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly"
+      ],
+      "shots": [
+        {
+          "shot_id": "16-A",
+          "shot_number": 1,
+          "lyric_segment": "साथ में गाओ, म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Both cat and child sing together in harmony",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Both sing and sway together happily",
+          "emotion": "joyful, harmonious",
+          "expression": "smiling broadly, mouth moving for singing sounds",
+          "body_language": "swaying body rhythmically, eyes closed in enjoyment",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's body swaying side to side rhythmically, child_owner swaying gently and smiling, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 4,
+          "start_time": 0,
+          "end_time": 4,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        },
+        {
+          "shot_id": "16-B",
+          "shot_number": 2,
+          "lyric_segment": "मुलायम-सी इसकी पूँछ,",
+          "semantic_meaning": "Cat wags its soft tail gently",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat wags tail side to side while child watches",
+          "emotion": "playful, affectionate",
+          "expression": "eyes wide open, mouth smiling",
+          "body_language": "tail wagging gently left and right, body relaxed",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's tail wagging side to side gently, child_owner smiling and pointing at tail, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 4,
+          "start_time": 4,
+          "end_time": 8,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "CHARACTER_REFERENCE",
+          "continuity_refs": [
+            "pyari_billi"
+          ]
+        },
+        {
+          "shot_id": "16-C",
+          "shot_number": 3,
+          "lyric_segment": "आँखें चम-चम करतीं!",
+          "semantic_meaning": "Cat's eyes sparkle with joy",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat's eyes sparkle and blink happily",
+          "emotion": "joyful, excited",
+          "expression": "eyes sparkling, mouth smiling",
+          "body_language": "head tilted slightly, body swaying gently",
+          "camera": {
+            "shot_type": "Extreme Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's eyes sparkling and blinking gently, head tilting slightly, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 4,
+          "start_time": 8,
+          "end_time": 12,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "CHARACTER_REFERENCE",
+          "continuity_refs": [
+            "pyari_billi"
+          ]
+        },
+        {
+          "shot_id": "16-D",
+          "shot_number": 4,
+          "lyric_segment": "म्याऊँ, म्याऊँ, म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Cat meows loudly and energetically",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat opens mouth wide to meow loudly, child claps",
+          "emotion": "energetic, playful",
+          "expression": "mouth open wide for meow sounds",
+          "body_language": "standing on hind legs slightly, paws raised for meow",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's mouth opening wide and closing for meow sounds, body standing on hind legs, child_owner clapping hands gently, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 6,
+          "start_time": 12,
+          "end_time": 18,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "CHARACTER_REFERENCE",
+          "continuity_refs": [
+            "pyari_billi"
+          ]
+        }
+      ]
+    },
+    {
+      "scene_number": 17,
+      "title": "Heartfelt Affection",
+      "story_beat": "Beat 3: Dance Request — Cat drinks milk, wags tail, and dances for the owner.",
+      "duration_seconds": 3,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Glowing heart icons float softly around the characters, symbolizing love in everyone's hearts.",
+      "emotion": "warm, affectionate",
+      "expression": "Child: smiling gently; Cat: eyes soft and relaxed",
+      "body_language": "Characters standing close together, floating hearts animating in the air between them",
+      "camera": {
+        "shot_type": "Wide Shot",
+        "angle": "Eye Level",
+        "movement": "Slow Push In"
+      },
+      "lighting": "warm sunlight streaming through window with soft magical glow from hearts",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+      "continuity_from_previous_scene": "same living_room from Scene 16 end state, cat finished meowing and now standing still as child_owner stands beside cat, camera holds Wide Shot to capture floating hearts",
+      "transition_to_next_scene": "hearts fade slightly as cat's attention shifts to the milk bowl for soft meows",
+      "dialogue": [],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, glowing heart icons floating softly around characters, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "glowing heart icons floating softly up and around characters, cat standing still with relaxed posture, child_owner smiling gently, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "म्याऊँ plays the ताली",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 24,
+      "line_to": 24,
+      "source_line": "ताली बजाओ, म्याऊँ, म्याऊँ!",
+      "source_line_id": 24,
+      "language": "hi",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "plays the ताली",
+          "body_part": "hands_and_mouth",
+          "start_pose": "the instrument held ready",
+          "end_pose": "the instrument still in playing position",
+          "motion": "the instrument is lifted to the correct position against the body or the lips, the hands and mouth move in the playing motion",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the instrument or the mouth must read clearly — the frame stays close to it",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "plays the ताली",
+          "start_pose": "the instrument held ready",
+          "end_pose": "the instrument still in playing position",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "hands_and_mouth movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "17-A",
+          "shot_number": 1,
+          "lyric_segment": "सबके दिल में बसती!",
+          "semantic_meaning": "Love and affection reside in everyone's hearts",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Glowing heart icons float around characters softly",
+          "emotion": "warm, affectionate",
+          "expression": "Child: smiling gently; Cat: eyes soft and relaxed",
+          "body_language": "Characters standing close together, floating hearts animating in the air between them",
+          "camera": {
+            "shot_type": "Wide Shot",
+            "angle": "Eye Level",
+            "movement": "Slow Push In"
+          },
+          "lighting": "warm sunlight streaming through window with soft magical glow from hearts",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, glowing heart icons floating softly around characters, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "glowing heart icons floating softly up and around characters, cat standing still with relaxed posture, child_owner smiling gently, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3,
+          "start_time": 0,
+          "end_time": 3,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 18,
+      "title": "Expectant Meow",
+      "story_beat": "Beat 3: Dance Request — Cat drinks milk, wags tail, and dances for the owner.",
+      "duration_seconds": 5,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Pyari Billi looks at the milk bowl expectantly with big eyes and meows softly.",
+      "emotion": "hopeful, gentle",
+      "expression": "Cat: big eyes wide open looking at bowl; Child: observing with affection",
+      "body_language": "Cat leaning forward slightly towards bowl, head tilted; Child standing nearby watching",
+      "camera": {
+        "shot_type": "Medium Close-Up",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm sunlight streaming through window, soft focus on cat's face",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window, milk_bowl visible in frame",
+      "continuity_from_previous_scene": "same living_room from Scene 17 end state, hearts faded, camera transitions to Medium Close-Up on cat's face as attention shifts to bowl",
+      "transition_to_next_scene": "cat finishes soft meow and child_owner begins to speak soothingly",
+      "dialogue": [],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, ceramic white bowl filled with creamy milk small wooden spoon resting inside soft highlights isolated on neutral background visible nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat's head tilting slightly and eyes blinking softly, mouth opening gently for soft meow sounds, child_owner watching with gentle smile, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "साथ performs the action described in the line (involving गाओ)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 25,
+      "line_to": 25,
+      "source_line": "साथ में गाओ, म्याऊँ, म्याऊँ!",
+      "source_line_id": 25,
+      "language": "hi",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "साथ performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "साथ performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "18-A",
+          "shot_number": 1,
+          "lyric_segment": "म्याऊँ... म्याऊँ... म्याऊँ... म्याऊँ...",
+          "semantic_meaning": "Cat continues to meow softly and persistently looking for milk",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Pyari Billi looks at the bowl expectantly with big eyes and meows softly",
+          "emotion": "hopeful, gentle",
+          "expression": "Cat: big eyes wide open looking at bowl; Child: observing with affection",
+          "body_language": "Cat leaning forward slightly towards bowl, head tilted; Child standing nearby watching",
+          "camera": {
+            "shot_type": "Medium Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window, soft focus on cat's face",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window, milk_bowl visible in frame",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, ceramic white bowl filled with creamy milk small wooden spoon resting inside soft highlights isolated on neutral background visible nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's head tilting slightly and eyes blinking softly, mouth opening gently for soft meow sounds, child_owner watching with gentle smile, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 5,
+          "start_time": 0,
+          "end_time": 5,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "PREVIOUS_IMAGE",
+          "continuity_refs": [
+            "17-A"
+          ]
+        }
+      ]
+    },
+    {
+      "scene_number": 19,
+      "title": "Time to Sleep",
+      "story_beat": "Beat 3: Dance Request — Cat drinks milk, wags tail, and dances for the owner.",
+      "duration_seconds": 10,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Child Owner gently strokes the cat's head and tells her to sleep like a queen.",
+      "emotion": "caring, tender",
+      "expression": "Child: smiling lovingly; Cat: looking up calmly",
+      "body_language": "Child_owner hand stroking cat's head gently; Cat relaxed with eyes half-closed",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Slow Pan"
+      },
+      "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window, milk_bowl visible nearby",
+      "continuity_from_previous_scene": "same living_room from Scene 18 end state, cat finished meowing and now being soothed by child_owner, camera holds Medium Shot for tender moment",
+      "transition_to_next_scene": "cat settles down to sleep, transitioning to the bedroom or quiet corner",
+      "dialogue": [
+        {
+          "speaker": "child_owner",
+          "line": "सो जा मेरी रानी!",
+          "expression": "loving, gentle whisper",
+          "emotion": "caring, affectionate",
+          "pitch": "medium"
+        }
+      ],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, ceramic white bowl filled with creamy milk small wooden spoon resting inside soft highlights isolated on neutral background visible nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "child_owner's hand stroking cat's head gently, cat's eyes closing slowly and body relaxing, child_owner smiling lovingly, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "Verse performs the action described in the line (as written)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 26,
+      "line_to": 26,
+      "source_line": "**[Verse 3]**",
+      "source_line_id": 26,
+      "language": "en",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "Verse performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "Verse performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "19-A",
+          "shot_number": 1,
+          "lyric_segment": "सो जा मेरी रानी!",
+          "semantic_meaning": "Child tells the cat to sleep, treating her like a queen",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Child Owner gently strokes the cat's head and tells her to sleep like a queen",
+          "emotion": "caring, tender",
+          "expression": "Child: smiling lovingly; Cat: looking up calmly",
+          "body_language": "Child_owner hand stroking cat's head gently; Cat relaxed with eyes half-closed",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Slow Pan"
+          },
+          "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window, milk_bowl visible nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, ceramic white bowl filled with creamy milk small wooden spoon resting inside soft highlights isolated on neutral background visible nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "child_owner's hand stroking cat's head gently, cat's eyes closing slowly and body relaxing, child_owner smiling lovingly, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 10,
+          "start_time": 0,
+          "end_time": 10,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "PREVIOUS_IMAGE",
+          "continuity_refs": [
+            "18-A"
+          ]
+        }
+      ]
+    },
+    {
+      "scene_number": 20,
+      "title": "Playful Meows",
+      "story_beat": "Beat 3: Dance Request — Cat drinks milk, wags tail, and dances for the owner.",
+      "duration_seconds": 18,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat meowing repeatedly while child_owner smiles and points; cat jumps and rubs against leg.",
+      "emotion": "playful, energetic",
+      "expression": "Child: smiling amused; Cat: wide eyes, open mouth meowing",
+      "body_language": "Child_owner pointing finger at cat; Cat tilting head, jumping, rubbing head on leg",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window, milk_bowl visible nearby",
+      "continuity_from_previous_scene": "same living_room from Scene 19 end state, child_owner still beside cat after sleep command, camera holds Medium Shot for playful response",
+      "transition_to_next_scene": "cat continues to play and dance energetically, transitioning toward Beat 4 Playtime",
+      "dialogue": [
+        {
+          "speaker": "child_owner",
+          "line": "बिल्ली बड़ी सयानी!",
+          "expression": "smiling amused",
+          "emotion": "playful, teasing",
+          "pitch": "medium"
+        }
+      ],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, ceramic white bowl filled with creamy milk small wooden spoon resting inside soft highlights isolated on neutral background visible nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat's mouth opening wide to meow repeatedly, head tilting slightly, child_owner's hand pointing at cat, cat jumping and paws moving in air, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "मुलायम wags the इसकी",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 27,
+      "line_to": 30,
+      "source_line": "मुलायम-सी इसकी पूँछ,",
+      "source_line_id": 27,
+      "language": "hi",
+      "line_kind": "action",
+      "action_plan": [
+        {
+          "action": "wags the इसकी",
+          "body_part": "tail_or_hand",
+          "start_pose": "still",
+          "end_pose": "still, after the movement",
+          "motion": "the appendage moves side to side in a repeated, rhythmic swing",
+          "grounded": true
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "wags the इसकी",
+          "start_pose": "still",
+          "end_pose": "still, after the movement",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "tail_or_hand movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [],
+      "shots": [
+        {
+          "shot_id": "20-A",
+          "shot_number": 1,
+          "lyric_segment": "म्याऊँ... म्याऊँ... म्याऊँ... म्याऊँ... बिल्ली बड़ी सयानी!",
+          "semantic_meaning": "Cat responds with repeated meows while child_owner narrates her cunning nature",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat meowing repeatedly, child_owner pointing finger at cat while smiling",
+          "emotion": "playful, amused",
+          "expression": "Child: smiling amused; Cat: wide eyes, open mouth meowing",
+          "body_language": "Child_owner pointing finger at cat; Cat tilting head, opening mouth",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window, milk_bowl visible nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, ceramic white bowl filled with creamy milk small wooden spoon resting inside soft highlights isolated on neutral background visible nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's mouth opening wide to meow repeatedly, head tilting slightly, child_owner's hand pointing at cat, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 8,
+          "start_time": 0,
+          "end_time": 8,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        },
+        {
+          "shot_id": "20-B",
+          "shot_number": 2,
+          "lyric_segment": "म्याऊँ, म्याऊँ! म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Cat continues meowing with more energy and affection",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat jumps slightly and paws at air, then rubs head against child_owner's leg",
+          "emotion": "playful, insistent",
+          "expression": "Child: smiling lovingly; Cat: wide eyes, open mouth meowing",
+          "body_language": "Cat jumping, paws moving in air, rubbing head on leg",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Low Angle",
+            "movement": "Tilt Up"
+          },
+          "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window, milk_bowl visible nearby",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, ceramic white bowl filled with creamy milk small wooden spoon resting inside soft highlights isolated on neutral background visible nearby, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat jumping slightly and paws at air, then rubbing head against child_owner's leg, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 10,
+          "start_time": 8,
+          "end_time": 18,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 21,
+      "title": "Meow Response",
+      "story_beat": "Beat 3: Dance Request — Cat drinks milk, wags tail, and dances for the owner.",
+      "duration_seconds": 3,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat tilts head and opens mouth to vocalize meow.",
+      "emotion": "playful, insistent",
+      "expression": "Child: smiling amused; Cat: wide eyes, open mouth meowing",
+      "body_language": "Cat tilting head, opening mouth; Child pointing finger at cat",
+      "camera": {
+        "shot_type": "Close-Up",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+      "continuity_from_previous_scene": "same living_room from Scene 20 end state, child_owner still beside cat after pointing, camera holds Close-Up on cat's face for vocalization",
+      "transition_to_next_scene": "cat finishes meow and waits for response, transitioning toward Line 31 dialogue",
+      "dialogue": [],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat's mouth opening wide to meow repeatedly, head tilting slightly, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "सबके performs the action described in the line (involving दिल)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 30,
+      "line_to": 30,
+      "source_line": "सबके दिल में बसती!",
+      "source_line_id": 30,
+      "language": "hi",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "सबके performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "सबके performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "21-A",
+          "shot_number": 1,
+          "lyric_segment": "म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Cat responds with loud meows to demand attention from owner",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat tilts head and opens mouth to vocalize meow",
+          "emotion": "playful, insistent",
+          "expression": "Child: smiling amused; Cat: wide eyes, open mouth meowing",
+          "body_language": "Cat tilting head, opening mouth; Child pointing finger at cat",
+          "camera": {
+            "shot_type": "Close-Up",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat's mouth opening wide to meow repeatedly, head tilting slightly, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3,
+          "start_time": 0,
+          "end_time": 3,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 22,
+      "title": "Affectionate Call",
+      "story_beat": "Beat 3: Dance Request — Cat drinks milk, wags tail, and dances for the owner.",
+      "duration_seconds": 3,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Child smiles and reaches out hand to pet the cat.",
+      "emotion": "loving, gentle",
+      "expression": "Child: smiling lovingly; Cat: wide eyes, attentive",
+      "body_language": "Child reaching out hand towards cat; Cat standing still looking at child",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Slightly High",
+        "movement": "Slow Push-In"
+      },
+      "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+      "continuity_from_previous_scene": "same living_room from Scene 21 end state, cat finished meowing and is now standing still, child_owner still beside cat, camera pushes in to show interaction",
+      "transition_to_next_scene": "child finishes speaking and invites cat closer, transitioning toward Line 32 response",
+      "dialogue": [
+        {
+          "speaker": "child_owner",
+          "line": "मेरी प्यारी बिल्ली!",
+          "expression": "smiling lovingly",
+          "emotion": "loving, gentle",
+          "pitch": "medium"
+        }
+      ],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "child_owner's hand moving towards cat, child's face turning slightly to look at cat, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "Outro performs the action described in the line (involving Slow)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 31,
+      "line_to": 31,
+      "source_line": "**[Outro – Slow & Sweet]**",
+      "source_line_id": 31,
+      "language": "en",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "Outro performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "Outro performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "22-A",
+          "shot_number": 1,
+          "lyric_segment": "मेरी प्यारी बिल्ली!",
+          "semantic_meaning": "Child owner calls out to the cat with affection and love",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Child smiles and reaches out hand to pet the cat",
+          "emotion": "loving, gentle",
+          "expression": "Child: smiling lovingly; Cat: wide eyes, attentive",
+          "body_language": "Child reaching out hand towards cat; Cat standing still looking at child",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Slightly High",
+            "movement": "Slow Push-In"
+          },
+          "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "child_owner's hand moving towards cat, child's face turning slightly to look at cat, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 3,
+          "start_time": 0,
+          "end_time": 3,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
+    },
+    {
+      "scene_number": 23,
+      "title": "Playful Response",
+      "story_beat": "Beat 4: Playtime — Cat jumps and chases the ball across the room with energy.",
+      "duration_seconds": 4,
+      "characters": [
+        "pyari_billi",
+        "child_owner"
+      ],
+      "characters_detailed": [],
+      "dramatic_purpose": "",
+      "location": "living_room",
+      "time_of_day": "day",
+      "action": "Cat jumps up and rubs against the child's leg.",
+      "emotion": "excited, affectionate",
+      "expression": "Child: smiling welcoming; Cat: excited wide eyes, open mouth meowing",
+      "body_language": "Cat jumping up, paws moving to touch leg; Child bending slightly to receive cat",
+      "camera": {
+        "shot_type": "Low Angle",
+        "angle": "Looking Up",
+        "movement": "Tilt Up"
+      },
+      "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+      "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+      "continuity_from_previous_scene": "same living_room from Scene 22 end state, child_owner still beside cat after reaching out, camera tilts up to show cat's energy",
+      "transition_to_next_scene": "cat finishes rubbing against leg and settles down, transitioning toward Beat 5 Applause Together",
+      "dialogue": [],
+      "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+      "video_prompt": "cat jumping up, paws moving to touch leg, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+      "lyric_line_id": null,
+      "parent_line_id": null,
+      "lyric_text": "",
+      "lyric_segment": "",
+      "semantic_meaning": "म्याऊँ performs the action described in the line (as written)",
+      "visual_event": "",
+      "shot_id": null,
+      "shot_number": 1,
+      "song_start_time": null,
+      "song_end_time": null,
+      "continuity_required": false,
+      "reference_source": "NONE",
+      "continuity_refs": [],
+      "line_from": 32,
+      "line_to": 32,
+      "source_line": "म्याऊँ... म्याऊँ... म्याऊँ... म्याऊँ...",
+      "source_line_id": 32,
+      "language": "hi",
+      "line_kind": "narration",
+      "action_plan": [
+        {
+          "action": "म्याऊँ performs the action described in the line",
+          "body_part": "whole_body",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "motion": "the visible action described in the source line, performed clearly",
+          "grounded": false
+        }
+      ],
+      "camera_rationale": "the line carries one readable action, so a steady medium framing shows it clearly",
+      "beats": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 5,
+          "action": "म्याऊँ performs the action described in the line",
+          "start_pose": "the pose before the described action",
+          "end_pose": "the pose after the described action",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "secondary": "whole_body movement carries the detail",
+          "estimated": true
+        }
+      ],
+      "semantic_warnings": [
+        "no known verb matched this line — the visible action must be stated explicitly",
+        "the line is abstract — the scene uses a symbolic visualisation (an interpretation, not a literal fact)"
+      ],
+      "shots": [
+        {
+          "shot_id": "23-A",
+          "shot_number": 1,
+          "lyric_segment": "म्याऊँ, म्याऊँ!",
+          "semantic_meaning": "Cat responds with another meow while moving closer to the owner",
+          "visual_event": "",
+          "characters": [
+            "pyari_billi",
+            "child_owner"
+          ],
+          "characters_detailed": [],
+          "dramatic_purpose": "",
+          "location": "living_room",
+          "time_of_day": "",
+          "action": "Cat jumps up and rubs against the child's leg",
+          "emotion": "excited, affectionate",
+          "expression": "Child: smiling welcoming; Cat: excited wide eyes, open mouth meowing",
+          "body_language": "Cat jumping up, paws moving to touch leg; Child bending slightly to receive cat",
+          "camera": {
+            "shot_type": "Low Angle",
+            "angle": "Looking Up",
+            "movement": "Tilt Up"
+          },
+          "lighting": "warm sunlight streaming through window, soft shadows indicating calm evening approaching",
+          "environment": "bright cozy living room with pastel yellow walls, scattered colorful toys, wooden coffee table, warm sunlight streaming through window",
+          "continuity_from_previous_scene": "",
+          "transition_to_next_scene": "",
+          "dialogue": [],
+          "image_prompt": "orange tabby cat, round fluffy body, round face with pink nose, large expressive amber eyes, small triangular ears, soft smooth fur texture, wearing a tiny red collar with a bell, Indian child boy 6 years old curly black hair brown skin tone big expressive dark eyes wearing yellow striped t-shirt and blue shorts standing beside cat in bright cozy living room with pastel yellow walls scattered colorful toys wooden coffee table warm sunlight streaming through window, Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering, ultra-detailed 8k uhd, highly clear, sharp focus, no distortion, no deformed faces, no extra/missing limbs, no blurry, no low quality, no watermark",
+          "video_prompt": "cat jumping up, paws moving to touch leg, highly clear 8k uhd quality, smooth natural motion, no distortion, no morphing, no flicker",
+          "duration_seconds": 4,
+          "start_time": 0,
+          "end_time": 4,
+          "lyric_line_id": null,
+          "parent_line_id": null,
+          "lyric_text": "",
+          "song_start_time": null,
+          "song_end_time": null,
+          "continuity_required": false,
+          "reference_source": "NONE",
+          "continuity_refs": []
+        }
+      ]
     }
   ],
-  "sceneCount": 60,
+  "sceneCount": 23,
   "styleLock": "Colorful 3D preschool animation, cute rounded characters, big expressive eyes, warm lighting, clean simple backgrounds, soft cinematic rendering",
-  "scenarioName": null,
-  "error": "Scene planning stalled at scene 9: msg is not defined — partial scenes are kept, fix the cause and press Continue.",
+  "scenarioName": "Pyari billi_2",
+  "error": null,
   "createdAt": "2026-10-25T18:59:52.629Z",
-  "updatedAt": "2026-10-26T05:56:14.023Z",
-  "planBatchHint": 1,
-  "warn": "Grounding fixes in the latest batch — Scene 1: duration_sufficient: the scene is 3s and the beats need 4s; Scene 5: main_action_specified: the visible action is specified (1 action(s)); Scene 6: main_action_specified: the visible action is specified (1 action(s)); Scene 7: main_action_specified: the visible action is specified (1 action(s)). Regenerate flagged scenes if the staging looks off."
+  "updatedAt": "2026-10-26T12:03:31.497Z",
+  "planBatchHint": null,
+  "warn": "Grounding fixes in the latest batch — Scene 1: duration_sufficient: the scene is 3s and the beats need 4s; Scene 4: main_action_specified: the visible action is specified (1 action(s)); Scene 5: main_action_specified: the visible action is specified (1 action(s)); Scene 6: main_action_specified: the visible action is specified (1 action(s)). Regenerate flagged scenes if the staging looks off.",
+  "migratedScenes": 23
 }

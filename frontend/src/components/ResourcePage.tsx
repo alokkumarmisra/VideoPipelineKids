@@ -571,7 +571,7 @@ export default function ResourcePage({ onOpenProject }: {
                         {op === "new" ? "Creating…" : "Start project"}
                       </button>
                     </div>
-                    <label style={{ marginTop: 8 }}>Use as reference in</label>
+                    <label style={{ marginTop: "8px" }}>Use as reference in</label>
                     <div className="row">
                       <select
                         value={refTargets[r.id] ?? ""}

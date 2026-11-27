@@ -25,22 +25,45 @@
 // AUDIO/IMAGE/VIDEO/LIP-SYNC. Downstream stages never reinterpret the raw
 // story — they read the board.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  directorAnalyze, directorApprove, directorBoard,
-  directorRegenScene, directorScenes, directorUpdateBoard, saveScenario, directorLive, directorAnalyzeLive,
-  type DirectorBoard, type DirectorInput, type DirectorScene, type ImageMode, type DirectorLive, type DirectorAnalyzeLive,
+  directorAnalyze, directorApprove, directorBoard, directorBoards,
+  directorMasterTimeline, directorRegenScene, directorScenes, directorUpdateBoard, saveScenario, directorLive, directorAnalyzeLive,
+  fmtRelative,
+  // Audio Timeline Studio — the REAL WhisperX board flow (upload → analyze job
+  // → lyric timeline → master timeline → review & approve). No parallel store:
+  // the old /api/story/* scaffolding is gone (it crashed with
+  // "Unexpected end of JSON input").
+  approveMasterTimeline, cancelWhisperXJob, generateMasterTimelineClips, getWhisperXJobStatus,
+  aiCorrectLyricTimeline, importWhisperTimeline, saveLyricCorrections, saveMasterCorrections, startWhisperXAnalysis,
+  unlockMasterTimeline, uploadLyricAudio, whisperXPreflight,
+  type DirectorBoard, type DirectorBoardMeta, type DirectorInput, type DirectorScene, type ImageMode, type DirectorLive, type DirectorAnalyzeLive,
+  type LyricCorrection, type MasterSegment, type MasterSegmentCorrection, type MasterSegmentType,
+  type MasterTimelineResponse,
 } from "../api";
 import { useDialog } from "./Dialog";
 import DirectorGeneration from "./DirectorGeneration";
+import { DIRECTOR_TEMPLATES, type DirectorTemplateId } from "../directorTemplates";
 import BatchSizeSelect, { SCENE_BATCH } from "./BatchSizeSelect";
-import { IconCheck, IconClapper, IconFilm, IconRefresh, IconSparkles, IconTrash, Spinner } from "./Icons";
+import { IconCheck, IconClapper, IconFilm, IconFolder, IconPanel, IconRefresh, IconSparkles, IconTrash, Spinner } from "./Icons";
 
 type StoryTab = "characters" | "scenes" | "dialogue" | "timeline";
 
 const LANGS = ["Hindi", "English", "Hinglish"];
 const GENRES = ["Kids", "Devotional", "Adventure", "Fantasy", "Comedy", "Mythological", "Educational", "Custom"];
 const STYLES = ["3D Preschool Animation", "3D Cinematic", "Realistic", "Anime", "Cartoon", "Indian Mythological", "Fantasy", "Custom"];
+
+// Saved-storyboard card language: board status -> pill label + tone (the SAME
+// vocabulary the Director view's rail uses, so a board reads the same on both
+// surfaces).
+const BOARD_STATUS: Record<string, { label: string; cls: string }> = {
+  analyzed: { label: "Analyzed", cls: "warn" },
+  "scenes-partial": { label: "Scenes partial", cls: "running" },
+  ready: { label: "Ready", cls: "ok" },
+  approved: { label: "Approved", cls: "done" },
+  "approved-partial": { label: "Approved · partial", cls: "done" },
+};
+const boardStatusOf = (s: string) => BOARD_STATUS[s] ?? { label: s, cls: "" };
 
 const str = (v: unknown, fb = ""): string => (v == null ? fb : String(v));
 
@@ -270,6 +293,9 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
   const [semanticsLanguage, setSemanticsLanguage] = useState("auto");
   const [genre, setGenre] = useState("Adventure");
   const [visualStyle, setVisualStyle] = useState("3D Cinematic");
+  const [directorTemplate, setDirectorTemplate] = useState<DirectorTemplateId>("standard");
+  const [masterPrompt, setMasterPrompt] = useState("");
+  const [directorInstructions, setDirectorInstructions] = useState("");
   const [targetSeconds, setTargetSeconds] = useState("60");
   const [sceneSeconds, setSceneSeconds] = useState("3");
   // Seed the form from a studio brief when provided (user-visible values,
@@ -298,6 +324,9 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
   // sent as the batch count (server default when unset = SCENE_BATCH = 10).
   const [sceneBatch, setSceneBatch] = useState<number>(SCENE_BATCH);
   const [qa, setQa] = useState<QaResult | null>(null);
+  // The approved master timeline is the timing authority once approved
+  // (set by the Audio Timeline Studio's approve, polled here on board load).
+  const [masterApproved, setMasterApproved] = useState(false);
   const [regenScene, setRegenScene] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<number | null>(0);
   const [showPrompts, setShowPrompts] = useState(false);
@@ -320,6 +349,12 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
   const [live, setLive] = useState<DirectorLive | null>(null);
   const [analyzeLive, setAnalyzeLive] = useState<DirectorAnalyzeLive | null>(null);
   const [formLiveText, setFormLiveText] = useState("");
+  // Auto-scroll the LIVE panel to the newest streamed text as it types in.
+  const liveBoxRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = liveBoxRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [analyzeLive?.text, live?.tail, planPhase]);
   // 1s ticker so the busy elapsed counter stays live while planning.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -327,6 +362,17 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [busy]);
+
+  // The approved master timeline drives timing — poll its approval state on
+  // every board load (the Audio Timeline Studio refreshes it live).
+  useEffect(() => {
+    if (!board?.id) { setMasterApproved(false); return; }
+    let dead = false;
+    directorMasterTimeline(board.id)
+      .then((v) => { if (!dead) setMasterApproved(Boolean(v.master?.approved)); })
+      .catch(() => { if (!dead) setMasterApproved(false); });
+    return () => { dead = true; };
+  }, [board?.id]);
 
   // Live typing: detect newly landed scenes and replay their text line by line.
   useEffect(() => {
@@ -404,12 +450,49 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
     }
   };
 
-  const newStory = () => {
+  const clearStoryState = () => {
     setBoard(null); setQa(null); setError(""); setProgress("");
     setTitle(""); setStory(""); setExpanded(0); setEditingChar(null); setEditingScene(null);
   };
 
-  const doAnalyze = async () => {
+  // Saved-storyboard rail: the SAME board list the Director view keeps. Every
+  // analyzed story becomes a card on the right; clicking one loads that
+  // board's data back into THIS studio (form + characters + scenes + audio).
+  const [boards, setBoards] = useState<DirectorBoardMeta[]>([]);
+  const [boardsOpen, setBoardsOpen] = useState(() => localStorage.getItem("ss-sec-story-boards") !== "closed");
+  const toggleBoards = () =>
+    setBoardsOpen((o) => {
+      localStorage.setItem("ss-sec-story-boards", o ? "closed" : "open");
+      return !o;
+    });
+  const refreshBoards = useCallback(async () => {
+    try { setBoards(await directorBoards()); } catch { /* the rail is best-effort */ }
+  }, []);
+  useEffect(() => { void refreshBoards(); }, [refreshBoards]);
+
+  const openBoard = async (id: string) => {
+    setError(""); setQa(null);
+    try {
+      const b = await directorBoard(id);
+      setBoard(b);
+      // The Write form mirrors the board's inputs, so editing + re-analyzing
+      // starts from the story that produced this board.
+      setTitle(str(b.input?.title)); setStory(str(b.input?.story));
+      if (b.input?.language) setLanguage(String(b.input.language));
+      if (b.input?.semanticsLanguage) setSemanticsLanguage(String(b.input.semanticsLanguage));
+      if (b.input?.genre) setGenre(String(b.input.genre));
+      if (b.input?.visualStyle) setVisualStyle(String(b.input.visualStyle));
+      const template = b.input?.directorTemplate === "mahadev_devotional" ? "mahadev_devotional" : "standard";
+      setDirectorTemplate(template);
+      setMasterPrompt(String(b.input?.masterPrompt || ""));
+      setDirectorInstructions(String(b.input?.instructions || ""));
+      if (b.input?.targetSeconds) setTargetSeconds(String(Math.round(Number(b.input.targetSeconds))));
+      setTab("characters"); setExpanded(0); setEditingChar(null); setEditingScene(null);
+    }
+    catch (e) { fail(e); }
+  };
+
+  const newStory = async () => {
     if (busy) return;
     const input: DirectorInput = {
       title: title.trim(), story: story.trim(), language,
@@ -417,7 +500,7 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
       genre, genreCustom: "", visualStyle, styleCustom: "",
       targetSeconds: Math.max(15, Math.min(3600, Math.round(Number(targetSeconds) || 60))),
       sceneSeconds: Math.min(30, Math.max(1, Math.round(Number(sceneSeconds) || 5))),
-      aspectRatio: "16:9", instructions: "",
+      aspectRatio: "16:9", instructions: directorInstructions, masterPrompt, directorTemplate,
       includeDialogue, chainContinuity: true,
     };
     if (!input.title) { setError("Give the story a title."); return; }
@@ -431,7 +514,7 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
       const b = await directorAnalyze(input, undefined, liveId);
       setBoard(b); setTab("characters"); setExpanded(0);
     } catch (e) { fail(e); }
-    finally { setBusy(null); setBusySince(null); setPlanPhase(null); setFormLiveText(""); }
+    finally { setBusy(null); setBusySince(null); setPlanPhase(null); setFormLiveText(""); void refreshBoards(); }
   };
 
   // Duration-driven scene planning (§11–12): resumable batches until the
@@ -640,14 +723,21 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
     if (!ok) return;
     setBusy("Approving story…"); setBusySince(Date.now()); setError("");
     try {
-      const { name, config } = await directorApprove(board.id);
+      const approveRes = await directorApprove(board.id);
+      const { name, config } = approveRes;
       await saveScenario(name, config);
       onProjectsChanged?.();
       setBoard(await directorBoard(board.id));
-      await dialog.alert(`Approved as project "${name}". Generate below (same pipeline as the workspace), or open it from Projects for the full workspace.`, { title: "Story approved", tone: "success" });
+      // The approve report: scenes whose windows were snapped onto the
+      // approved master timeline (nearly-matching timings are corrected
+      // server-side; gross mismatches are reported, never moved).
+      const snapped = Array.isArray(approveRes.timing_corrections) ? approveRes.timing_corrections : [];
+      await dialog.alert(
+        `Approved as project "${name}". Generate below (same pipeline as the workspace), or open it from Projects for the full workspace.${snapped.length ? `\n\n🎼 Approved timeline drove the timing — ${snapped.length} scene window(s) snapped onto the approved segments:\n${snapped.slice(0, 5).map((c) => `• scene ${c.scene_number}: ${c.from.map((n) => Math.round((Number(n) || 0) * 10) / 10).join("–")}s → ${c.to.map((n) => Math.round((Number(n) || 0) * 10) / 10).join("–")}s`).join("\n")}${snapped.length > 5 ? `\n…+${snapped.length - 5} more` : ""}` : ""}`,
+        { title: "Story approved", tone: "success" });
       if (onOpenProject) onOpenProject(name);
     } catch (e) { fail(e); }
-    finally { setBusy(null); setBusySince(null); }
+    finally { setBusy(null); setBusySince(null); void refreshBoards(); }
   };
 
   // Dialogue timeline (§18): per-scene cue sheet in story order, including
@@ -694,8 +784,77 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
     : board.scenes.length > 0 && board.scenes.length >= board.sceneCount ? 3
     : board.scenes.length > 0 ? 2 : 1;
 
+  // Saved-storyboard rail content: the same board cards the Director view
+  // renders, always listed in the right rail (even while a board is open) so
+  // every analyzed story is one click from this studio. The open board gets
+  // the `current` tint.
+  const boardsPanel = boards.length === 0 ? (
+    <div className="sidebar-empty">No saved storyboards yet — analyze a story to save one here.</div>
+  ) : (
+    <div className="dir-board-grid dir-board-grid-2">
+      {boards.map((b) => {
+        const st = boardStatusOf(b.status);
+        const total = Math.max(0, Number(b.sceneCount) || 0);
+        const done = Math.min(total, Math.max(0, Number(b.scenes) || 0));
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        const chips = [b.genre, b.visualStyle, b.language].filter(Boolean) as string[];
+        const when = b.updatedAt ? Date.parse(b.updatedAt) : null;
+        return (
+          <article
+            key={b.id}
+            className={`dir-board-card${board?.id === b.id ? " current" : ""}`}
+            role="button"
+            tabIndex={0}
+            title={`Open ${b.title}`}
+            aria-label={`Open storyboard ${b.title}`}
+            aria-current={board?.id === b.id ? "true" : undefined}
+            onClick={() => void openBoard(b.id)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openBoard(b.id); } }}
+          >
+            <div className="dir-board-top">
+              <span className={`pill ${st.cls}`.trim()}>{st.label}</span>
+              <span className="muted dir-board-when" title={b.updatedAt ?? ""}>
+                {when != null ? fmtRelative(when) : ""}
+              </span>
+            </div>
+            <h4 className="dir-board-title" title={b.title}>{b.title}</h4>
+            {b.logline && <p className="dir-board-logline" title={b.logline}>{b.logline}</p>}
+            {chips.length > 0 && (
+              <div className="dir-board-chips">
+                {chips.map((c) => <span key={c} className="dir-chip">{c}</span>)}
+              </div>
+            )}
+            <div className="dir-board-progress" title={`${done}/${total} scenes planned`}>
+              <div className="dir-board-bar"><span style={{ width: `${pct}%` }} /></div>
+              <span className="muted">{done}/{total} scenes</span>
+            </div>
+            <div className="dir-board-foot">
+              {b.scenarioName
+                ? <span className="pill done" title={`Approved as project ${b.scenarioName}${b.project_id != null ? ` (#${b.project_id})` : ""}`}>→ {b.scenarioName}{b.project_id != null ? ` #${b.project_id}` : ""}</span>
+                : <span />}
+              <button
+                type="button"
+                className="btn-blue shotlist-btn dir-board-open"
+                tabIndex={-1}
+                title={`Open ${b.title}`}
+              >
+                Open
+              </button>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="page story-page">
+      {/* Master-detail, exactly the Director view's shape: the WHOLE Story
+          Studio (hero, brief, audio steps, plan, generation) is the left
+          column; the Saved Storyboards rail is its right-side neighbour —
+          never nested inside the studio's content stack. */}
+      <div className="dir-layout">
+      <div className="dir-main story-main">
       <header className="story-hero">
         <div className="story-hero-top">
           <span className="story-hero-badge">🎬</span>
@@ -736,17 +895,17 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
               </span>
             </h2>
           </div>
-          <div style={{ maxHeight: "40vh", overflow: "auto" }}>
+          <div ref={liveBoxRef} style={{ maxHeight: "40vh", overflow: "auto" }}>
             {analyzeLive?.active && analyzeLive.text && (
               <details open style={{ marginBottom: 8 }}>
                 <summary><b>Raw LLM Response (Analyze)</b></summary>
-                <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, fontFamily: "monospace", background: "rgba(0,0,0,0.15)", padding: 10, borderRadius: 8 }}>{analyzeLive.text}</pre>
+                <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, fontFamily: "monospace", background: "rgba(0,0,0,0.15)", padding: 10, borderRadius: 8, color: "var(--ok)" }}>{analyzeLive.text}</pre>
               </details>
             )}
             {live && (
               <details open>
                 <summary><b>Scene Batch Stream (Live)</b></summary>
-                <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, fontFamily: "monospace", background: "rgba(0,0,0,0.15)", padding: 10, borderRadius: 8 }}>
+                <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, fontFamily: "monospace", background: "rgba(0,0,0,0.15)", padding: 10, borderRadius: 8, color: "var(--ok)" }}>
                   {live.scenes.map((sc, i) => `Scene ${sc.scene_number}: ${sc.title}\n  Action: ${sc.action}\n  Shots: ${sc.shots.map(sh => `${sh.shot_id}: ${sh.text}`).join(" | ")}\n  Dialogue: ${sc.dialogue.map(d => `${d.speaker}: ${d.line}`).join(" | ")}`).join("\n\n")}
                   {live.tail && `\n…${live.tail}`}
                 </pre>
@@ -756,10 +915,35 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
         </section>
       )}
 
-      {/* Story input (§3): title + raw text only — no technical knobs up front. */}
+      {/* Story input: profile and raw source text are kept on the canonical Director board. */}
       <section className="card">
         <div className="card-head"><span className="story-sec-tag">Step 1 ·</span><h2>📝 Story input</h2></div>
         <div className="form-grid">
+          <label>Director profile
+            <select value={directorTemplate} onChange={(e) => {
+              const next = e.target.value as DirectorTemplateId;
+              setDirectorTemplate(next);
+              const profile = DIRECTOR_TEMPLATES[next];
+              setMasterPrompt(profile.masterPrompt);
+              setDirectorInstructions(profile.instructions);
+              if (next === "mahadev_devotional") {
+                setGenre("Devotional"); setVisualStyle("Indian Mythological"); setLanguage("Hindi"); setSemanticsLanguage("hi");
+                setSceneSeconds("5");
+                setIncludeDialogue(false);
+              }
+            }}>
+              {Object.entries(DIRECTOR_TEMPLATES).map(([id, profile]) => <option key={id} value={id}>{profile.label}</option>)}
+            </select>
+          </label>
+          {directorTemplate === "mahadev_devotional" && <details className="card-desc">
+            <summary>Review or edit Mahadev directing prompt</summary>
+            <label>Visual continuity and style prompt
+              <textarea value={masterPrompt} onChange={(e) => setMasterPrompt(e.target.value)} rows={8} maxLength={20000} />
+            </label>
+            <label>Director instructions
+              <textarea value={directorInstructions} onChange={(e) => setDirectorInstructions(e.target.value)} rows={5} />
+            </label>
+          </details>}
           <label>Title
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Ram, Sita and Shyam — Forest of Whispers" maxLength={120} />
           </label>
@@ -800,7 +984,7 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
           </label>
           <BatchSizeSelect value={sceneBatch} onChange={setSceneBatch} disabled={!!busy} />
           <div className="row">
-            <button className="primary" onClick={doAnalyze} disabled={!!busy || story.trim().length < 20 || !title.trim()}>
+            <button className="primary" onClick={newStory} disabled={!!busy || story.trim().length < 20 || !title.trim()}>
               {busy ? <><Spinner size={14} /> {busy}</> : <><IconSparkles /> Analyze Story</>}
             </button>
             {board && (
@@ -816,9 +1000,32 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
         </div>
       </section>
 
-      {/* The active board streams below once analyzed — no saved-list here;
-          past stories live in the Director view; this page is one story at
-          a time (Analyze → Scenes → Validate → Approve → Generate). */}
+      {/* Stage 1–5: Audio Timeline Studio — upload WAV, WhisperX analysis,
+          lyrics alignment, master timeline, review & approve — all riding the
+          REAL board flow (api.ts whisperx/master-timeline helpers). */}
+      <AudioTimelineStudio
+        boardId={board?.id ?? null}
+        onAudioUploaded={() => {
+          if (!board?.id) return;
+          void directorBoard(board.id).then((fresh) => {
+            setBoard(fresh);
+            if (fresh.input?.targetSeconds) setTargetSeconds(String(Math.round(Number(fresh.input.targetSeconds))));
+            setMasterApproved(false);
+          }).catch(() => {});
+        }}
+        onApproved={() => {
+          if (!board?.id) return;
+          void directorMasterTimeline(board.id)
+            .then((v) => setMasterApproved(Boolean(v.master?.approved)))
+            .catch(() => {});
+          void directorBoard(board.id).then(setBoard).catch(() => {});
+        }}
+        onProjectsChanged={onProjectsChanged}
+      />
+
+      {/* The active board streams below once analyzed; past stories are one
+          click away in the Saved Storyboards rail (right) — opening a card
+          loads that board back into this studio. */}
       {board && (
         <>
           <section className="card">
@@ -827,6 +1034,7 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
               <h2><IconClapper /> {str(board.input.title)} — {board.scenes.length}/{board.sceneCount} scenes · ⏱ ~{plannedSeconds}s / ~{Math.round(Number(board.input.targetSeconds) || 0)}s</h2>
               <span className="pill">{board.status}</span>
               {board.scenes.length < board.sceneCount && <span className="pill warn" title="Scene planning is incomplete — Continue planning, or approve now for a partial project">partial plan</span>}
+              {masterApproved && <span className="pill ok" title="Scene planning reads the approved master timeline — windows never drift from it">🎼 Approved timeline drives timing</span>}
               {board.warn && <span className="pill warn" title={board.warn}>⚠️ grounding fixes — see scenes</span>}
               <span className="spacer" />
               <button className="ghost" onClick={runQa}><IconCheck /> Validate Story</button>
@@ -1070,6 +1278,748 @@ export default function StoryPage({ onOpenProject, onProjectsChanged, imageMode,
           <DirectorGeneration projectName={board.scenarioName ?? null} boardScenes={board.scenes} onOpenProject={onOpenProject} imageMode={imageMode} onImageMode={onImageMode} />
         </>
       )}
+      </div>
+      {boardsOpen ? (
+        <aside className={`card dir-rail${board ? " rail-narrow" : ""}`} aria-label="Saved storyboards">
+          <div className="card-head">
+            <h2>
+              <span className="head-icon hi-output" aria-hidden="true"><IconFolder size={15} /></span>
+              Saved Storyboards
+            </h2>
+            <span className="muted" title={`${boards.length} boards stored in the database`}>{boards.length}</span>
+            <span className="spacer" />
+            <button
+              className="icon-btn"
+              onClick={toggleBoards}
+              title="Collapse saved storyboards to the right"
+              aria-label="Collapse saved storyboards"
+              aria-expanded="true"
+            >
+              <IconPanel size={15} />
+            </button>
+          </div>
+          {boardsPanel}
+        </aside>
+      ) : (
+        <button
+          className="sidebar-show rail-right"
+          onClick={toggleBoards}
+          title="Show saved storyboards"
+          aria-label="Show saved storyboards"
+          aria-expanded="false"
+          type="button"
+        >
+          <IconFolder size={15} />
+          <span className="sidebar-show-label">Boards</span>
+        </button>
+      )}
+      </div>
     </div>
+  );
+}
+
+// =====================================================================
+// Audio Timeline Studio — the Story audio pipeline as 6 explicit steps,
+// riding the REAL WhisperX board flow (no parallel store, no duplicated
+// analyzer):
+//
+//   1. Upload & Analyze Audio      → POST /boards/:id/audio-upload
+//                                    + POST .../whisperx/analyze (background
+//                                    job — fails HONESTLY when WhisperX is
+//                                    not installed)
+//   2. Preliminary Audio Timeline  → measured whisper segments + vocal-activity
+//                                    rows + instrumental windows
+//   3. Director-Ready Segments     → 3–5s transcript cuts + JSON/SRT export
+//   4. Lyrics vs Audio (lyric tab) → every board lyric line vs what WhisperX
+//                                    heard; corrections stay drafts until
+//                                    saveLyricEdits persists them
+//   5. Final Master Timeline (master tab) → derived segments covering the
+//                                    WHOLE audio (instrumental/singing/
+//                                    dialogue/mixed/unknown + repeats)
+//   6. Review & Approve (master tab) → audio player with click-to-seek,
+//                                    segment corrections, the explicit
+//                                    APPROVE gate and the 3–5 s clip builder
+//
+// The timing evidence is always MEASURED — nothing is invented here. The
+// manual WhisperX-JSON import (onWhisperFile → runWhisperImport) uses the
+// exact seam the job feeds, for environments where WhisperX runs elsewhere.
+// =====================================================================
+
+const audioTimeFmt = (n: number | null | undefined): string =>
+  Number.isFinite(Number(n)) ? `${Math.round(Number(n) * 10) / 10}s` : "—";
+const audioClockFmt = (n: number | null | undefined): string => {
+  const s = Number(n);
+  if (!Number.isFinite(s) || s <= 0) return "—";
+  const m = Math.floor(s / 60);
+  const r = Math.round(s - m * 60);
+  return `${m}:${String(r).padStart(2, "0")}`;
+};
+const audioFileToDataUrl = (f: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = () => reject(new Error("could not read the audio file"));
+    r.readAsDataURL(f);
+  });
+
+const AUDIO_SEGMENT_TYPES: { id: MasterSegmentType; label: string; color: string }[] = [
+  { id: "instrumental", label: "instrumental", color: "#38bdf8" },
+  { id: "singing", label: "singing", color: "#fbbf24" },
+  { id: "dialogue", label: "dialogue", color: "#a3e635" },
+  { id: "mixed", label: "mixed", color: "#a78bfa" },
+  { id: "unknown", label: "unknown", color: "#94a3b8" },
+];
+const audioTypeColor = (t: string): string =>
+  AUDIO_SEGMENT_TYPES.find((s) => s.id === t)?.color || "#cbd5e1";
+
+type AudioStep = null | "analyzing" | "saving" | "ai-correcting" | "approving" | "unlocking" | "clips";
+
+function AudioTimelineStudio({ boardId, onApproved, onProjectsChanged, onAudioUploaded }: {
+  boardId: string | null;
+  /** Called after approve/unlock so the parent can refresh the plan header. */
+  onApproved?: () => void;
+  onProjectsChanged?: () => void;
+  onAudioUploaded?: () => void;
+}) {
+  const dialog = useDialog();
+  const [view, setView] = useState<MasterTimelineResponse | null>(null);
+  const [loadErr, setLoadErr] = useState("");
+  const [preflight, setPreflight] = useState<{ ok: boolean; checks: Record<string, { ok: boolean; message?: string }> } | null>(null);
+  const [step, setStep] = useState<AudioStep>(null);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [uploaded, setUploaded] = useState<{ fileName: string; durationSeconds: number; sizeBytes: number } | null>(null);
+  const [language, setLanguage] = useState("auto");
+  const [job, setJob] = useState<{ status: string; progress: number; stage?: string; message?: string; log?: string; error?: string } | null>(null);
+  const [reviewTab, setReviewTab] = useState<"lyric" | "master">("lyric");
+  // The stale flag rides EVERY response: an old import must never be mistaken
+  // for usable windows after the board's lines changed.
+  const [lyricStale, setLyricStale] = useState(false);
+  const [lyricDrafts, setLyricDrafts] = useState<Map<string, { line_id: number; occurrence: number; start_seconds?: number | null; end_seconds?: number | null; lyric_text?: string }>>(new Map());
+  const [masterDrafts, setMasterDrafts] = useState<Map<string, MasterSegmentCorrection>>(new Map());
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const jobIdRef = useRef<string | null>(null);
+  const jobLogRef = useRef<HTMLPreElement | null>(null);
+  const [audioTime, setAudioTime] = useState(0);
+
+  // The master view: reloaded after upload/analyze/import/save/approve.
+  const reload = useCallback(async () => {
+    if (!boardId) { setView(null); return; }
+    try {
+      const r = await directorMasterTimeline(boardId);
+      setView(r);
+      setLyricStale(!!r.stale);
+      setLoadErr("");
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : String(e));
+    }
+  }, [boardId]);
+
+  useEffect(() => {
+    setView(null); setJob(null); setUploaded(null); setError(""); setLoadErr("");
+    setMasterDrafts(new Map()); setLyricDrafts(new Map()); setLyricStale(false);
+    setReviewTab("lyric"); jobIdRef.current = null;
+    if (!boardId) return;
+    void reload();
+    void whisperXPreflight().then(setPreflight).catch(() => setPreflight(null));
+  }, [boardId, reload]);
+
+  // The live WhisperX log follows the tail — new lines stay visible.
+  useEffect(() => {
+    if (jobLogRef.current) jobLogRef.current.scrollTop = jobLogRef.current.scrollHeight;
+  }, [job?.log]);
+
+  // ---- Step 1: upload + WhisperX background job ----
+  const upload = async (file: File | null) => {
+    if (!boardId || !file) return;
+    setError(""); setUploaded(null); setNote("");
+    try {
+      const dataUrl = await audioFileToDataUrl(file);
+      const r = await uploadLyricAudio(boardId, dataUrl, file.name);
+      setUploaded({ fileName: r.fileName, durationSeconds: r.durationSeconds, sizeBytes: r.sizeBytes });
+      setNote(`uploaded — measured duration ${audioClockFmt(r.durationSeconds)} (${Math.round(r.sizeBytes / 1024)} KB). A fresh audio invalidates the previous timeline.`);
+      setMasterDrafts(new Map()); setLyricDrafts(new Map());
+      await reload();
+      onAudioUploaded?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const analyze = async () => {
+    if (!boardId) return;
+    setError(""); setNote(""); setStep("analyzing");
+    setJob({ status: "pending", progress: 0, stage: "queued", message: "queued" });
+    try {
+      const r = await startWhisperXAnalysis(boardId, { language: language === "auto" ? undefined : language });
+      jobIdRef.current = r.jobId;
+      try {
+        for (;;) {
+          const s = await getWhisperXJobStatus(boardId, r.jobId);
+          setJob({ status: s.status, progress: s.progress, stage: s.stage, message: s.message, log: s.log || undefined, error: s.error });
+          if (s.status === "succeeded") {
+            setNote(`WhisperX analysis complete — timeline saved under ${s.export?.folder || "WavAnalysis/<project>"}.`);
+            break;
+          }
+          if (s.status === "failed" || s.status === "cancelled") {
+            setError(s.error || `analysis ${s.status}`);
+            break;
+          }
+          await new Promise((res) => setTimeout(res, 1200));
+        }
+      } finally {
+        jobIdRef.current = null;
+        setStep(null);
+        await reload();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setJob(null);
+      setStep(null);
+    }
+  };
+
+  const stopJob = async () => {
+    if (!boardId || !jobIdRef.current) return;
+    try { await cancelWhisperXJob(boardId, jobIdRef.current); } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // The manual import: the EXACT seam the WhisperX job feeds — a transcript +
+  // word-timings JSON ({ segments: [...] }) imported verbatim, never lyric text.
+  const runWhisperImport = async (payload: unknown) => {
+    if (!boardId) return;
+    setError(""); setNote("");
+    try {
+      const r = await importWhisperTimeline(boardId, payload, language === "auto" ? undefined : language);
+      setNote(`imported ${r.timeline?.lines?.length ?? 0} aligned lines — ${r.warnings?.length || 0} warning(s). Saved under ${r.export?.folder || "WavAnalysis/<project>"}.`);
+      setLyricStale(false);
+      await reload();
+      setReviewTab("lyric");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onWhisperFile = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const file = ev.target.files?.[0];
+    if (!file || !boardId) return;
+    try {
+      await runWhisperImport(JSON.parse(await file.text()));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      ev.target.value = "";
+    }
+  };
+
+  // ---- Step 3: lyric corrections (drafts until saved) ----
+  const editLyricLine = (key: string, lineId: number, occurrence: number, patch: Partial<{ start_seconds: number | null; end_seconds: number | null; lyric_text: string }>) => {
+    setLyricDrafts((cur) => {
+      const next = new Map(cur);
+      const merged = { ...(next.get(key) || { line_id: lineId, occurrence }), ...patch };
+      // A cleared numeric field means "leave the stored window alone".
+      if (merged.start_seconds === null) delete merged.start_seconds;
+      if (merged.end_seconds === null) delete merged.end_seconds;
+      next.set(key, merged);
+      return next;
+    });
+  };
+
+  const saveLyricEdits = async () => {
+    if (!boardId || !lyricDrafts.size) return;
+    setStep("saving"); setError("");
+    try {
+      await saveLyricCorrections(boardId, [...lyricDrafts.values()].map((d) => d as unknown as LyricCorrection));
+      setLyricDrafts(new Map());
+      setNote("corrections saved — manual windows outrank the transcript on every later import");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setStep(null); }
+  };
+
+  const runAiLyricCorrection = async () => {
+    if (!boardId) return;
+    setStep("ai-correcting"); setError(""); setNote("");
+    try {
+      const result = await aiCorrectLyricTimeline(boardId);
+      setNote(result.corrected
+        ? `AI corrected ${result.corrected} lyric line(s) from WhisperX word timings; ${result.needs_review.length} still need review. Original lyrics were preserved.`
+        : (result.message || `No safe automatic matches found; ${result.needs_review.length} line(s) still need review.`));
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setStep(null); }
+  };
+
+  // ---- Step 5: master segment corrections + approve + clips ----
+  const fillMasterDrafts = () => {
+    const segs = view?.master?.segments || [];
+    // One draft per segment seeded from the CURRENT derived view, so each
+    // field starts explicit and nothing is silently assumed.
+    setMasterDrafts(new Map(segs.map((s) => [s.segment_id, { segment_id: s.segment_id } as MasterSegmentCorrection])));
+  };
+
+  const editMasterSegment = (segmentId: string, patch: Partial<MasterSegmentCorrection>) => {
+    setMasterDrafts((cur) => {
+      const next = new Map(cur);
+      const merged = { ...(next.get(segmentId) || { segment_id: segmentId }), ...patch };
+      next.set(segmentId, merged);
+      return next;
+    });
+  };
+
+  const saveMasterEdits = async () => {
+    if (!boardId || !masterDrafts.size) return;
+    setStep("saving"); setError("");
+    try {
+      await saveMasterCorrections(boardId, [...masterDrafts.values()]);
+      setMasterDrafts(new Map());
+      setNote("segment corrections saved — timings re-validated");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setStep(null); }
+  };
+
+  const approveMaster = async () => {
+    if (!boardId) return;
+    setStep("approving"); setError("");
+    try {
+      const r = await approveMasterTimeline(boardId);
+      setNote(`approved — ${r.master?.segments?.length ?? 0} segments are now the timing authority for scene planning`);
+      onApproved?.();
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setStep(null); }
+  };
+
+  const unlockMaster = async () => {
+    if (!boardId) return;
+    setStep("unlocking"); setError("");
+    try {
+      await unlockMasterTimeline(boardId);
+      setNote("unlocked — the master timeline is editable again");
+      onApproved?.();
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setStep(null); }
+  };
+
+  const generateMasterClips = async () => {
+    if (!boardId) return;
+    setStep("clips"); setError("");
+    try {
+      const r = await generateMasterTimelineClips(boardId);
+      onProjectsChanged?.();
+      void dialog.alert(
+        `Planned ${r.clip_count} clips (3–5 s) from the approved timeline into project "${r.name}". ${r.note || ""}`,
+        { title: "Clips planned", tone: "success" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setStep(null); }
+  };
+
+  // ---- the audio player: click-to-seek + active-row highlight ----
+  const seekMaster = (seg: MasterSegment) => {
+    const a = audioRef.current;
+    if (!a) return;
+    a.currentTime = Math.max(0, seg.start_seconds) + 0.01;
+    void a.play().catch(() => { /* autoplay may be blocked — the move still happened */ });
+  };
+
+  const onAudioTime = (e: React.SyntheticEvent<HTMLAudioElement>) => {
+    setAudioTime(e.currentTarget.currentTime);
+  };
+
+  const timeline = view?.timeline || null;
+  const master = view?.master || null;
+  const approved = Boolean(master?.approved);
+  const lines = timeline?.lines || [];
+  const measuredLines = lines.filter((l) => l.match === "whisperx");
+  const missingLines = lines.filter((l) => l.start_seconds == null);
+  const aiReviewLines = lines.filter((l) => !l.manual && l.timing !== "manual" && (l.start_seconds == null || l.timing !== "measured" || l.low_confidence || l.match_score < 0.62));
+  const busy = step != null;
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <span className="story-sec-tag">Audio ·</span>
+        <h2>🔊 Audio Timeline Studio</h2>
+        {approved && <span className="pill ok" title="Approved timings drive scene planning">🎼 approved timeline drives timing</span>}
+        {!approved && master && <span className="pill warn">not approved yet</span>}
+        {preflight && (
+          <span className={`pill${preflight.ok ? " ok" : " warn"}`} title={Object.entries(preflight.checks).map(([k, v]) => `${k}: ${v.ok ? "ok" : v.message || "missing"}`).join(" · ")}>
+            {preflight.ok ? "WhisperX ready" : "WhisperX unavailable"}
+          </span>
+        )}
+      </div>
+
+      {!boardId && (
+        <p className="story-err" role="alert">
+          Analyze the story first — the audio attaches to this story&apos;s board, and its story/lyric lines
+          are what WhisperX aligns against.
+        </p>
+      )}
+
+      {(loadErr || error) && <div className="story-err" role="alert"><b>ⓘ</b> {loadErr || error}</div>}
+      {note && <div className="hint" style={{ marginBottom: 8 }}>{note}</div>}
+      {lyricStale && master && (
+        <div className="story-qa bad" style={{ marginBottom: 8 }}>
+          ⚠️ Timeline out of date — the stored windows no longer cover the board&apos;s current lines.
+          Re-run the analysis or the import; scene planning will not use stale windows.
+        </div>
+      )}
+
+      {/* ---- Step 1: Upload & Analyze Audio ---- */}
+      <div className="audio-step">
+        <div className="audio-step-head"><b>1 · Upload &amp; Analyze Audio</b>
+          <span className="muted"> WAV upload → measured duration → WhisperX transcribe + align + voice-activity</span>
+        </div>
+        {boardId && (
+          <>
+            <div className="row" style={{ alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                type="file" accept=".wav,.mp3,.m4a,audio/*"
+                onChange={(e) => void upload(e.target.files?.[0] ?? null)}
+                disabled={busy}
+              />
+              {uploaded && (
+                <span className="pill ok" title={uploaded.fileName}>
+                  {uploaded.fileName} · {audioClockFmt(uploaded.durationSeconds)} · {Math.round(uploaded.sizeBytes / 1024)} KB
+                </span>
+              )}
+            </div>
+            <div className="row" style={{ alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
+              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                Source language
+                <select value={language} onChange={(e) => setLanguage(e.target.value)} disabled={busy}>
+                  <option value="auto">Auto detect</option>
+                  <option value="hi">Hindi</option>
+                  <option value="en">English</option>
+                  <option value="hinglish">Hinglish</option>
+                </select>
+              </label>
+              <button className="primary" onClick={() => void analyze()} disabled={busy}>
+                {step === "analyzing" ? <><Spinner size={14} /> analyzing…</> : <><IconSparkles /> Start WhisperX analysis</>}
+              </button>
+              {step === "analyzing" && <button className="ghost" onClick={() => void stopJob()}>Stop</button>}
+              <label className="muted" style={{ display: "flex", gap: 6, alignItems: "center" }} title="WhisperX ran elsewhere? Import its JSON export at the exact seam the job feeds.">
+                or import WhisperX JSON
+                <input type="file" accept=".json" onChange={(e) => void onWhisperFile(e)} disabled={busy} />
+              </label>
+            </div>
+            {step === "analyzing" && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 12 }} className="muted">
+                  {job?.stage || "running"} · {Math.round(job?.progress || 0)}%{job?.message ? ` — ${job.message}` : ""}
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: "rgba(127,127,127,.25)", marginTop: 4, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.max(4, Math.min(100, job?.progress || 0))}%`, background: "var(--accent, #7c5cff)" }} />
+                </div>
+                {job?.log ? (
+                  <pre
+                    ref={jobLogRef}
+                    className="hint"
+                    style={{
+                      margin: "8px 0 0", padding: "8px 10px", maxHeight: 180, overflowY: "auto",
+                      background: "rgba(0,0,0,.35)", borderRadius: 6, fontSize: 11, lineHeight: 1.5,
+                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                    }}
+                  >
+                    {job.log.trimEnd()}
+                  </pre>
+                ) : null}
+              </div>
+            )}
+            <p className="hint" style={{ marginTop: 8 }}>
+              The story text on the board IS the lyric source — WhisperX aligns its lines against the audio.
+              When WhisperX is not installed the job says so honestly; use the JSON import in that case.
+            </p>
+          </>
+        )}
+      </div>
+
+      {!timeline && boardId && (
+        <p className="hint">No audio timeline yet — upload a WAV and run the analysis (step 1).</p>
+      )}
+
+      {/* ---- Step 2: Preliminary Audio Timeline ---- */}
+      {timeline && (
+        <div className="audio-step">
+          <div className="audio-step-head"><b>2 · Preliminary Audio Timeline</b>
+            <span className="muted"> measured whisper segments + voice-activity · duration {audioClockFmt(view?.duration_seconds)}</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            <span className="pill">source: {timeline.source}</span>
+            <span className="pill">{timeline.whisper.segments.length} audio segments</span>
+            {timeline.vocal_activity && (
+              <span className="pill" title={String(timeline.vocal_activity.note || "")}>
+                voice-activity: {String(timeline.vocal_activity.method || "none")}{timeline.vocal_activity.voice_detectable ? "" : " (estimate)"}
+              </span>
+            )}
+          </div>
+          <div className="audio-table">
+            {timeline.whisper.segments.map((s, i) => (
+              <div key={i} className="audio-row">
+                <span className="pill" style={{ background: s.instrumental ? "#38bdf8" : "#fbbf24", color: "#111827", border: "none" }}>
+                  {s.instrumental ? "instrumental" : "vocal"}
+                </span>
+                <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{audioTimeFmt(s.start_seconds)} – {audioTimeFmt(s.end_seconds)}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>{s.text || "(no words)"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ---- Step 3: Director-Ready Segments ---- */}
+      {timeline && (
+        <div className="audio-step">
+          <div className="audio-step-head"><b>3 · Director-Ready Segments</b>
+            <span className="muted"> transcript-preserving cuts · 3–5s target · word-level timing retained</span>
+          </div>
+          {view?.director_segments ? <>
+            <p className="hint">
+              Cuts favor natural lyric, sentence, pause, speaker, and action boundaries. Longer phrases remain together when needed to preserve meaning.
+            </p>
+            <div className="row" style={{ alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+              <span className="pill">{view.director_segments.segments.length} segments</span>
+              {!view.director_segments.text_preserved || !view.director_segments.validation.ok ? (
+                <div className="story-err" role="alert">
+                  Export is blocked because validation failed: {view.director_segments.validation.errors.join("; ")}
+                </div>
+              ) : <>
+                <a className="btn-blue" href={`/api/director/boards/${encodeURIComponent(boardId || "")}/whisperx/director-segments?format=json`}>Download JSON</a>
+                <a className="btn-blue" href={`/api/director/boards/${encodeURIComponent(boardId || "")}/whisperx/director-segments?format=srt`}>Download SRT</a>
+                <span className="pill ok">text preserved · timestamps and durations valid · no overlaps</span>
+              </>}
+            </div>
+            <div className="audio-table">
+              {view.director_segments.segments.map((s, i) => (
+                <div className="audio-row" key={s.segment_id}>
+                  <span className="pill">{i + 1}</span>
+                  <span style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                    {audioTimeFmt(s.start_seconds)} – {audioTimeFmt(s.end_seconds)} · {audioTimeFmt(s.duration_seconds)}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>{s.text}</span>
+                  <span className="muted">{s.cut_note}</span>
+                </div>
+              ))}
+            </div>
+          </> : <div className="story-err" role="alert">
+            Director segments could not be built: {view?.director_segments_error || "no valid WhisperX transcript segments are available"}
+          </div>}
+        </div>
+      )}
+
+      {timeline && (
+        <div className="tabs" role="tablist" style={{ marginTop: 10 }}>
+          <button type="button" role="tab" aria-selected={reviewTab === "lyric"} className={`tab${reviewTab === "lyric" ? " on" : ""}`} onClick={() => setReviewTab("lyric")}>
+            🎵 Lyrics vs audio{missingLines.length ? ` (${missingLines.length} missing)` : ""}
+          </button>
+          <button type="button" role="tab" aria-selected={reviewTab === "master"} className={`tab${reviewTab === "master" ? " on" : ""}`} onClick={() => setReviewTab("master")} disabled={!master}>
+            🎼 Master timeline{approved ? " · approved" : ""}
+          </button>
+        </div>
+      )}
+
+      {/* ---- Step 4: Original Lyrics vs Audio (lyric tab) ---- */}
+      {timeline && reviewTab === "lyric" && lines.length > 0 && (
+        <div className="audio-step">
+          <div className="audio-step-head"><b>4 · Original Lyrics vs Audio</b>
+            <span className="muted"> the user&apos;s lyric text ALWAYS wins — WhisperX supplies timing only</span>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+            <span className="pill">{measuredLines.length}/{lines.length} lines measured from the audio</span>
+            {missingLines.length > 0 && <span className="pill warn">{missingLines.length} lines found nowhere in the audio</span>}
+            {lines.some((l) => l.low_confidence) && <span className="pill warn">some words carry low confidence</span>}
+          </div>
+          <div className="audio-table">
+            {lines.map((l) => {
+              const key = `${l.line_id}#${l.occurrence}`;
+              const d = lyricDrafts.get(key);
+              return (
+                <div key={key} className={`audio-row${l.start_seconds == null ? " audio-row-missing" : ""}`}>
+                  <span className="pill" style={{ background: l.start_seconds == null ? "#ef4444" : l.timing === "manual" ? "#a3e635" : l.match === "whisperx" ? "#22c55e" : "#fbbf24", color: "#111827", border: "none" }}>
+                    {l.start_seconds == null ? "missing" : l.timing === "manual" ? "corrected" : l.match === "whisperx" ? "measured" : "estimated"}
+                  </span>
+                  <input
+                    type="number" step="0.1"
+                    value={String(d?.start_seconds ?? (l.start_seconds != null ? Math.round(l.start_seconds * 100) / 100 : ""))}
+                    onChange={(e) => editLyricLine(key, l.line_id, l.occurrence, { start_seconds: e.target.value === "" ? null : Number(e.target.value) })}
+                    disabled={busy || approved} title="start (s)" style={{ width: 72 }}
+                  />
+                  <input
+                    type="number" step="0.1"
+                    value={String(d?.end_seconds ?? (l.end_seconds != null ? Math.round(l.end_seconds * 100) / 100 : ""))}
+                    onChange={(e) => editLyricLine(key, l.line_id, l.occurrence, { end_seconds: e.target.value === "" ? null : Number(e.target.value) })}
+                    disabled={busy || approved} title="end (s)" style={{ width: 72 }}
+                  />
+                  <input
+                    value={String(d?.lyric_text ?? l.lyric_text)}
+                    onChange={(e) => editLyricLine(key, l.line_id, l.occurrence, { lyric_text: e.target.value })}
+                    disabled={busy || approved} title="lyric text (never replaced by the transcript)" style={{ flex: 1, minWidth: 0 }}
+                  />
+                  <span style={{ whiteSpace: "nowrap" }}>
+                    {l.occurrence > 1 && <span className="pill">↻ #{l.occurrence}</span>}
+                    {l.heard_text && l.heard_text !== l.lyric_text && (
+                      <span className="hint" title="What WhisperX heard (never written back)"> heard: “{l.heard_text}”</span>
+                    )}
+                    {l.ai_corrected && <span className="pill ok" title="AI matched this line to existing WhisperX word timings">AI matched</span>}
+                    {l.low_confidence && <span className="pill warn">low conf {audioTimeFmt(l.confidence)}</span>}
+                    {d && <span className="pill ok">edited</span>}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="row" style={{ marginTop: 8, flexWrap: "wrap" }}>
+            <button className="primary" onClick={() => void runAiLyricCorrection()} disabled={busy || approved || aiReviewLines.length === 0 || !timeline.whisper.segments.some((s) => s.words?.length)} title="Use the local LLM to match uncertain lines to existing WhisperX word timings">
+              {step === "ai-correcting" ? <><Spinner size={14} /> checking transcript…</> : <><IconSparkles /> AI Auto-correct{aiReviewLines.length ? ` (${aiReviewLines.length})` : ""}</>}
+            </button>
+            {lyricDrafts.size > 0 && (
+              <button className="primary" onClick={() => void saveLyricEdits()} disabled={busy}>
+                {step === "saving" ? <><Spinner size={14} /> saving…</> : <><IconCheck /> Save corrections</>}
+              </button>
+            )}
+            {approved && <span className="pill ok">timeline approved — unlock in the master tab to correct lines</span>}
+          </div>
+          <p className="hint">AI uses the configured local model to match lines to measured WhisperX words. It only updates timings; original lyric text stays unchanged. Low confidence or conflicting matches remain for review. Analysis files are saved under <code>WavAnalysis/&lt;project_name_without_spaces&gt;/</code>.</p>
+        </div>
+      )}
+
+      {/* ---- Step 5: Final Master Timeline (master tab) ---- */}
+      {master && reviewTab === "master" && (
+        <div className="audio-step">
+          <div className="audio-step-head"><b>5 · Final Master Timeline</b>
+            <span className="muted"> one chronological segment list covering the WHOLE audio, word-level timings preserved</span>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+            <span className="pill">{master.segments.length} segments · {audioClockFmt(master.duration_seconds)}</span>
+            {(master.repeats || []).map((r) => (
+              <span key={r.group} className="pill" title={r.lines.map((wr) => audioTimeFmt(wr.start_seconds)).join(", ")}>
+                ↻ {r.occurrences}× “{(r.lines[0]?.lyric_text || "").slice(0, 30)}”
+              </span>
+            ))}
+          </div>
+          <div className="audio-table">
+            {master.segments.map((s) => (
+              <div
+                key={s.segment_id} className="audio-row audio-row-click"
+                onClick={() => seekMaster(s)} title="Click to play this window"
+                style={{ cursor: "pointer", outline: audioTime >= s.start_seconds && audioTime < s.end_seconds ? "2px solid var(--accent, #7c5cff)" : undefined }}
+              >
+                <span className="pill" style={{ background: audioTypeColor(s.type), color: "#111827", border: "none" }}>{s.type}</span>
+                <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{audioTimeFmt(s.start_seconds)} – {audioTimeFmt(s.end_seconds)}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  {s.lyric_text || <span className="muted">(instrumental)</span>}
+                  {s.words.length > 0 && <span className="pill">{s.words.length} words</span>}
+                  {s.character_id && <span className="pill">{s.character_id}</span>}
+                  {s.timing_source && <span className="muted"> · {s.timing_source}</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ---- Step 6: Review & Approve Timeline (master tab) ---- */}
+      {master && reviewTab === "master" && (
+        <div className="audio-step">
+          <div className="audio-step-head"><b>6 · Review &amp; Approve Timeline</b>
+            <span className="muted"> play the audio against the segments, correct anything off, then approve</span>
+          </div>
+          {view?.whisperx_audio_url ? (
+            <audio
+              ref={audioRef} controls preload="none"
+              src={view.whisperx_audio_url} onTimeUpdate={onAudioTime}
+              style={{ width: "100%", marginBottom: 8 }}
+            />
+          ) : (
+            <p className="hint">no uploaded audio to play back — upload it in step 1</p>
+          )}
+          <div className="audio-table">
+            {master.segments.map((s) => {
+              const d = masterDrafts.get(s.segment_id);
+              return (
+                <div key={s.segment_id} className="audio-row">
+                  <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", width: "100%" }}>
+                    <select value={String(d?.type ?? s.type)} onChange={(e) => editMasterSegment(s.segment_id, { type: e.target.value as MasterSegmentType })} disabled={busy || approved}>
+                      {AUDIO_SEGMENT_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
+                    <input
+                      type="number" step="0.1" defaultValue={Math.round(s.start_seconds * 100) / 100}
+                      onChange={(e) => editMasterSegment(s.segment_id, { start_seconds: e.target.value === "" ? null : Number(e.target.value) })}
+                      disabled={busy || approved} title="start (s)" style={{ width: 76 }}
+                    />
+                    <input
+                      type="number" step="0.1" defaultValue={Math.round(s.end_seconds * 100) / 100}
+                      onChange={(e) => editMasterSegment(s.segment_id, { end_seconds: e.target.value === "" ? null : Number(e.target.value) })}
+                      disabled={busy || approved} title="end (s)" style={{ width: 76 }}
+                    />
+                    <select
+                      value={String(d?.character_id ?? s.character_id ?? "")}
+                      onChange={(e) => editMasterSegment(s.segment_id, { character_id: e.target.value || undefined })}
+                      disabled={busy || approved} title="speaker"
+                    >
+                      <option value="">—</option>
+                      {(view?.characters || []).map((c) => <option key={c.character_id} value={c.character_id}>{c.name}</option>)}
+                    </select>
+                    <input
+                      defaultValue={d?.action ?? s.action} placeholder="action"
+                      disabled={busy || approved || s.type === "instrumental"}
+                      onChange={(e) => editMasterSegment(s.segment_id, { action: e.target.value })} style={{ flex: 1, minWidth: 0 }}
+                    />
+                    <input
+                      defaultValue={d?.lyric_text ?? s.lyric_text} placeholder="lyric text"
+                      disabled={busy || approved || s.type === "instrumental"}
+                      onChange={(e) => editMasterSegment(s.segment_id, { lyric_text: e.target.value })} style={{ flex: 1, minWidth: 0 }}
+                    />
+                    {d && <span className="pill ok">edited</span>}
+                    {approved && <span className="pill ok">locked</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="row" style={{ marginTop: 10, flexWrap: "wrap" }}>
+            {masterDrafts.size === 0 && !approved && (
+              <button className="ghost" onClick={fillMasterDrafts} disabled={busy || !master.segments.length} title="Seed an editable draft for every segment from the current master view">
+                Edit all segments
+              </button>
+            )}
+            {masterDrafts.size > 0 && (
+              <button className="primary" onClick={() => void saveMasterEdits()} disabled={busy}>
+                {step === "saving" ? <><Spinner size={14} /> saving…</> : <><IconCheck /> Save segment corrections</>}
+              </button>
+            )}
+            {approved ? (
+              <>
+                <span className="pill ok">✅ approved — timing authority</span>
+                <button className="ghost" onClick={() => void unlockMaster()} disabled={busy}>
+                  {step === "unlocking" ? <Spinner size={14} /> : "Unlock for correction"}
+                </button>
+                <button className="primary" onClick={() => void generateMasterClips()} disabled={busy} title="Build the 3–5 s clip windows from the approved timeline (requires a planned scene board)">
+                  {step === "clips" ? <><Spinner size={14} /> planning…</> : <><IconFilm /> Generate clips (3–5 s)</>}
+                </button>
+              </>
+            ) : (
+              <button className="primary" onClick={() => void approveMaster()} disabled={busy}>
+                {step === "approving" ? <><Spinner size={14} /> approving…</> : <><IconCheck /> Approve timeline</>}
+              </button>
+            )}
+          </div>
+          <p className="hint" style={{ marginTop: 8 }}>
+            Approved timings are never silently modified: scene planning reads them, generated clips stay inside
+            their windows, and later corrections need an explicit Unlock.
+          </p>
+        </div>
+      )}
+    </section>
   );
 }

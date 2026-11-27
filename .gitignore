@@ -8,3 +8,4 @@ workflows/merged_pipeline.json
 node_modules/
 *.log
 data/
+WavAnalysis/

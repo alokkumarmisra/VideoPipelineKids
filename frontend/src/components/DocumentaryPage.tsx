@@ -324,8 +324,8 @@ function DocStagePanel({ stageKey, stage, board, analysis, timelineTotal, shots,
         </p>
       )}
       {activeBanner}
-      <div style={{ marginTop: 8 }}>{body}</div>
-      <details style={{ marginTop: 8 }}>
+      <div style={{ marginTop: "8px" }}>{body}</div>
+      <details style={{ marginTop: "8px" }}>
         <summary>Past executions ({past.length})</summary>
         {past.length === 0 && <p className="muted">No past executions yet - re-running Plan stores a snapshot here.</p>}
         {past.slice(0, 10).map((p, i) => (
@@ -632,13 +632,13 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
           </div>
 
           {tab === "create" && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: "10px" }}>
           <div className="card-head"><h3><IconClapper size={15} /> Create Document</h3></div>
           <p className="hint">Give it a title and paste the text - topic, duration and everything else fills automatically.</p>
           <label>Title<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Enter documentary title…" /></label>
           <label>Source / story material<textarea value={sourceMaterial} onChange={(e) => setSourceMaterial(e.target.value)} rows={10} placeholder="Paste the full story, poem or documentary text here - topic, duration and everything else fills automatically…" /></label>
           <label>Special instructions<textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2} /></label>
-          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+          <div className="row" style={{ gap: 8, marginTop: "8px" }}>
             <button className="btn primary" disabled={busy != null || !title.trim()} onClick={handleCreate}>
               {busy === "Creating" ? <Spinner size={14} /> : <IconSparkles size={14} />} Create documentary
             </button>
@@ -662,7 +662,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
           {busy && (
             <div
               className="card"
-              style={{ marginTop: 8, padding: 10, border: "1px solid var(--accent-line)" }}
+              style={{ marginTop: "8px", padding: 10, border: "1px solid var(--accent-line)" }}
               role="status"
               aria-live="polite"
               aria-label={`${busyTitle(busy)} progress`}
@@ -701,7 +701,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
             </div>
           )}
           {board && (
-            <div className="card" style={{ marginTop: 8, padding: 8 }} aria-label="Detected brief">
+            <div className="card" style={{ marginTop: "8px", padding: 8 }} aria-label="Detected brief">
               <p className="muted" style={{ margin: "2px 0" }}>
                 Detected: {fmtClock(board.brief.targetSeconds)} - {board.brief.topic || "-"} - {board.brief.language || "-"} - {board.brief.tone || "-"} - {board.brief.audience || "-"} - {board.brief.sourceType || "-"} - {board.brief.narrationVoice || "-"}
               </p>
@@ -713,7 +713,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
             </div>
           )}
           {tab !== "create" && !board && (
-            <p className="muted" style={{ marginTop: 10 }}>Create a document first - pick the Create Document tab.</p>
+            <p className="muted" style={{ marginTop: "10px" }}>Create a document first - pick the Create Document tab.</p>
           )}
           {tab !== "create" && board && (
             <DocStagePanel
@@ -741,7 +741,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
           )}
 
           {tab === "scene" && board && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: "10px" }}>
               <p className="muted">Chapters → sequences (narration-first + dialogue; shot timing derives from spoken lines, 3–15s each, dynamic count).</p>
               {board.chapters.map((c) => (
                 <details key={c.chapter_number} open={c.chapter_number === 1}>
@@ -762,7 +762,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
           )}
 
           {tab === "narration" && board && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: "10px" }}>
               {board.chapters.map((c) => (
                 <div key={c.chapter_number}>
                   <h4>Chapter {c.chapter_number}: {c.title}</h4>
@@ -784,7 +784,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
           )}
 
           {tab === "characters" && board && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: "10px" }}>
               {(board.characters as Record<string, unknown>[]).map((c, i) => (
                 <details key={String((c as Record<string, unknown>).character_id ?? i)}>
                   <summary>{String((c as Record<string, unknown>).name ?? `Character ${i + 1}`)}{(c as Record<string, unknown>).role ? ` · ${String((c as Record<string, unknown>).role)}` : ""}{(c as Record<string, unknown>).voice ? ` · 🎙 ${String((c as Record<string, unknown>).voice)}` : ""}</summary>
@@ -796,7 +796,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
           )}
 
           {tab === "location" && board && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: "10px" }}>
               {(board.locations as Record<string, unknown>[]).map((l, i) => (
                 <details key={String((l as Record<string, unknown>).location_id ?? i)}>
                   <summary>{String((l as Record<string, unknown>).name ?? `Location ${i + 1}`)}</summary>
@@ -808,7 +808,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
           )}
 
           {tab === "shot" && board && (
-            <div className="doc-shots" style={{ marginTop: 10 }}>
+            <div className="doc-shots" style={{ marginTop: "10px" }}>
               {(() => {
                 const shots = board.chapters.flatMap((c) => c.sequences.flatMap((q) => q.shots));
                 const approved = shots.filter((s) => s.approved).length;
@@ -982,7 +982,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
 
 
           {tab === "timeline" && board && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: "10px" }}>
               <div className="row" style={{ gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                 <button className="btn primary" disabled={!board || !totalShots || busy === "Approving"} onClick={handleApprove}>
                   {busy === "Approving" ? <Spinner size={14} /> : <IconCheck size={14} />} Approve → project
@@ -992,7 +992,7 @@ export default function DocumentaryPage({ onOpenProject, onProjectsChanged }: {
                 </button>
               </div>
               <p><strong>{board.brief.title}</strong> — {fmtClock(timeline?.total_seconds)} target {fmtClock(board.brief.targetSeconds)}</p>
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: "10px" }}>
                 <p>Voice: <strong>{board.brief.narrationVoice}</strong> ({board.brief.narrationStyle}) · Music: {board.brief.musicStyle}</p>
                 <p className="muted">Narration TTS + music beds + SFX render through the existing pipelines after approval:
                   per-line Edge-TTS timing voices each shot, ACE-Step renders 1–5 min beds mixed under narration via FFmpeg,

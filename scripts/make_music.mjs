@@ -14,6 +14,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { resolvePromptsJson } from "../lib/config_load.mjs";
+import { configSlug } from "../lib/variant.mjs";
 import {
   run, download, uploadToInput,
   buildLtxGraph, firstVideoUrl,
@@ -22,8 +24,10 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const scenario = args.find((a) => !a.startsWith("-")) || "music_boy_school";
-const cfg = JSON.parse(fs.readFileSync(path.join(here, `../prompts/${scenario}.json`), "utf8"));
-const outDir = path.resolve(here, `../outputs/${scenario}`);
+const cfg = JSON.parse(fs.readFileSync(resolvePromptsJson(path.join(here, "../prompts"), scenario), "utf8"));
+// Storage names are SPACE-FREE: dirs/prefixes always use the slug.
+const storageName = configSlug(scenario);
+const outDir = path.resolve(here, `../outputs/${storageName}`);
 fs.mkdirSync(outDir, { recursive: true });
 const root = path.resolve(here, "..");
 
@@ -35,14 +39,14 @@ function ff(args) {
 
 // 1) Generate the music: LTX t2v at the smallest frame the node allows
 {
-  const wav = path.join(outDir, `${scenario}.wav`);
+  const wav = path.join(outDir, `${storageName}.wav`);
   if (fs.existsSync(wav)) console.log(`[music] track exists, skipping generation: ${wav}`);
   else {
     console.log(`[music] generating ${TOTAL}s music (t2v, tiny frame)...`);
-    const mp4 = path.join(outDir, `${scenario}_raw.mp4`);
+    const mp4 = path.join(outDir, `${storageName}_raw.mp4`);
     const ph = path.join(outDir, "placeholder.png");
     if (!fs.existsSync(ph)) ff(["-f", "lavfi", "-i", "color=0x111111:s=64x64", "-frames:v", "1", ph]);
-    const inputName = await uploadToInput(ph, `${scenario}_ph`);
+    const inputName = await uploadToInput(ph, `${storageName}_ph`);
     const graph = buildLtxGraph({
       prompt: cfg.musicPrompt,
       image: inputName,
@@ -50,7 +54,7 @@ function ff(args) {
       duration: TOTAL,
       fps: cfg.fps ?? 24,
       size: cfg.size ?? [64, 64],
-      prefix: `${scenario}/music`,
+      prefix: `${storageName}/music`,
     });
     const entry = await run(graph, "music");
     await download(firstVideoUrl(entry), mp4);
@@ -62,14 +66,14 @@ function ff(args) {
 // 2) Optional: lay the music onto an existing video (video audio ducked under)
 if (cfg.video) {
   const src = path.resolve(root, cfg.video);
-  const dest = path.resolve(root, cfg.out || path.join(outDir, `${scenario}_with_music.mp4`));
+  const dest = path.resolve(root, cfg.out || path.join(outDir, `${storageName}_with_music.mp4`));
   const vvol = cfg.videoVolume ?? 0.25;
   const mvol = cfg.musicVolume ?? 1.0;
   const filter =
     `[0:a]volume=${vvol},apad=whole_dur=${TOTAL}[bg];` +
     `[1:a]atrim=0:${TOTAL},asetpts=N/SR/TB[mus];` +
     `[mus][bg]amix=inputs=2:normalize=0,atrim=0:${TOTAL},asetpts=N/SR/TB[aout]`;
-  ff(["-i", src, "-i", path.join(outDir, `${scenario}.wav`), "-filter_complex", filter,
+  ff(["-i", src, "-i", path.join(outDir, `${storageName}.wav`), "-filter_complex", filter,
       "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac",
       "-t", String(TOTAL), dest]);
   console.log(`[music] final -> ${dest}`);

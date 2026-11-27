@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { run, firstVideoUrl, download, buildMergedGraph } from "../lib/comfy.mjs";
+import { fileSlug } from "../lib/variant.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.resolve(here, "../outputs/merged_test");
@@ -22,13 +23,14 @@ if (process.env.FLUX_PROMPT) {
 }
 
 for (const r of runs) {
-  const dest = path.join(outDir, `${r.name}.mp4`);
+  const safeName = fileSlug(r.name);
+  const dest = path.join(outDir, `${safeName}.mp4`);
   if (fs.existsSync(dest)) { console.log(`[merged] ${r.name} — exists, skipping`); continue; }
   const graph = buildMergedGraph({
     fluxPrompt: r.fluxPrompt,
     ltxPrompt: r.ltxPrompt,
     duration: r.duration ?? 3,
-    prefix: `video_test/merged_${r.name}`,
+    prefix: `video_test/merged_${safeName}`,
   });
   const entry = await run(graph, r.name);
   await download(firstVideoUrl(entry), dest);

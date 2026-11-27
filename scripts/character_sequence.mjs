@@ -34,10 +34,11 @@ import {
 } from "../lib/comfy.mjs";
 import {
   VERTICAL, VERTICAL_FLUX_WIDTH, VERTICAL_FLUX_HEIGHT, VERTICAL_LTX_RATIO, VERTICAL_LTX_MEGAPIXELS,
-  normalizeFormat, outDirName, prefixForDir, verticalImagePrompt, verticalMotionPrompt,
+  normalizeFormat, outDirName, prefixForDir, fileSlug, verticalImagePrompt, verticalMotionPrompt,
 } from "../lib/variant.mjs";
 import { runSequence, stitchSequence } from "../lib/sequence.mjs";
-import { beatTargetDuration } from "../lib/tts.mjs";
+import { resolvePromptsJson } from "../lib/config_load.mjs";
+import { configSlug } from "../lib/variant.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -61,15 +62,19 @@ const regen = regenIdx >= 0
   ? { kind: args[regenIdx + 1], index: Number(args[regenIdx + 2]) || 0 }
   : null;
 
-const cfgPath = path.join(here, `../prompts/${cfgName}.json`);
+// Storage identity is SPACE-FREE: the positional arg may be a display name
+// in CLI use — the slug is applied idempotently (server-passed folders are
+// already slugified, so this is a no-op for server runs).
+const storageName = configSlug(scenario);
+const cfgPath = resolvePromptsJson(path.join(here, "../prompts"), cfgName);
 if (!fs.existsSync(cfgPath)) {
   console.error(`[char] no prompts/${cfgName}.json — available:`);
   console.error("  " + fs.readdirSync(path.join(here, "../prompts")).filter((f) => f.endsWith(".json")).join("\n  "));
   process.exit(1);
 }
 const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-const outDir = path.resolve(here, `../outputs/${outDirName(scenario, "ltx", format)}`);
-const prefix = prefixForDir(outDirName(scenario, "ltx", format));
+const outDir = path.resolve(here, `../outputs/${outDirName(storageName, "ltx", format)}`);
+const prefix = prefixForDir(outDirName(storageName, "ltx", format));
 fs.mkdirSync(outDir, { recursive: true });
 
 const fluxSize = vertical ? { width: VERTICAL_FLUX_WIDTH, height: VERTICAL_FLUX_HEIGHT } : {};
@@ -114,31 +119,30 @@ const opts = {
   cfg,
   imageMode,
   buildRef: (prompt) =>
-    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${scenario}/ref`, steps: imgSteps }),
+    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${storageName}/ref`, steps: imgSteps }),
   buildKeyframe: (prompt, i, refImage) =>
-    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${scenario}/seq${i + 1}`, steps: imgSteps, image: refImage }),
+    buildImageGraph(imageMode, { prompt: frame(prompt), ...imgSize, prefix: `${storageName}/seq${i + 1}`, steps: imgSteps, image: refImage }),
   buildClip: (motion, image, i) => buildLtxGraph({
     prompt: move(motion),
     image,
-    // Dialogue beats grow to fit their voice audio (lib/tts.mjs) instead
-    // of the fixed global duration.
-    duration: beatTargetDuration({ outDir, prefix, n: i + 1, beat: cfg.sequence[i], fallback: cfg.duration ?? 3 }),
+    duration: cfg.sequence[i].duration ?? cfg.duration ?? 3,
     ratio: vertical ? VERTICAL_LTX_RATIO : "16:9 (Widescreen)",
     megapixels: vertical ? VERTICAL_LTX_MEGAPIXELS : 0.5,
     negative: cfg.negative, // explicit override; undefined -> cartoon-aware auto default in buildLtxGraph
-    prefix: `${scenario}/clip${i + 1}_${cfg.sequence[i].title}`,
+    prefix: `${storageName}/clip${i + 1}_${fileSlug(cfg.sequence[i].title)}`,
   }),
   videoNode: "75",
+  nativeAudio: true,
 };
 
 if (process.argv.includes("--stitch")) {
-  try { stitchSequence(opts); }
+  try { await stitchSequence(opts); }
   catch (e) { console.error(`[char] ${e.message}`); process.exit(1); }
   process.exit(0);
 }
 
 try {
-  await runSequence({ ...opts, regen, noDialogue: process.argv.includes("--no-dialogue"), chain: process.argv.includes("--chain") });
+  await runSequence({ ...opts, regen, nativeAudio: true, noDialogue: process.argv.includes("--no-dialogue"), chain: process.argv.includes("--chain") });
 } catch (e) {
   console.error(`[char] ${e.message}`);
   process.exit(1);

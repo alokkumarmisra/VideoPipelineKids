@@ -252,6 +252,9 @@ body {
 .shell.is-devotional-studio { grid-template-columns: minmax(0, 1fr); }
 /* Sanskriti Kids studio: the module fills the content — no right column. */
 .shell.is-sanskriti-kids { grid-template-columns: minmax(0, 1fr); }
+/* Story/Song view: the studio fills the content — its own Saved Storyboards
+   rail lives INSIDE the page (dir-layout), so the shell keeps one column. */
+.shell.is-story { grid-template-columns: minmax(0, 1fr); }
 /* Right-column rails dock to the RIGHT edge of the window (the Projects rail
    docks left). Rails-only column stays narrow so the middle keeps the space. */
 .col.right-col.rails-only { gap: 12px; }
@@ -594,6 +597,54 @@ button.btn-blue:disabled:hover, button.btn-green:disabled:hover, button.btn-purp
 /* Per-scene checkbox in the Keyframes → clips grid + highlight for checked tiles. */
 .shot-check { width: 14px; height: 14px; flex: none; accent-color: var(--accent); cursor: pointer; }
 .shot.selected { border-color: var(--accent-line); box-shadow: inset 0 0 0 1px var(--accent-line); }
+/* Keyframes → clips scene blocks: one block per Director scene in the AI
+   Story Director's creation order — the header carries the scene number +
+   title, the shot tiles keep the grid underneath. Colors are set inline from
+   the same scene palette as the tile headers. */
+.beats-scene-block {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 8px 10px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.beats-scene-block:last-child { margin-bottom: 0; }
+.beats-scene-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -8px -8px 8px;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 10px 10px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  min-width: 0;
+}
+.beats-scene-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--accent); }
+.beats-scene-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; text-transform: capitalize; }
+.beats-scene-count { margin-left: auto; flex: none; font-size: 11px; font-weight: 600; opacity: 0.75; }
+/* Keyframes → clips scene tiles: the keyframe image (left) and its clip
+   video (right) sit SIDE BY SIDE inside each shot tile — each half keeps its
+   own version row underneath. Tiles widen (auto-fill, not fixed 5 columns)
+   so the two halves stay usable video/image players. */
+.beats-scene-block .grid-compact.grid-5col {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+}
+.grid-compact .shot-body { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; }
+.shot-half { display: flex; flex-direction: column; min-width: 0; }
+.shot-half .versions { margin-top: auto; }
+.shot-half-img { border-right: 1px solid var(--line); }
+/* In horizontal mode the tile head's border already separates the top —
+   drop the doubled borders the stacked layout used. */
+.grid-compact .shot-body .shot-clip-frame { border-top: none; }
+.grid-compact .shot-body .video-frame { border-top: none; }
+.grid-compact .shot-body .shot-half-vid .frame-missing { height: 100%; }
+@media (max-width: 760px) {
+  /* Narrow screens: one tile per row, halves stay side by side. */
+  .beats-scene-block .grid-compact.grid-5col { grid-template-columns: 1fr; }
+}
 /* Scene Tools card (right column): find / replace / add-text across scenes. */
 .tools-sec { margin-top: 4px; }
 .tools-sec + .tools-sec { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -1266,6 +1317,9 @@ button.pill-btn:disabled { cursor: default; opacity: 0.6; }
 /* The director card yields its width to the rail: opening the rail
    narrows the director automatically via flex. */
 .dir-layout .dir-main { flex: 1 1 auto; min-width: 0; margin: 0; }
+/* The Story/Song page keeps its whole studio (hero + brief + workflow) in the
+   dir-main column, so the column itself stacks cards with the page's gap. */
+.story-main { display: flex; flex-direction: column; gap: 14px; }
 .dir-rail {
   width: 564px; flex: none;
   position: sticky; top: 76px;
@@ -1275,14 +1329,25 @@ button.pill-btn:disabled { cursor: default; opacity: 0.6; }
 }
 .dir-rail .card-head { flex: none; }
 .dir-rail .card-head .muted { font-variant-numeric: tabular-nums; }
-/* Rail grid: exactly 2 boards per row, independently scrollable. */
+/* Rail grid: exactly 2 boards per row, independently scrollable. Fills the
+   rail's remaining height (flex) so a stretched rail scrolls its list. */
 .dir-rail .dir-board-grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   overflow-y: auto; min-height: 0;
+  flex: 1 1 auto;
   padding: 2px;
 }
 .dir-rail .dir-board-foot { flex-wrap: wrap; row-gap: 6px; }
 .dir-rail .dir-board-foot .pill { max-width: 100%; }
+/* Board open: the rail yields room to the board's wide scene tables —
+   it narrows to a one-card-per-row list so the studio column grows. */
+.dir-rail.rail-narrow { width: 340px; }
+.dir-rail.rail-narrow .dir-board-grid-2 { grid-template-columns: minmax(0, 1fr); }
+/* Story/Song rail: stretches to the SAME height as the Story Studio column
+   it sits beside (no viewport cap, no sticky float) — the board list scrolls
+   inside the panel instead of the panel ending early. */
+.story-page .dir-layout { align-items: stretch; }
+.story-page .dir-rail { position: static; top: auto; max-height: none; }
 /* The board open in the main pane gets the active tint in the rail. */
 .dir-board-card.current {
   border-color: var(--accent-line);
@@ -4348,7 +4413,7 @@ button.rm-chip:disabled:hover { background: transparent; border-color: var(--lin
    rails, dialogue speech bubbles and a timeline cue rail.
    Theme-aware via the design tokens above (dark + light).
    ============================================================ */
-.story-page { display: flex; flex-direction: column; gap: 14px; }
+.story-page { display: flex; flex-direction: column; gap: 14px; width: 95%; margin: 0 auto; }
 .story-page .card { position: relative; overflow: hidden; }
 /* Hero: gradient banner + step flow. */
 .story-hero {
@@ -4394,6 +4459,28 @@ button.rm-chip:disabled:hover { background: transparent; border-color: var(--lin
   border: 1px solid rgba(248, 113, 113, 0.35); background: var(--err-soft); color: var(--err);
   border-radius: var(--radius-m); padding: 10px 14px; font-size: 12.5px; line-height: 1.5;
 }
+/* Audio Timeline Studio — the 5 numbered step blocks (Story audio analysis). */
+.audio-step {
+  border: 1px solid var(--line); border-radius: var(--radius-m);
+  background: var(--inset); padding: 12px 14px; margin-top: 10px;
+}
+.audio-step-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.audio-step-head b { font-size: 13px; font-weight: 750; }
+.audio-step-head .muted { font-size: 11.5px; }
+.audio-table {
+  display: flex; flex-direction: column; gap: 5px;
+  max-height: 320px; overflow: auto; padding-right: 2px;
+}
+.audio-row {
+  display: flex; gap: 10px; align-items: center;
+  font-size: 12.5px; line-height: 1.45;
+  border: 1px solid var(--line); border-radius: var(--radius-s);
+  background: var(--surface); padding: 7px 10px; min-width: 0;
+}
+.audio-row-missing { border-color: rgba(248, 113, 113, 0.4); background: var(--err-soft); }
+.audio-row .pill { flex: none; }
+.audio-row-edit { padding: 6px 8px; }
+.audio-row-edit input[type="number"], .audio-row-edit select { padding: 3px 6px; font-size: 12px; }
 /* Section titles inside the story flow. */
 .story-sec-tag {
   font-size: 10.5px; font-weight: 750; letter-spacing: 0.09em; text-transform: uppercase;
@@ -5019,3 +5106,209 @@ button.rm-chip:disabled:hover { background: transparent; border-color: var(--lin
 .dev-media-section .img-frame img,
 .dev-media-section .video-frame video { width: 100%; height: 100%; object-fit: cover; }
 .dev-media-section .versions { margin-top: 6px; }
+
+/* ==========================================================================
+   Master 19-track synchronized timeline — professional DAW-style workspace.
+   Self-contained dark palette: the timeline stays a dark editing surface in
+   BOTH the app's dark and light themes. All blocks share one time axis.
+   ========================================================================== */
+.daw-shell {
+  position: relative;
+  background: #0d1117;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 10px 0;
+  color: #e6edf6;
+  --daw-line: rgba(148, 163, 184, 0.16);
+  --daw-line-strong: rgba(148, 163, 184, 0.30);
+  --daw-muted: #8b9bb0;
+}
+.daw-head { margin-bottom: 10px; }
+.daw-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.daw-title-row h3 {
+  margin: 0; font-size: 14px; font-weight: 650; letter-spacing: 0.01em;
+  color: #f1f5f9; display: inline-flex; align-items: center; gap: 7px;
+}
+.daw-sub { margin: 5px 0 0; font-size: 11.5px; color: #a9b6c8; font-variant-numeric: tabular-nums; }
+.daw-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; margin-bottom: 8px;
+  padding: 6px 8px; background: #11161f; border: 1px solid var(--daw-line); border-radius: 6px;
+}
+.daw-tool-group { display: flex; align-items: center; gap: 6px; }
+.daw-tool-right { margin-left: auto; }
+.daw-btn {
+  appearance: none; border: 1px solid rgba(148, 163, 184, 0.28); border-radius: 4px;
+  background: #1a222e; color: #dbe4f0; font-size: 11px; line-height: 1;
+  padding: 6px 9px; cursor: pointer; white-space: nowrap;
+}
+.daw-btn:hover:not(:disabled) { background: #243044; border-color: rgba(148, 163, 184, 0.5); }
+.daw-btn:disabled { opacity: 0.42; cursor: not-allowed; }
+.daw-btn.primary { background: #2563eb; border-color: #3b82f6; color: #fff; }
+.daw-btn.primary:hover { background: #1d4ed8; }
+.daw-btn.daw-play { min-width: 34px; font-size: 12px; color: #7dd3fc; }
+.daw-time {
+  font-family: var(--mono); font-size: 12px; color: #7dd3fc;
+  font-variant-numeric: tabular-nums; min-width: 116px;
+}
+.daw-duration { font-family: var(--mono); font-size: 11px; color: var(--daw-muted); }
+.daw-zoom { font-family: var(--mono); font-size: 11px; min-width: 48px; text-align: center; color: #dbe4f0; }
+.daw-filter { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--daw-muted); }
+.daw-filter select {
+  background: #1a222e; color: #dbe4f0; border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 4px; font-size: 11px; padding: 5px 6px; max-width: 165px;
+}
+.daw-count { font-size: 10.5px; color: var(--daw-muted); white-space: nowrap; }
+.daw-scroll {
+  position: relative; overflow: auto; max-height: min(60vh, 660px); min-height: 260px;
+  background: #090d13; border: 1px solid var(--daw-line-strong); border-radius: 6px;
+  scrollbar-color: #3b4759 #0d1117; scrollbar-width: thin;
+}
+.daw-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.daw-scroll::-webkit-scrollbar-track { background: #0d1117; }
+.daw-scroll::-webkit-scrollbar-thumb { background: #3b4759; border-radius: 5px; }
+.daw-canvas { display: grid; grid-template-rows: 38px auto; position: relative; }
+.daw-corner {
+  grid-column: 1; grid-row: 1; position: sticky; left: 0; top: 0; z-index: 9;
+  display: flex; align-items: center; gap: 6px; padding: 0 10px;
+  background: #151c26; border-right: 1px solid var(--daw-line-strong);
+  border-bottom: 1px solid var(--daw-line-strong);
+  font-size: 10px; letter-spacing: 0.08em; color: #93a4b9;
+}
+.daw-corner-count {
+  margin-left: auto; font-family: var(--mono); font-size: 10px;
+  background: #233044; border-radius: 3px; padding: 2px 5px; color: #cbd5e1;
+}
+.daw-ruler {
+  grid-column: 2; grid-row: 1; position: sticky; top: 0; z-index: 6;
+  height: 38px; cursor: crosshair; user-select: none;
+  background: #111823; border-bottom: 1px solid var(--daw-line-strong);
+}
+.daw-tick { position: absolute; bottom: 0; width: 1px; height: 7px; background: rgba(148, 163, 184, 0.28); }
+.daw-tick.major { height: 13px; background: rgba(148, 163, 184, 0.55); }
+.daw-tick-label {
+  position: absolute; left: 4px; bottom: 13px; font-family: var(--mono);
+  font-size: 9.5px; line-height: 1; color: #a7b6c9; white-space: nowrap;
+}
+.daw-ruler-end {
+  position: absolute; bottom: 0; transform: translateX(-100%); padding-right: 4px;
+  font-family: var(--mono); font-size: 9.5px; color: #7dd3fc;
+}
+.daw-side {
+  grid-column: 1; grid-row: 2; position: sticky; left: 0; z-index: 7;
+  background: #121924; border-right: 1px solid var(--daw-line-strong);
+}
+.daw-side-row {
+  display: flex; align-items: center; gap: 5px; padding: 0 6px;
+  border-bottom: 1px solid var(--daw-line); box-sizing: border-box;
+}
+.daw-side-row:nth-child(odd) { background: rgba(255, 255, 255, 0.014); }
+.daw-side-row.hidden-track { opacity: 0.48; }
+.daw-track-no { font-family: var(--mono); font-size: 9.5px; color: #6f829b; width: 18px; flex: none; }
+.daw-track-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10.5px; color: #dbe4f0; border-left: 3px solid transparent; padding-left: 6px;
+}
+.daw-track-count {
+  font-family: var(--mono); font-size: 9.5px; color: #9fb0c6; min-width: 30px; text-align: right;
+  background: #1d2633; border-radius: 3px; padding: 2px 4px;
+}
+.daw-icon {
+  flex: none; appearance: none; border: 0; background: transparent; cursor: pointer;
+  font-size: 10px; line-height: 1; padding: 3px; color: #9db0c7; border-radius: 3px;
+}
+.daw-icon:hover { background: #263244; color: #fff; }
+.daw-icon.off { opacity: 0.5; }
+.daw-lanes { grid-column: 2; grid-row: 2; position: relative; }
+.daw-lane {
+  position: relative; box-sizing: border-box; overflow: hidden;
+  border-bottom: 1px solid var(--daw-line);
+  background: repeating-linear-gradient(90deg, transparent 0 79px, rgba(148, 163, 184, 0.055) 79px 80px);
+}
+.daw-lane:nth-child(odd) { background-color: rgba(255, 255, 255, 0.012); }
+.daw-lane.hidden-lane { background: #0c1118; }
+.daw-empty-label {
+  position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+  font-size: 9.5px; color: #56657a; font-style: italic; pointer-events: none;
+}
+.daw-lock-mark { position: absolute; right: 6px; top: 7px; font-size: 10px; opacity: 0.65; pointer-events: none; }
+.daw-event {
+  position: absolute; top: 4px; height: 25px; box-sizing: border-box;
+  border: 1px solid; border-radius: 3px; padding: 0 5px;
+  display: flex; align-items: center; overflow: hidden; cursor: pointer;
+  font-size: 10px; line-height: 1.2; color: #e8f0fa; text-align: left;
+  font-family: var(--font); min-width: 2px;
+}
+.daw-event:hover { filter: brightness(1.35); z-index: 2; }
+.daw-event.selected { outline: 1px solid #fff; z-index: 3; filter: brightness(1.3); }
+.daw-event-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.daw-playhead {
+  position: absolute; top: 0; bottom: 0; width: 1px; z-index: 4;
+  background: #f87171; box-shadow: 0 0 4px rgba(248, 113, 113, 0.65); pointer-events: none;
+}
+.daw-playhead-cap {
+  position: absolute; top: 0; left: 0; transform: translate(-50%, -100%);
+  font-family: var(--mono); font-size: 9px; color: #fecaca; background: #4c1d1d;
+  border: 1px solid #7f1d1d; border-radius: 3px; padding: 1px 3px; white-space: nowrap;
+}
+.daw-details {
+  position: absolute; right: 12px; top: 122px; z-index: 12; width: min(310px, 42vw);
+  background: #131b26; border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 6px; box-shadow: var(--shadow-2); padding: 10px;
+  max-height: 55vh; overflow: auto;
+}
+.daw-details-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #cbd5e1; }
+.daw-details-title {
+  margin-top: 8px; padding-left: 8px; border-left: 3px solid; font-size: 12px;
+  font-weight: 600; overflow-wrap: anywhere; color: #f1f5f9;
+}
+.daw-details-desc { margin: 6px 0 8px; font-size: 10.5px; color: #a7b6c9; }
+.daw-details-grid { display: grid; gap: 4px; margin: 0 0 8px; }
+.daw-details-grid > div { display: grid; grid-template-columns: 92px 1fr; gap: 6px; font-size: 10px; }
+.daw-details-grid dt { color: #8294ac; }
+.daw-details-grid dd { margin: 0; color: #e2e8f0; overflow-wrap: anywhere; }
+.daw-seek { width: 100%; }
+.daw-status {
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--daw-line);
+  font-size: 11px; color: #cbd5e1;
+}
+.daw-status-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.daw-spacer { flex: 1 1 0; }
+.daw-tag {
+  font-family: var(--mono); font-size: 10px; padding: 4px 6px; border-radius: 3px;
+  background: #19212d; border: 1px solid var(--daw-line); color: #b9c7d9; white-space: nowrap;
+}
+.daw-tag.ok { color: #6ee7b7; border-color: rgba(52, 211, 153, 0.4); }
+.daw-tag.warn { color: #fcd34d; border-color: rgba(251, 191, 36, 0.4); }
+.daw-tag.err { color: #fca5a5; border-color: rgba(248, 113, 113, 0.4); }
+.daw-tag.approved { color: #93c5fd; border-color: rgba(59, 130, 246, 0.5); }
+.daw-count-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 4px; margin-top: 8px;
+}
+.daw-count-chip {
+  display: flex; align-items: center; gap: 5px; justify-content: space-between;
+  border-left: 3px solid; background: #141b25; border-radius: 3px;
+  padding: 3px 6px; font-size: 10px; color: #b7c5d7; overflow: hidden;
+}
+.daw-count-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.daw-count-chip b { font-family: var(--mono); color: #e2e8f0; }
+.daw-validation {
+  margin-top: 8px; border: 1px solid var(--daw-line); border-radius: 4px;
+  background: #101720; padding: 6px 8px; font-size: 10.5px;
+}
+.daw-validation summary { cursor: pointer; color: #dbe4f0; }
+.daw-warn-count { color: #fcd34d; }
+.daw-approved-mark { color: #93c5fd; }
+.daw-warnings { margin: 7px 0 0; padding-left: 18px; color: #fbbf24; }
+.daw-warnings li { margin: 2px 0; overflow-wrap: anywhere; }
+.daw-validation-empty { margin: 6px 0 0; color: #7f90a6; }
+.daw-note { margin: 8px 0 0; font-size: 10px; line-height: 1.5; color: #73869d; }
+.daw-shell .muted { color: #73869d; }
+@media (max-width: 900px) {
+  .daw-scroll { max-height: 52vh; }
+  .daw-details { width: min(280px, 72vw); top: 150px; }
+  .daw-filter > span { display: none; }
+  .daw-duration { display: none; }
+}
