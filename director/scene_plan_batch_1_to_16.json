@@ -1,0 +1,549 @@
+{
+  "scenes": [
+    {
+      "scene_number": 1,
+      "title": "Opening Invocation",
+      "line_from": 1,
+      "line_to": 2,
+      "narration": "महादेव... एक ऐसा नाम, जिसे सुनते ही मन में एक साथ कई भाव जाग उठते हैं।",
+      "dramatic_purpose": "Establish the sacred name \"Mahadev\" and the spiritual theme of the story; introduce the devotee's emotional connection through the power of the name alone, without visual representation.",
+      "duration_seconds": 4,
+      "characters": [],
+      "location": "",
+      "objects": [],
+      "asset_refs": {
+        "characters": [],
+        "locations": [],
+        "objects": []
+      },
+      "time_of_day": "",
+      "action": "consciousness awakening to sacred resonance",
+      "motion": "soft light expanding from center, cosmic energy ripple",
+      "emotion": "awakening, reverence",
+      "expression": "",
+      "body_language": "",
+      "camera": {
+        "shot_type": "Establishing Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "soft cosmic light, gentle glow",
+      "environment": "vast primordial cosmic expanse",
+      "continuity_from_previous_scene": "N/A (first scene)",
+      "transition_to_next_scene": "awakening dissolves into dual emotional qualities",
+      "dialogue": [],
+      "image_prompt": "",
+      "video_prompt": "",
+      "shots": [
+        {
+          "shot_id": "1-A",
+          "shot_number": 1,
+          "lyric_segment": "महादेव...",
+          "semantic_meaning": "the sacred name Mahadev is invoked chanted",
+          "dramatic_purpose": "establish the divine theme and spiritual atmosphere",
+          "characters": [],
+          "location": "",
+          "objects": [],
+          "asset_refs": {
+            "characters": [],
+            "locations": [],
+            "objects": []
+          },
+          "action": "consciousness awakening to the divine name",
+          "motion": "soft light expanding from center, cosmic energy ripple",
+          "emotion": "awakening",
+          "expression": "",
+          "body_language": "",
+          "camera": {
+            "shot_type": "Establishing Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "soft cosmic light",
+          "environment": "void",
+          "dialogue": [],
+          "image_prompt": "",
+          "video_prompt": "",
+          "duration_seconds": 4
+        }
+      ]
+    },
+    {
+      "scene_number": 2,
+      "title": "Dual Emotions: Peace and Fear",
+      "line_from": 3,
+      "line_to": 4,
+      "narration": "शांति भी... भय भी।",
+      "dramatic_purpose": "Introduce the dual emotional qualities of peace (shanti) and fear (bhaya) that the divine name evokes in the devotee's heart, establishing the full range of spiritual experience.",
+      "duration_seconds": 6,
+      "characters": [],
+      "location": "",
+      "objects": [],
+      "asset_refs": {
+        "characters": [],
+        "locations": [],
+        "objects": []
+      },
+      "time_of_day": "",
+      "action": "emotions surfacing - peace and fear",
+      "motion": "light dividing into two contrasting qualities, shifting colors",
+      "emotion": "dual",
+      "expression": "",
+      "body_language": "",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "contrasting light and shadow, dual palette",
+      "environment": "cosmic space with emerging duality",
+      "continuity_from_previous_scene": "same cosmic expanse, light evolving from scene 1",
+      "transition_to_next_scene": "peace and fear emerge as distinct qualities",
+      "dialogue": [],
+      "image_prompt": "",
+      "video_prompt": "",
+      "shots": [
+        {
+          "shot_id": "2-A",
+          "shot_number": 1,
+          "lyric_segment": "शांति भी...",
+          "semantic_meaning": "peace is one of the emotions evoked by the name Mahadev",
+          "dramatic_purpose": "establish the emotional range of the divine experience",
+          "characters": [],
+          "location": "",
+          "objects": [],
+          "asset_refs": {
+            "characters": [],
+            "locations": [],
+            "objects": []
+          },
+          "action": "peace emotion surfacing",
+          "motion": "light dividing, contrasting colors emerging",
+          "emotion": "peace",
+          "expression": "",
+          "body_language": "",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "soft light transitioning to shadow",
+          "environment": "cosmic space",
+          "dialogue": [],
+          "image_prompt": "",
+          "video_prompt": "",
+          "duration_seconds": 6
+        }
+      ]
+    },
+    {
+      "scene_number": 3,
+      "title": "Compassion and Infinite Power",
+      "line_from": 5,
+      "line_to": 6,
+      "narration": "करुणा भी... और अनंत शक्ति का एहसास भी।",
+      "dramatic_purpose": "Introduce compassion (karuna) and the feeling of infinite power (ananta shakti), expanding the devotee's experience of the divine.",
+      "duration_seconds": 6,
+      "characters": [],
+      "location": "",
+      "objects": [],
+      "asset_refs": {
+        "characters": [],
+        "locations": [],
+        "objects": []
+      },
+      "time_of_day": "",
+      "action": "compassion and power surfacing in consciousness",
+      "motion": "warm light growing in intensity, expanding presence",
+      "emotion": "depth",
+      "expression": "",
+      "body_language": "",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "warm light growing in intensity",
+      "environment": "cosmic space of feeling",
+      "continuity_from_previous_scene": "same cosmic space, emotional quality deepening",
+      "transition_to_next_scene": "compassion and power stabilize into focus",
+      "dialogue": [],
+      "image_prompt": "",
+      "video_prompt": "",
+      "shots": [
+        {
+          "shot_id": "3-A",
+          "shot_number": 1,
+          "lyric_segment": "करुणा भी...",
+          "semantic_meaning": "compassion is one of the emotions evoked",
+          "dramatic_purpose": "expand the emotional range of the divine experience",
+          "characters": [],
+          "location": "",
+          "objects": [],
+          "asset_refs": {
+            "characters": [],
+            "locations": [],
+            "objects": []
+          },
+          "action": "compassion emotion surfacing",
+          "motion": "warm light growing in intensity, expanding presence",
+          "emotion": "depth",
+          "expression": "",
+          "body_language": "",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "warm steady light",
+          "environment": "cosmic space",
+          "dialogue": [],
+          "image_prompt": "",
+          "video_prompt": "",
+          "duration_seconds": 6
+        }
+      ]
+    },
+    {
+      "scene_number": 4,
+      "title": "Divine Status: Of All Gods",
+      "line_from": 7,
+      "line_to": 8,
+      "narration": "वे देवों के देव हैं... महादेव हैं।",
+      "dramatic_purpose": "Declare Shiva as \"of all gods\" (devon ke dev) and as \"Mahadev\" himself, establishing the central divinity of the story through pure declaration rather than visual form.",
+      "duration_seconds": 6,
+      "characters": [],
+      "location": "",
+      "objects": [],
+      "asset_refs": {
+        "characters": [],
+        "locations": [],
+        "objects": []
+      },
+      "time_of_day": "",
+      "action": "declaration of divine status",
+      "motion": "focused light sharpening, center of attention",
+      "emotion": "reverence",
+      "expression": "",
+      "body_language": "",
+      "camera": {
+        "shot_type": "Medium Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "bright focused light, center-weighted",
+      "environment": "cosmic space of authority",
+      "continuity_from_previous_scene": "same cosmic space, emotional quality deepening",
+      "transition_to_next_scene": "divine status confirmed, moving to nature of existence",
+      "dialogue": [],
+      "image_prompt": "",
+      "video_prompt": "",
+      "shots": [
+        {
+          "shot_id": "4-A",
+          "shot_number": 1,
+          "lyric_segment": "वे देवों के देव हैं...",
+          "semantic_meaning": "Shiva is declared the god of all gods",
+          "dramatic_purpose": "establish the central divinity of the story",
+          "characters": [],
+          "location": "",
+          "objects": [],
+          "asset_refs": {
+            "characters": [],
+            "locations": [],
+            "objects": []
+          },
+          "action": "divine status declared",
+          "motion": "focused light sharpening, center of attention",
+          "emotion": "reverence",
+          "expression": "",
+          "body_language": "",
+          "camera": {
+            "shot_type": "Medium Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "bright focused light",
+          "environment": "cosmic space",
+          "dialogue": [],
+          "image_prompt": "",
+          "video_prompt": "",
+          "duration_seconds": 6
+        }
+      ]
+    },
+    {
+      "scene_number": 5,
+      "title": "No Beginning, No End",
+      "line_from": 9,
+      "line_to": 10,
+      "narration": "न उनका कोई आदि दिखाई देता है... न कोई अंत।",
+      "dramatic_purpose": "Convey the infinite nature of Shiva - having no beginning and no end - through the negation of origin and conclusion, establishing the eternal quality of the divine.",
+      "duration_seconds": 6,
+      "characters": [],
+      "location": "",
+      "objects": [],
+      "asset_refs": {
+        "characters": [],
+        "locations": [],
+        "objects": []
+      },
+      "time_of_day": "",
+      "action": "eternal nature revealed through negation",
+      "motion": "cyclic light pattern, endless loop of illumination",
+      "emotion": "eternal",
+      "expression": "",
+      "body_language": "",
+      "camera": {
+        "shot_type": "Establishing Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "endless cyclic illumination",
+      "environment": "timeless cosmic void",
+      "continuity_from_previous_scene": "same cosmic space, moving from declaration to essence",
+      "transition_to_next_scene": "eternal nature leads to pre-creation state",
+      "dialogue": [],
+      "image_prompt": "",
+      "video_prompt": "",
+      "shots": [
+        {
+          "shot_id": "5-A",
+          "shot_number": 1,
+          "lyric_segment": "न उनका कोई आदि दिखाई देता है...",
+          "semantic_meaning": " Shiva has no visible beginning/origin",
+          "dramatic_purpose": "establish the eternal, beginningless nature of the divine",
+          "characters": [],
+          "location": "",
+          "objects": [],
+          "asset_refs": {
+            "characters": [],
+            "locations": [],
+            "objects": []
+          },
+          "action": "eternity revealed through negation",
+          "motion": "cyclic light pattern, endless loop of illumination",
+          "emotion": "eternal",
+          "expression": "",
+          "body_language": "",
+          "camera": {
+            "shot_type": "Establishing Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "endless cyclic illumination",
+          "environment": "void",
+          "dialogue": [],
+          "image_prompt": "",
+          "video_prompt": "",
+          "duration_seconds": 6
+        }
+      ]
+    },
+    {
+      "scene_number": 6,
+      "title": "Before Creation and Time",
+      "line_from": 11,
+      "line_to": 12,
+      "narration": "जब सृष्टि का अस्तित्व भी नहीं था... जब समय ने चलना शुरू नहीं किया था...",
+      "dramatic_purpose": "Depict the state before creation and before time began, using the grounded action of time\'s non-walk to anchor the abstract concept of pre-existence.",
+      "duration_seconds": 7,
+      "characters": [],
+      "location": "",
+      "objects": [],
+      "asset_refs": {
+        "characters": [],
+        "locations": [],
+        "objects": []
+      },
+      "time_of_day": "",
+      "action": "pre-existence and time before beginning",
+      "motion": "stillness with subtle time indication, no movement",
+      "emotion": "stillness",
+      "expression": "",
+      "body_language": "",
+      "camera": {
+        "shot_type": "Static Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "absolute stillness, no variation",
+      "environment": "void before creation",
+      "continuity_from_previous_scene": "same timeless void, transition from eternal nature",
+      "transition_to_next_scene": "time does not yet walk, creating anticipation",
+      "dialogue": [],
+      "image_prompt": "",
+      "video_prompt": "",
+      "shots": [
+        {
+          "shot_id": "6-A",
+          "shot_number": 1,
+          "lyric_segment": "जब सृष्टि का अस्तित्व भी नहीं था...",
+          "semantic_meaning": "no existence of creation before beginning",
+          "dramatic_purpose": "depict the state before creation and before time",
+          "characters": [],
+          "location": "",
+          "objects": [],
+          "asset_refs": {
+            "characters": [],
+            "locations": [],
+            "objects": []
+          },
+          "action": "pre-existence and time before beginning",
+          "motion": "stillness with subtle time indication, no movement",
+          "emotion": "stillness",
+          "expression": "",
+          "body_language": "",
+          "camera": {
+            "shot_type": "Static Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "absolute stillness",
+          "environment": "void before creation",
+          "dialogue": [],
+          "image_prompt": "",
+          "video_prompt": "",
+          "duration_seconds": 7
+        }
+      ]
+    },
+    {
+      "scene_number": 7,
+      "title": "Element Present Was Shiva",
+      "line_from": 13,
+      "line_to": 14,
+      "narration": "तब भी जो तत्व विद्यमान था— वही शिव था।",
+      "dramatic_purpose": "Declare that the element present in the pre-creation state was Shiva himself, establishing the divine identity at the cosmic origin point and transitioning from abstract to concrete reference.",
+      "duration_seconds": 8,
+      "characters": [],
+      "location": "",
+      "objects": [],
+      "asset_refs": {
+        "characters": [],
+        "locations": [],
+        "objects": []
+      },
+      "time_of_day": "",
+      "action": "divine element present in pre-creation",
+      "motion": "steady luminous presence, stable center",
+      "emotion": "presence",
+      "expression": "",
+      "body_language": "",
+      "camera": {
+        "shot_type": "Static Shot",
+        "angle": "Eye Level",
+        "movement": "Static"
+      },
+      "lighting": "steady luminous presence",
+      "environment": "cosmic origin point",
+      "continuity_from_previous_scene": "same void, time suspending, now divine identity revealed",
+      "transition_to_next_scene": "Shiva identified, creation begins its end",
+      "dialogue": [],
+      "image_prompt": "",
+      "video_prompt": "",
+      "shots": [
+        {
+          "shot_id": "7-A",
+          "shot_number": 1,
+          "lyric_segment": "तब भी जो तत्व विद्यमान था—",
+          "semantic_meaning": "the element present in pre-creation was Shiva",
+          "dramatic_purpose": "declare the divine identity at the cosmic origin",
+          "characters": [],
+          "location": "",
+          "objects": [],
+          "asset_refs": {
+            "characters": [],
+            "locations": [],
+            "objects": []
+          },
+          "action": "divine element present in pre-creation",
+          "motion": "steady luminous presence, stable center",
+          "emotion": "presence",
+          "expression": "",
+          "body_language": "",
+          "camera": {
+            "shot_type": "Static Shot",
+            "angle": "Eye Level",
+            "movement": "Static"
+          },
+          "lighting": "steady luminous presence",
+          "environment": "void",
+          "dialogue": [],
+          "image_prompt": "",
+          "video_prompt": "",
+          "duration_seconds": 8
+        }
+      ]
+    },
+    {
+      "scene_number": 8,
+      "title": "Creation\'s End: Elements Merge",
+      "line_from": 15,
+      "line_to": 16,
+      "narration": "और जब एक दिन यह संपूर्ण सृष्टि अपने अंतिम क्षण में प्रवेश करेगी... जब आकाश, पृथ्वी, अग्नि, जल और वायु अपने मूल में विलीन हो जाएंगे...",
+      "dramatic_purpose": "Depict the end of creation where all elements (sky, earth, fire, water, wind) merge back into their source, serving as the cosmic dissolution that sets up the return to the divine.",
+      "duration_seconds": 15,
+      "characters": [],
+      "location": "",
+      "objects": [],
+      "asset_refs": {
+        "characters": [],
+        "locations": [],
+        "objects": []
+      },
+      "time_of_day": "",
+      "action": "elements merging back into source",
+      "motion": "each element dissolving into source light, collapsing together",
+      "emotion": "surrender",
+      "expression": "",
+      "body_language": "",
+      "camera": {
+        "shot_type": "Wide Shot",
+        "angle": "Eye Level",
+        "movement": "Slow Push-In"
+      },
+      "lighting": "elements dissolving into source light",
+      "environment": "cosmic dissolution",
+      "continuity_from_previous_scene": "same cosmic origin, divine presence fading into merge",
+      "transition_to_next_scene": "elements merge, returning to the eternal source",
+      "dialogue": [],
+      "image_prompt": "",
+      "video_prompt": "",
+      "shots": [
+        {
+          "shot_id": "8-A",
+          "shot_number": 1,
+          "lyric_segment": "और जब एक दिन यह संपूर्ण सृष्टि अपने अंतिम क्षण में प्रवेश करेगी...",
+          "semantic_meaning": "the entire creation enters its final moment",
+          "dramatic_purpose": "depict the end of creation where all elements merge",
+          "characters": [],
+          "location": "",
+          "objects": [],
+          "asset_refs": {
+            "characters": [],
+            "locations": [],
+            "objects": []
+          },
+          "action": "elements merging back into source",
+          "motion": "each element dissolving into source light, collapsing together",
+          "emotion": "surrender",
+          "expression": "",
+          "body_language": "",
+          "camera": {
+            "shot_type": "Wide Shot",
+            "angle": "Eye Level",
+            "movement": "Slow Push-In"
+          },
+          "lighting": "elements dissolving into source light",
+          "environment": "cosmic dissolution",
+          "dialogue": [],
+          "image_prompt": "",
+          "video_prompt": "",
+          "duration_seconds": 15
+        }
+      ]
+    }
+  ],
+  "complete": false
+}
