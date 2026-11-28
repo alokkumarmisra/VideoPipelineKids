@@ -1305,6 +1305,11 @@ async function pgProjectId(name) {
   const r = await pgPool.query("SELECT project_id FROM projects WHERE name = $1", [name]);
   return r.rows[0]?.project_id ?? null;
 }
+async function pgProjectNameForId(projectId) {
+  if (!pgUp || projectId == null) return null;
+  const r = await pgPool.query("SELECT name FROM projects WHERE project_id = $1", [projectId]);
+  return r.rows[0]?.name ?? null;
+}
 // Project kind (projects.project_type): VIDEO = normal video project,
 // AUDIO = saved from the Create Song tab (audio generation). New rows
 // default to VIDEO; an existing row keeps its value unless an explicit type
@@ -1450,23 +1455,27 @@ async function pgUpsertDirectorBoard(board) {
 // (re-approve / migrate-remaining) and once at boot for older installs.
 // Column, DB JSON and the offline-fallback file are updated together so a
 // later board edit (which upserts the whole object) can never unlink it.
-async function pgLinkDirectorBoards(name, pid) {
+async function pgLinkDirectorBoards(name, pid, boardId = null) {
   if (!pgUp || !name || pid == null) return;
   try {
     await pgPool.query(
       `UPDATE director_boards SET project_id = $2,
-         board = jsonb_set(board, '{project_id}', to_jsonb($2::int))
-       WHERE scenario_name = $1 AND (project_id IS NULL OR project_id <> $2)`,
-      [name, pid]);
+         scenario_name = $1,
+         board = jsonb_set(jsonb_set(board, '{project_id}', to_jsonb($2::int)),
+                           '{scenarioName}', to_jsonb($1::text))
+       WHERE scenario_name = $1 OR ($3::text IS NOT NULL AND board_id = $3)`,
+      [name, pid, boardId == null ? null : String(boardId)]);
     const r = await pgPool.query(
-      "SELECT board_id FROM director_boards WHERE scenario_name = $1", [name]);
+      "SELECT board_id FROM director_boards WHERE scenario_name = $1 OR ($2::text IS NOT NULL AND board_id = $2)",
+      [name, boardId == null ? null : String(boardId)]);
     for (const row of r.rows) {
       const f = path.join(DIRECTOR, `${row.board_id}.json`);
       try {
         if (fs.existsSync(f)) {
           const b = JSON.parse(fs.readFileSync(f, "utf8"));
-          if (b.project_id !== pid) {
+          if (b.project_id !== pid || b.scenarioName !== name) {
             b.project_id = pid;
+            b.scenarioName = name;
             fs.writeFileSync(f, JSON.stringify(b, null, 2));
           }
         }
@@ -10417,29 +10426,38 @@ except Exception as e:
       const config = attachDirectorAssetGenerationData(boardToScenario(generationBoard, {
         preservePrompts: true,
       }));
-      // Partial-migration flow: the first migration claims a numbered
-      // internal project key, while later migrations reuse the same key.
-      // Later migrations rebuild the project config from the complete board.
+      // Partial migrations keep the project's existing readable key. A
+      // separate internal project ID and the Director board ID provide the
+      // durable link; every migration rebuilds config from the full board.
       const approveTitle = String(board.input.title || "").trim().slice(0, 120);
-      // The board name is the normal link. Keep a board id in the saved
-      // project config as a recovery link as well: it survives board reloads
-      // and lets a later partial migration find the same project if the board
-      // link was lost or the project was renamed.
-      let linkedProjectName = board.scenarioName || null;
       let existingRows = [];
       try { existingRows = await dbListScenarios(); }
       catch { /* the save path reports database availability */ }
+      let linkedProjectName = null;
+      // Resolve by project_id first so project renames do not break the link.
+      try { linkedProjectName = await pgProjectNameForId(board.project_id); }
+      catch { /* SQLite and offline mode use the board/config link below */ }
+      let linkedProjectRow = null;
       for (const row of existingRows) {
         try {
           const saved = JSON.parse(row.config);
-          if (!linkedProjectName && String(saved?.director_board_id || "") === String(id)) {
+          if (String(saved?.director_board_id || "") === String(id)) {
+            linkedProjectRow = row;
+            if (!linkedProjectName) linkedProjectName = row.name;
+          }
+          if (row.name === linkedProjectName) linkedProjectRow ||= row;
+          if (!linkedProjectName && board.scenarioName === row.name) {
             linkedProjectName = row.name;
+            linkedProjectRow = row;
           }
         } catch { /* skip malformed project configs */ }
       }
-      let target = linkedProjectName;
+      // Preserve the board's name if the project row was deleted or the DB is
+      // temporarily unavailable; otherwise the first migration uses the
+      // normal title-derived key and collision suffix.
+      let target = linkedProjectName || board.scenarioName || null;
       if (!target) {
-        let taken = new Set(existingRows.map((row) => row.name));
+        const taken = new Set(existingRows.map((row) => row.name));
         target = spaceFreeName(approveTitle) || id;
         if (taken.has(target)) {
           for (let i = 2; ; i++) {
@@ -10448,6 +10466,23 @@ except Exception as e:
         }
       }
       if (approveTitle) config.display_name = approveTitle;
+      const reservedProjectIds = new Set(existingRows.filter((row) => row.name !== target).flatMap((row) => {
+        try {
+          const saved = JSON.parse(row.config);
+          return [row.name, saved?.internal_project_id].filter(Boolean).map(String);
+        } catch { return [String(row.name || "")]; }
+      }));
+      let internalProjectId = null;
+      try {
+        internalProjectId = linkedProjectRow
+          ? JSON.parse(linkedProjectRow.config)?.internal_project_id || null
+          : null;
+      } catch { /* regenerate a missing internal ID */ }
+      if (!internalProjectId || reservedProjectIds.has(String(internalProjectId))) {
+        do { internalProjectId = nextInternalId("PROJECT", [PROMPTS]); }
+        while (reservedProjectIds.has(String(internalProjectId)));
+      }
+      config.internal_project_id = String(internalProjectId);
       config.director_board_id = String(id);
       const partial = board.scenes.length < board.sceneCount;
       board.status = partial ? "approved-partial" : "approved";
@@ -10458,7 +10493,7 @@ except Exception as e:
       try {
         const pid = await pgProjectId(target);
         board.project_id = pid;
-        if (pid != null) await pgLinkDirectorBoards(target, pid);
+        if (pid != null) await pgLinkDirectorBoards(target, pid, id);
       } catch { /* link is best-effort; the PUT save links too */ }
       board.migratedScenes = board.scenes.length;
       board.error = null;

@@ -2933,7 +2933,6 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
               </button>
             </div>
             <h4 className="dir-board-title" title={b.title}>{b.title}</h4>
-            <span className="dir-chip" title="Internal Director ID">{b.id}</span>
             {b.logline && <p className="dir-board-logline" title={b.logline}>{b.logline}</p>}
             {chips.length > 0 && (
               <div className="dir-board-chips">

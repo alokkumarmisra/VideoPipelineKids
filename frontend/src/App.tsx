@@ -2015,7 +2015,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                 <button
                   className={`scenario-item ${selected ? "on" : ""}`}
                   onClick={() => openProject(s.name)}
-                  title={s.project_id != null ? `${/^PROJECT_\d+$/i.test(s.name) ? s.name : `PROJECT_${String(s.project_id).padStart(3, "0")}`} · ${s.display_name || s.name}` : (s.display_name || s.name)}
+                  title={s.project_id != null ? `#${s.project_id} · ${s.display_name || s.name}` : (s.display_name || s.name)}
                   aria-current={selected ? "page" : undefined}
                 >
                   <span className={`scenario-avatar av-${avatarTone(s.name)}`} aria-hidden="true">
@@ -2024,9 +2024,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                   <span className="scenario-main">
                     <span className="scenario-name">
                       {s.project_id != null && (
-                        <span className="scenario-id" title={`Internal project ID ${/^PROJECT_\d+$/i.test(s.name) ? s.name : `PROJECT_${String(s.project_id).padStart(3, "0")}`}`}>
-                          {/^PROJECT_\d+$/i.test(s.name) ? s.name : `PROJECT_${String(s.project_id).padStart(3, "0")}`}
-                        </span>
+                        <span className="scenario-id" title={`Project #${s.project_id}`}>#{s.project_id}</span>
                       )}
                       <span className="scenario-name-text">{s.display_name || s.name}</span>
                     </span>
