@@ -37,6 +37,8 @@ interface Props {
   onRegen?: (kind: AssetKind, index: number | null) => void;
   /** Bulk regenerate checked scenes (queued serially). Kind "both" = keyframe + clip per scene. */
   onBulkRegen?: (kind: "keyframe" | "clip" | "both", indices: number[]) => void;
+  /** Delete generated keyframes + clips for checked beats, keeping prompts. */
+  onBulkDelete?: (indices: number[]) => Promise<void> | void;
   onUploaded?: () => void; // a ref upload landed — ask the app to re-list outputs
   // Called by the "view other engine's outputs" button (shown when this
   // engine dir is empty but the sibling engine dir has renders).
@@ -183,7 +185,7 @@ function GenOverlay({ label, readout }: { label: string; readout?: string | null
 
 // Gallery of outputs/<scenario>/: ref, keyframes, clips (with version
 // pickers + regenerate), final cut.
-export default function OutputGallery({ scenario, refreshKey, assets, bare, generatingScenario, generatingFormat, section = "all", regenTarget, runQueue = [], onStitch, onRegen, onBulkRegen, onUploaded, onEngineSwitch, totalScenes, progress, onGotoEditorScene, summary, projectName, displayName, dialogueEngine = "ltx", dialogueFormat = "landscape", beats, onPromptChange, onDialogueSaved }: Props) {
+export default function OutputGallery({ scenario, refreshKey, assets, bare, generatingScenario, generatingFormat, section = "all", regenTarget, runQueue = [], onStitch, onRegen, onBulkRegen, onBulkDelete, onUploaded, onEngineSwitch, totalScenes, progress, onGotoEditorScene, summary, projectName, displayName, dialogueEngine = "ltx", dialogueFormat = "landscape", beats, onPromptChange, onDialogueSaved }: Props) {
   const [files, setFiles] = useState<string[]>([]);
   const [versions, setVersions] = useState<VersionsInfo>({ ref: [], beats: {}, final: [] });
   const [mains, setMains] = useState<MainsInfo>({ ref: null, beats: {}, final: null });
@@ -213,10 +215,23 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
   // Bulk-regen selection: checked scenes in the Keyframes → clips grid.
   // Reset whenever the viewed output dir changes so picks never leak across projects.
   const [selected, setSelected] = useState<number[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [promptEditor, setPromptEditor] = useState<{ beat: number; kind: "image" | "video"; value: string; saving: boolean; error: string } | null>(null);
   const [bulkKind, setBulkKind] = useState<"clip" | "keyframe" | "both">("clip");
   const toggleSelected = (n: number) =>
     setSelected((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n].sort((a, b) => a - b)));
+  const deleteSelectedMedia = async () => {
+    if (!onBulkDelete || !selected.length || bulkDeleting) return;
+    setBulkDeleting(true);
+    try {
+      await onBulkDelete(selected);
+      setSelected([]);
+    } catch {
+      // The parent reports the API failure; retain the selection for retry.
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
   // Output dir whose listing is actually on screen. Stale-while-revalidate:
   // the previous project's files stay mounted until the new listing lands —
   // clearing them first is what flashed "No outputs yet" on every click.
@@ -1273,7 +1288,7 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                     type="button"
                     className="ghost beats-bulk-all"
                     onClick={() => setSelected(sceneNums)}
-                    disabled={switchingGallery || selected.length === sceneNums.length}
+                    disabled={switchingGallery || bulkDeleting || selected.length === sceneNums.length}
                     title="Check every scene"
                   >
                     All
@@ -1282,11 +1297,25 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                     type="button"
                     className="ghost beats-bulk-all"
                     onClick={() => setSelected([])}
-                    disabled={switchingGallery || selected.length === 0}
+                    disabled={switchingGallery || bulkDeleting || selected.length === 0}
                     title="Uncheck every scene"
                   >
                     None
                   </button>
+                  {onBulkDelete && (
+                    <button
+                      type="button"
+                      className="ghost beats-bulk-delete danger"
+                      onClick={() => void deleteSelectedMedia()}
+                      disabled={switchingGallery || generating || bulkDeleting || selected.length === 0}
+                      title={selected.length
+                        ? `Delete all generated image and video versions for beats ${selected.join(", ")}; saved prompts stay intact`
+                        : "Select beats first; this removes only generated images and videos"}
+                    >
+                      {bulkDeleting ? <Spinner size={12} /> : null}
+                      Delete media{selected.length ? ` (${selected.length})` : ""}
+                    </button>
+                  )}
                   <select
                     className="beats-bulk-kind"
                     value={bulkKind}
@@ -1711,7 +1740,7 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                         className="shot-check"
                         checked={selected.includes(n)}
                         onChange={() => toggleSelected(n)}
-                        disabled={switchingGallery}
+                        disabled={switchingGallery || bulkDeleting}
                         title={`Select scene ${n} for bulk Regenerate`}
                         aria-label={`Select scene ${n}`}
                       />
@@ -1877,7 +1906,7 @@ export default function OutputGallery({ scenario, refreshKey, assets, bare, gene
                       className="shot-check"
                       checked={selected.includes(fn)}
                       onChange={() => toggleSelected(fn)}
-                      disabled={switchingGallery}
+                      disabled={switchingGallery || bulkDeleting}
                       title={`Select scene ${fn} for bulk Regenerate`}
                       aria-label={`Select scene ${fn}`}
                     />

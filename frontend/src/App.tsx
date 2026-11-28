@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listScenarios, getScenario, getDashboard, saveScenario, deleteScenario, renameScenario, setFavorite, comfyStatus, getHealth, outScenario, folderOf, slugFolder, me, logout, fmtDateTime, listRuns, directorBoards, getTheme, saveTheme, DEFAULT_PRESET_ID, type DirectorBoardMeta, type Engine, type AuthUser, type ImageMode, type RegenSpec, type RunRequest, type VideoFormat, type VideoType } from "./api";
+import { listScenarios, getScenario, getDashboard, saveScenario, deleteScenario, deleteBeatMedia, renameScenario, setFavorite, comfyStatus, getHealth, outScenario, folderOf, slugFolder, me, logout, fmtDateTime, listRuns, directorBoards, getTheme, saveTheme, DEFAULT_PRESET_ID, type DirectorBoardMeta, type Engine, type AuthUser, type ImageMode, type RegenSpec, type RunRequest, type VideoFormat, type VideoType } from "./api";
 import type { Beat, Scenario, ScenarioInfo, ComfyStatus, AssetKind, DashboardProject, HealthResponse, Run } from "./types";
 import ScenarioEditor from "./components/ScenarioEditor";
 import GenerateReference from "./components/GenerateReference";
@@ -844,6 +844,23 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
         return next;
       });
       setPendingRun({ nonce: Date.now(), ...first });
+    }
+  };
+
+  const handleBulkDeleteMedia = async (scenario: string, indices: number[]) => {
+    if (!scenario || indices.length === 0) return;
+    const unique = [...new Set(indices)].sort((a, b) => a - b);
+    const ok = await dialog.confirm(
+      `This permanently deletes every generated keyframe image and clip video version for ${unique.length} selected beat${unique.length === 1 ? "" : "s"}. Image prompts, video prompts, reference images, and final cuts are kept.`,
+      { title: `Delete generated media for ${unique.length} beat${unique.length === 1 ? "" : "s"}?`, tone: "error", okText: "Delete media", cancelText: "Keep media" }
+    );
+    if (!ok) return;
+    try {
+      await deleteBeatMedia(scenario, unique);
+      refresh();
+    } catch (e) {
+      await dialog.alert(e instanceof Error ? e.message : String(e), { title: "Could not delete generated media", tone: "error" });
+      throw e;
     }
   };
 
@@ -1998,7 +2015,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                 <button
                   className={`scenario-item ${selected ? "on" : ""}`}
                   onClick={() => openProject(s.name)}
-                  title={s.project_id != null ? `#${s.project_id} · ${s.display_name || s.name}` : (s.display_name || s.name)}
+                  title={s.project_id != null ? `${/^PROJECT_\d+$/i.test(s.name) ? s.name : `PROJECT_${String(s.project_id).padStart(3, "0")}`} · ${s.display_name || s.name}` : (s.display_name || s.name)}
                   aria-current={selected ? "page" : undefined}
                 >
                   <span className={`scenario-avatar av-${avatarTone(s.name)}`} aria-hidden="true">
@@ -2007,7 +2024,9 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                   <span className="scenario-main">
                     <span className="scenario-name">
                       {s.project_id != null && (
-                        <span className="scenario-id" title={`Project #${s.project_id}`}>#{s.project_id}</span>
+                        <span className="scenario-id" title={`Internal project ID ${/^PROJECT_\d+$/i.test(s.name) ? s.name : `PROJECT_${String(s.project_id).padStart(3, "0")}`}`}>
+                          {/^PROJECT_\d+$/i.test(s.name) ? s.name : `PROJECT_${String(s.project_id).padStart(3, "0")}`}
+                        </span>
                       )}
                       <span className="scenario-name-text">{s.display_name || s.name}</span>
                     </span>
@@ -2202,6 +2221,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
             runQueue={runQueue}
             onRegen={(kind, index) => handleRegen(kind, index, cutFormat === "vertical" ? "vertical" : undefined)}
             onBulkRegen={(kind, indices) => handleBulkRegen(kind, indices, cutFormat === "vertical" ? "vertical" : undefined)}
+            onBulkDelete={(indices) => handleBulkDeleteMedia(cutDir, indices)}
             onUploaded={refresh}
             totalScenes={editor && Array.isArray(editor.config.sequence) ? editor.config.sequence.length : null}
             beats={editor && Array.isArray(editor.config.sequence) ? editor.config.sequence : null}

@@ -603,6 +603,12 @@ export const comfyStatus = () => get<ComfyStatus>("/api/comfy");
 export const listOutputs = (scenario: string) =>
   get<OutputsInfo>(`/api/outputs?scenario=${scenario}`);
 
+// Delete only the generated keyframe images + clip videos for these beats.
+// The saved project prompts and reference/final media are left untouched.
+export const deleteBeatMedia = (scenario: string, beats: number[]) =>
+  post<{ ok: boolean; deleted: { keyframes: number; clips: number }; outputs: OutputsInfo }>(
+    "/api/outputs/delete-beats", { scenario, beats });
+
 // Home dashboard + combined service health (real data, no mocks).
 export const getDashboard = () =>
   fetch("/api/dashboard").then((r) =>

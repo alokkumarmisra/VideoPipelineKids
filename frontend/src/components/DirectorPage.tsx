@@ -1007,6 +1007,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   }, [formLiveText]);
   // Editing + master-detail selection (compact cards + one full detail section).
   const [selectedScene, setSelectedScene] = useState<number | null>(null);
+  const [selectedSceneNumbers, setSelectedSceneNumbers] = useState<Set<number>>(() => new Set());
   const [editingScene, setEditingScene] = useState<number | null>(null);
   // Scene Details/Edit popup: one modal per scene (mode details = full
   // breakdown, mode edit = edit form). Cards stay compact; the separate
@@ -1264,6 +1265,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     // the board already carries an uploaded audio.
     setAudioUploaded(false); setAudioDuration(0); setAudioMeta(null);
     setMasterTimeline(null);
+    setSelectedSceneNumbers(new Set());
     setAudioAnalysisStatus("pending"); setTimelineEventsCount(EMPTY_TRACK_COUNTS);
     setTimelineValidation({ valid: true, warnings: [] });
     setTimelineApproval("pending"); setTimelineVersion(0);
@@ -1486,6 +1488,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       setBoard(b);
       setActiveDirectorTab("scenes");
       setSelectedScene(0);
+      setSelectedSceneNumbers(new Set());
       setAssetProduction(null);
       void loadAssetProduction(b.id);
       await refreshBoards();
@@ -1815,8 +1818,32 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     try {
       const b = await directorUpdateBoard(board.id, { scenes: board.scenes.filter((_, i) => i !== index) });
       setBoard(b);
+      setSelectedSceneNumbers(new Set());
       setSelectedScene((sel) => (sel == null ? sel : Math.min(sel, Math.max(0, b.scenes.length - 1))));
       setEditingScene(null);
+      await refreshBoards();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const doDeleteSelectedScenes = async () => {
+    if (!board || busy || !selectedSceneNumbers.size) return;
+    const selected = new Set(selectedSceneNumbers);
+    const doomed = board.scenes.filter((scene) => selected.has(scene.scene_number));
+    if (!doomed.length) { setSelectedSceneNumbers(new Set()); return; }
+    const ok = await dialog.confirm(
+      `Deletes ${doomed.length} selected scene${doomed.length === 1 ? "" : "s"}. Remaining scenes will be renumbered.`,
+      { title: `Delete ${doomed.length} selected scene${doomed.length === 1 ? "" : "s"}?`, tone: "error", okText: "Delete scenes", cancelText: "Keep scenes" }
+    );
+    if (!ok) return;
+    try {
+      const b = await directorUpdateBoard(board.id, { scenes: board.scenes.filter((scene) => !selected.has(scene.scene_number)) });
+      setBoard(b);
+      setSelectedSceneNumbers(new Set());
+      setSelectedScene((current) => current == null ? current : Math.min(current, Math.max(0, b.scenes.length - 1)));
+      setEditingScene(null);
+      setSceneModal(null);
       await refreshBoards();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -2460,13 +2487,42 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       )}
       <p className="muted shot-detail-line" style={{ margin: "2px 0", fontSize: 12 }}>
         {(() => {
+          const approvedAssets = assetProduction?.assets ?? [];
+          const assetForRef = (type: DirectorMasterAsset["type"], id: string, blueprintId = "") =>
+            approvedAssets.find((asset) => asset.type === type && (
+              asset.id === id
+              || asset.reference_id === id
+              || asset.image_versions?.some((version) => version.reference_id === id)
+              || (blueprintId && asset.blueprint_id === blueprintId)
+            ));
           const names = (sh.characters ?? []).map((id, index) => {
             const entry = (board?.blueprint?.characters ?? []).find((c) => String(c.character_id ?? c.id ?? "") === id);
-            const name = String(entry?.name || id);
-            const assetId = sh.asset_refs?.characters?.[index];
-            return `${name}${assetId ? ` [${assetId}]` : ""}`;
+            const assetId = sh.asset_refs?.characters?.[index] || "";
+            const asset = assetForRef("character", assetId, id);
+            const name = String(asset?.name || entry?.name || id);
+            const mappedId = assetId || asset?.reference_id || asset?.id || "";
+            return `${name}${mappedId ? ` [${mappedId}]` : ""}`;
           });
-          return [`Characters: ${names.join(", ") || "—"}`, sh.location ? `Location: ${sh.location}` : null].filter(Boolean).join(" · ");
+          const locationId = sh.asset_refs?.locations?.[0] || "";
+          const locationEntry = (board?.blueprint?.locations ?? []).find((item) =>
+            String(item.location_id ?? item.id ?? "") === String(sh.location || ""));
+          const locationAsset = assetForRef("location", locationId, String(sh.location || ""));
+          const locationName = locationAsset?.name || String(locationEntry?.name || sh.location || "");
+          const mappedLocationId = locationId || (locationAsset?.reference_id || locationAsset?.id) || "";
+          const objectIds = sh.asset_refs?.objects ?? [];
+          const objectRows = [...new Map([...new Set([...(sh.objects ?? []), ...objectIds])].map((id) => {
+            const bibleObject = (board?.blueprint?.objects ?? []).find((item) =>
+              String(item.object_id ?? item.id ?? "") === id);
+            const asset = assetForRef("object", id, id);
+            const name = String(asset?.name || bibleObject?.name || id);
+            const mappedId = asset?.reference_id || asset?.id || id;
+            return [mappedId, `${name}${mappedId ? ` [${mappedId}]` : ""}`] as const;
+          })).values()];
+          return [
+            `Characters: ${names.join(", ") || "—"}`,
+            locationName ? `Location: ${locationName}${mappedLocationId ? ` [${mappedLocationId}]` : ""}` : null,
+            objectRows.length ? `Objects: ${objectRows.join(", ")}` : null,
+          ].filter(Boolean).join(" · ");
         })()}
         {(sh.dialogue ?? []).length ? ` · 🎙 ${(sh.dialogue ?? []).map((x) => `${x.speaker || "voice"}: ${x.line}`).join(" / ")}` : ""}
       </p>
@@ -2877,6 +2933,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
               </button>
             </div>
             <h4 className="dir-board-title" title={b.title}>{b.title}</h4>
+            <span className="dir-chip" title="Internal Director ID">{b.id}</span>
             {b.logline && <p className="dir-board-logline" title={b.logline}>{b.logline}</p>}
             {chips.length > 0 && (
               <div className="dir-board-chips">
@@ -3967,6 +4024,26 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                       </span>
                     );
                   })()}
+                  <label className="dir-scene-bulk-select">
+                    <input
+                      type="checkbox"
+                      checked={board.scenes.length > 0 && board.scenes.every((scene) => selectedSceneNumbers.has(scene.scene_number))}
+                      disabled={!board.scenes.length || busy != null}
+                      onChange={(event) => setSelectedSceneNumbers(event.target.checked
+                        ? new Set(board.scenes.map((scene) => scene.scene_number))
+                        : new Set())}
+                      aria-label="Select all scenes"
+                    />
+                    Select all
+                  </label>
+                  <button
+                    className="ghost shotlist-btn danger"
+                    disabled={!selectedSceneNumbers.size || busy != null}
+                    onClick={() => void doDeleteSelectedScenes()}
+                    title="Delete selected scenes"
+                  >
+                    <IconTrash size={12} /> Delete selected{selectedSceneNumbers.size ? ` (${selectedSceneNumbers.size})` : ""}
+                  </button>
                   <span className="spacer" />
                   {(() => {
                     const groups = new Map<number, { shots: string[]; text: string }>();
@@ -4020,6 +4097,21 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                           <span className="pill" aria-hidden="true" title={`Scene ${s.scene_number} of ${sceneCap}`}>
                             {s.scene_number}/{sceneCap}
                           </span>
+                          <label className="dir-scene-row-check">
+                            <input
+                              type="checkbox"
+                              checked={selectedSceneNumbers.has(s.scene_number)}
+                              disabled={busy != null}
+                              onChange={(event) => setSelectedSceneNumbers((current) => {
+                                const next = new Set(current);
+                                if (event.target.checked) next.add(s.scene_number);
+                                else next.delete(s.scene_number);
+                                return next;
+                              })}
+                              aria-label={`Select Scene ${s.scene_number}`}
+                              title={`Select Scene ${s.scene_number}`}
+                            />
+                          </label>
                           <span className="dir-scene-row-title" title={s.title}>
                             <TypedText text={s.title} animate={typing} delayMs={typeDelay(str(s.title).length)} />
                           </span>

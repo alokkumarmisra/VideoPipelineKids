@@ -611,6 +611,7 @@ button.btn-blue:disabled:hover, button.btn-green:disabled:hover, button.btn-purp
 /* Bulk-regenerate controls: sit between the Story Board label and the scene
    count in the Keyframes → clips card header. */
 .beats-bulk { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.beats-bulk-delete { white-space: nowrap; }
 .beats-bulk-all { font-size: 11px; padding: 2px 8px; }
 .beats-bulk-kind {
   font-size: 11px; padding: 2px 4px;
@@ -1425,25 +1426,28 @@ button.pill-btn:disabled { cursor: default; opacity: 0.6; }
 }
 
 /* ============================================================
-   Director scene rows — one scene per row, its timed shots laid out
-   HORIZONTALLY inside (width ∝ shot duration, so the strip reads as the
-   scene's timeline: shot 1.1 → 0–1.4s, 1.2 → 1.4–2.5s, ...).
+   Director scene rows — every scene fills the same main-pane width, with
+   timed shots arranged inside each card.
    ============================================================ */
-.dir-scene-rows { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; }
+.dir-scene-rows { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 12px; width: 100%; min-width: 0; }
 .dir-scene-row {
   container: director-scene / inline-size;
-  flex: 0 1 auto;
-  border: 1px solid var(--line); border-radius: var(--radius-media);
-  background: var(--surface-2); padding: 10px 12px;
-  min-width: 0;
+  width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--accent) 12%);
+  border-radius: var(--radius-media);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--surface-2) 96%, var(--accent) 4%), var(--surface-2));
+  padding: 12px 14px;
+  box-shadow: var(--shadow-1);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
   scroll-margin-top: 90px; scroll-margin-bottom: 24px;
 }
-.dir-scene-row.shot-count-1 { width: min(240px, 100%); }
-.dir-scene-row.shot-count-2 { width: min(480px, 100%); }
-.dir-scene-row.shot-count-3 { width: min(720px, 100%); }
-.dir-scene-row.shot-count-4 { width: min(960px, 100%); }
+.dir-scene-row:hover { border-color: var(--accent-line); box-shadow: var(--shadow-2); }
 .dir-scene-row.selected { border-color: var(--accent-line); box-shadow: inset 0 0 0 1px var(--accent-line); }
-.dir-scene-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dir-scene-row > .dir-scene-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; padding-bottom: 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent); }
+.dir-scene-bulk-select, .dir-scene-row-check { display: inline-flex; align-items: center; gap: 5px; color: var(--muted, #9ca3af); font-size: 11px; white-space: nowrap; }
+.dir-scene-row-check { margin: 0 2px; }
+.dir-scene-bulk-select input, .dir-scene-row-check input { accent-color: var(--accent); cursor: pointer; }
+.dir-scene-bulk-select input:disabled, .dir-scene-row-check input:disabled { cursor: not-allowed; }
 .dir-scene-row-title { font-weight: 700; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dir-scene-row-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
 .dir-shot-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 8px; overflow: visible; padding-bottom: 2px; }
@@ -1480,7 +1484,6 @@ button.pill-btn:disabled { cursor: default; opacity: 0.6; }
 }
 /* Director live stream panel (read-only LLM progress while a batch runs). */
 .dir-scene-row.typing.live {
-  flex: 0 0 100%;
   width: 100%;
   min-width: 0;
   height: min(500px, 60vh);

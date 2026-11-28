@@ -89,7 +89,7 @@ function movieEnvironmentForShot(project, scene, shot) {
   const objects = [...new Map([...matched.objects, ...(project.environment_assets || []).filter((asset) => selectedObjects.has(asset.asset_id))].map((asset) => [asset.asset_id, asset])).values()];
   return { locations: locations.map(resolve), objects: objects.map(resolve) };
 }
-import { versionMap, setMain, clearRefMain, nextVersion } from "../lib/sequence_state.mjs";
+import { versionMap, setMain, clearRefMain, nextVersion, versionsOf, loadState, saveState } from "../lib/sequence_state.mjs";
 import {
   normalizeFormat, outDirName, cfgNameForDir, prefixForDir, engineForDir,
   allDirsFor, folderSlug, fileSlug, configSlug,
@@ -494,7 +494,12 @@ const dbSaveScenario = async (name, cfg) => {
     // folder_name rides inside the config JSON (SQLite has no projects
     // table); the PUT route stamps the immutable value before calling here.
     if (cfg && typeof cfg === "object" && !cfg.folder_name) {
-      cfg = { ...cfg, folder_name: folderName(name) };
+      let existingFolder = null;
+      try {
+        const old = db.prepare("SELECT config FROM scenarios WHERE name = ?").get(name)?.config;
+        existingFolder = old ? JSON.parse(old)?.folder_name : null;
+      } catch { /* malformed legacy config */ }
+      cfg = { ...cfg, folder_name: existingFolder || mintGenerationKey(name) };
     }
     db.prepare(`INSERT INTO scenarios (name, config, updated_at) VALUES (?, ?, ?)
                ON CONFLICT(name) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at`)
@@ -720,7 +725,14 @@ function slugifyDirFilenames(dir, prefix, seq) {
 // legacy spaced filenames, and rewrite state.json + DB paths from the exact
 // rename map. Safe no-op when already canonical. Returns the folder.
 async function migrateProjectStorage(displayName) {
-  const stored = pgUp ? await getFolderNameFromRow(displayName) : null;
+  let stored = pgUp ? await getFolderNameFromRow(displayName) : null;
+  if (!stored) {
+    try {
+      const raw = await dbGetScenario(displayName);
+      const configured = raw ? JSON.parse(raw)?.folder_name : null;
+      if (typeof configured === "string" && configured) stored = configured;
+    } catch { /* older project configs have no storage key */ }
+  }
   // Stable folder claim WITHOUT a project row: reuse the slug dir when it
   // is absent or already holds this scenario's own files (prefix match) — so
   // every run for the same unsaved scenario lands in the SAME folder. Only a
@@ -741,7 +753,7 @@ async function migrateProjectStorage(displayName) {
           f === "state.json" || f === "concat_list.txt" || f.startsWith(`${prefix}_`));
       }
     } catch { ours = false; }
-    folder = ours ? base : (pgUp ? await ensureUniqueFolder(displayName, displayName) : base);
+    folder = ours ? base : await ensureUniqueFolder(displayName, displayName);
   }
   if (pgUp && !stored) {
     try {
@@ -1314,7 +1326,8 @@ async function pgEnsureProject(name, cfg, projectType = undefined) {
   // folder_name is minted ONCE (unique) and then frozen — re-saves and
   // renames never change it, so output dirs and DB paths stay stable.
   let fn = await getFolderNameFromRow(name);
-  if (!fn) fn = await ensureUniqueFolder(name, name);
+  if (!fn) fn = (typeof cfg.folder_name === "string" && isSafe(cfg.folder_name))
+    ? cfg.folder_name : await ensureUniqueFolder(name, name);
   // Explicit type wins (Create Song saves AUDIO); otherwise a new row
   // defaults to VIDEO and an existing row keeps whatever it already has.
   const pt = normalizeProjectType(projectType ?? explicitProjectType(cfg));
@@ -1865,14 +1878,17 @@ async function pgSaveVersionDelta(name, prevCfg, cfg, projectType = undefined) {
       const fRow = await client.query("SELECT folder_name FROM projects WHERE name = $1", [name]);
       folder = fRow.rows[0]?.folder_name || null;
     } catch { folder = null; }
-    folder ||= await ensureUniqueFolder(name, name);
+    folder ||= (typeof cfg.folder_name === "string" && isSafe(cfg.folder_name))
+      ? cfg.folder_name : await ensureUniqueFolder(name, name);
     // Same project_type rule as pgEnsureProject: explicit wins, new rows
     // default to VIDEO, existing rows are otherwise preserved.
     const deltaPt = normalizeProjectType(projectType ?? explicitProjectType(cfg));
     const proj = await client.query(
       `INSERT INTO projects (name, folder_name, description, duration, beats, master_prompt, project_type, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'VIDEO'), now())
-       ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description,
+       ON CONFLICT (name) DO UPDATE SET
+         folder_name = COALESCE(NULLIF(projects.folder_name, ''), EXCLUDED.folder_name),
+         description = EXCLUDED.description,
          duration = EXCLUDED.duration, beats = EXCLUDED.beats,
          master_prompt = COALESCE(EXCLUDED.master_prompt, projects.master_prompt),
          project_type = COALESCE($7, projects.project_type, 'VIDEO'),
@@ -2025,7 +2041,8 @@ async function pgSaveVersionInPlace(name, latestVersion, prevCfg, cfg, projectTy
       const fRow = await client.query("SELECT folder_name FROM projects WHERE name = $1", [name]);
       folder = fRow.rows[0]?.folder_name || null;
     } catch { folder = null; }
-    folder ||= await ensureUniqueFolder(name, name);
+    folder ||= (typeof cfg.folder_name === "string" && isSafe(cfg.folder_name))
+      ? cfg.folder_name : await ensureUniqueFolder(name, name);
     const seq = Array.isArray(cfg.sequence) ? cfg.sequence : [];
     // Same project_type rule as pgEnsureProject: explicit wins, new rows
     // default to VIDEO, existing rows are otherwise preserved.
@@ -2033,7 +2050,9 @@ async function pgSaveVersionInPlace(name, latestVersion, prevCfg, cfg, projectTy
     const proj = await client.query(
       `INSERT INTO projects (name, folder_name, description, duration, beats, master_prompt, project_type, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'VIDEO'), now())
-       ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description,
+       ON CONFLICT (name) DO UPDATE SET
+         folder_name = COALESCE(NULLIF(projects.folder_name, ''), EXCLUDED.folder_name),
+         description = EXCLUDED.description,
          duration = EXCLUDED.duration, beats = EXCLUDED.beats,
          master_prompt = COALESCE(EXCLUDED.master_prompt, projects.master_prompt),
          project_type = COALESCE($7, projects.project_type, 'VIDEO'),
@@ -2486,19 +2505,32 @@ const getFolderNameFromRow = async (name) => {
   return r.rows[0]?.folder_name ?? null;
 };
 
+// Mint a stable, name-independent generation key. Display names and scenario
+// slugs can collide (or be reused after deletion), while this key namespaces
+// every output directory and filename for the lifetime of one project.
+const mintGenerationKey = (base) => `${folderName(base).slice(0, 67)}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+
   // Storage folder for a project display name: the stored immutable
   // folder_name when the project row exists, else the slug of the name
   // (legacy rows / PG-down fallback). Never contains spaces.
 
-const folderFor = async (name) =>
-  (await getFolderNameFromRow(name)) || folderName(name);
+const folderFor = async (name) => {
+  const rowFolder = await getFolderNameFromRow(name);
+  if (rowFolder) return rowFolder;
+  try {
+    const raw = await dbGetScenario(name);
+    const configured = raw ? JSON.parse(raw)?.folder_name : null;
+    if (typeof configured === "string" && configured) return configured;
+  } catch { /* slug fallback for legacy projects */ }
+  return folderName(name);
+};
 
 // Storage folder guaranteed unique across projects AND existing output dirs
 // ("my_video", "my_video_2", ...). excludeName skips the caller's own row
 // (edits must keep their folder, never mint a new one).
 async function ensureUniqueFolder(base, excludeName = null) {
-  let candidate = folderName(base);
-  for (let i = 2; ; i++) {
+  for (;;) {
+    const candidate = mintGenerationKey(base);
     let taken = false;
     if (pgUp) {
       try {
@@ -2515,7 +2547,6 @@ async function ensureUniqueFolder(base, excludeName = null) {
       taken = true;
     }
     if (!taken) return candidate;
-    candidate = `${folderName(base).slice(0, 97)}_${i}`;
   }
 }
 
@@ -2644,6 +2675,9 @@ async function pgInit() {
     // Backfill folder_name for existing projects that don't have one.
     await pgPool.query(
       `UPDATE projects SET folder_name = substr(regexp_replace(regexp_replace(lower(name), '[^a-z0-9]+', '_', 'g'), '^_+|_+$', ''), 1, 100) WHERE folder_name IS NULL OR folder_name = ''`);
+    await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS projects_folder_name_unique
+      ON projects(folder_name) WHERE folder_name IS NOT NULL AND folder_name <> ''`)
+      .catch((e) => console.warn("[pg] unique project storage-key index unavailable (legacy duplicate keys may need repair):", e.message));
     // References moved to project_references: drop legacy REFERENCE rows
     // (superseded by the per-dir mains backfilled into the new table below).
     try {
@@ -3188,6 +3222,28 @@ fs.mkdirSync(WHISPERX_JOBS, { recursive: true });
 // AI Story Director boards (file-persisted JSON, one per story — resumable,
 // debuggable, works with or without Postgres like prompts/*.json).
 const DIRECTOR = path.join(ROOT, "director");
+const INTERNAL_ID_COUNTERS = path.join(DATA_DIR, "internal_id_counters.json");
+function nextInternalId(prefix, existingDirs = []) {
+  const safePrefix = String(prefix || "").replace(/[^A-Z0-9_]/g, "");
+  if (!safePrefix) throw new Error("invalid internal ID prefix");
+  let counters = {};
+  try { counters = JSON.parse(fs.readFileSync(INTERNAL_ID_COUNTERS, "utf8")); } catch { /* first allocation */ }
+  let max = Number(counters[safePrefix]) || 0;
+  const pattern = new RegExp(`^${safePrefix}_(\\d+)(?:\\.json)?$`, "i");
+  for (const dir of existingDirs) {
+    try {
+      for (const entry of fs.readdirSync(dir)) {
+        const match = pattern.exec(entry);
+        if (match) max = Math.max(max, Number(match[1]) || 0);
+      }
+    } catch { /* missing folder is normal on a fresh install */ }
+  }
+  max += 1;
+  counters[safePrefix] = max;
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(INTERNAL_ID_COUNTERS, JSON.stringify(counters, null, 2));
+  return `${safePrefix}_${String(max).padStart(3, "0")}`;
+}
 // Documentary Mode boards (same pattern: documentary/*.json offline fallback,
 // documentary_boards table canonical when Postgres is up).
 const DOCUMENTARY = path.join(ROOT, "documentary");
@@ -5058,7 +5114,7 @@ async function dashboardPayload() {
   // Coverage, thumbs, running-state and the payload all key off it. Legacy
   // display-name dirs are unioned in for reads so assets generated before
   // folder-immutability keep rendering.
-  const fnames = new Map(rows.map((r) => [r.name, r.folder_name ?? null]));
+  const fnames = new Map(rows.map((r) => [r.name, r.folder_name ?? cfgs.get(r.name)?.folder_name ?? null]));
   const folderOf = (n) => fnames.get(n) || folderName(n);
   const dirsOf = (n) => {
     const f = folderOf(n);
@@ -5737,7 +5793,17 @@ async function outputsPayload(name) {
   // from the owning project row (legacy dirs fall back to suffix-stripping).
   let cfg = null;
   const { base: folderBase } = splitDirSuffix(name);
-  const cfgName = (pgUp ? await displayNameForFolder(folderBase) : null) || cfgNameFor(name);
+  let cfgName = (pgUp ? await displayNameForFolder(folderBase) : null) || null;
+  if (!cfgName || cfgName === folderBase) {
+    try {
+      const rows = await dbListScenarios();
+      const match = rows.find((row) => {
+        try { return JSON.parse(row.config)?.folder_name === folderBase; } catch { return false; }
+      });
+      if (match) cfgName = match.name;
+    } catch { /* project store unavailable */ }
+  }
+  cfgName ||= cfgNameFor(name);
   // SPACE-FREE prompts files: resolve the slug-named export first, legacy
   // raw display-name file second (see promptsReadFile).
   const cfgPath = promptsReadFile(cfgName);
@@ -6308,7 +6374,7 @@ const server = http.createServer(async (req, res) => {
           mtimeMs: Number(r.updated_at),
           favorite: favs.includes(r.name),
           project_id: pidMap.has(r.name) ? pidMap.get(r.name) : null,
-          folder_name: folderMap.get(r.name) ?? null,
+          folder_name: folderMap.get(r.name) ?? c.folder_name ?? null,
           project_type: typeMap.get(r.name) ?? "VIDEO",
           createdAt: createdMap.has(r.name) ? createdMap.get(r.name) : null,
         };
@@ -6353,10 +6419,12 @@ const server = http.createServer(async (req, res) => {
       const explicitType = explicitProjectType(cfg);
       if (cfg && typeof cfg === "object") delete cfg.project_type;
       if (cfg && typeof cfg === "object") { delete cfg.topic; delete cfg.requirements; }
-      const storedFolder = pgUp ? await getFolderNameFromRow(wanted) : null;
-      let folder = storedFolder;
-      if (!folder && pgUp) {
-        folder = await ensureUniqueFolder(wanted, wanted);
+      let storedFolder = pgUp ? await getFolderNameFromRow(wanted) : null;
+      if (!storedFolder && prevRaw) {
+        try { storedFolder = JSON.parse(prevRaw)?.folder_name || null; } catch { /* malformed legacy row */ }
+      }
+      let folder = storedFolder || (prevRaw ? folderName(wanted) : await ensureUniqueFolder(wanted, wanted));
+      if (!storedFolder && pgUp) {
         try {
           await pgPool.query(
             "UPDATE projects SET folder_name = $2 WHERE name = $1 AND (folder_name IS NULL OR folder_name = '')",
@@ -6364,7 +6432,7 @@ const server = http.createServer(async (req, res) => {
         } catch { /* row may not exist yet — claimed on version save */ }
       }
       if (typeof cfg === "object" && cfg) {
-        if (!storedFolder || !cfg.folder_name) cfg.folder_name = folder || folderName(wanted);
+        cfg.folder_name = folder;
       }
       if (USE_SQLITE) {
         await dbSaveScenario(wanted, cfg);
@@ -6521,10 +6589,13 @@ const server = http.createServer(async (req, res) => {
       // folder_name is minted ONCE (unique) and frozen: creation stamps it
       // from the project name, edits/renames never change it — output dirs,
       // filenames and DB paths stay stable so media keeps resolving.
-      const storedFolder = pgUp ? await getFolderNameFromRow(name) : null;
-      let folder = storedFolder;
-      if (!folder && pgUp) {
-        folder = await ensureUniqueFolder(name, name);
+      let storedFolder = pgUp ? await getFolderNameFromRow(name) : null;
+      const rawExistingForFolder = await dbGetScenario(name).catch(() => null);
+      if (!storedFolder && rawExistingForFolder) {
+        try { storedFolder = JSON.parse(rawExistingForFolder)?.folder_name || null; } catch { /* malformed legacy row */ }
+      }
+      let folder = storedFolder || (rawExistingForFolder ? folderName(name) : await ensureUniqueFolder(name, name));
+      if (!storedFolder && pgUp) {
         try {
           await pgPool.query(
             "UPDATE projects SET folder_name = $2 WHERE name = $1 AND (folder_name IS NULL OR folder_name = '')",
@@ -6535,7 +6606,7 @@ const server = http.createServer(async (req, res) => {
         // A fresh claim always wins — never inherit another project's folder
         // from a duplicated/copied config. A stored folder is never
         // overwritten, only backfilled when the config lacks it.
-        if (!storedFolder || !cfg.folder_name) cfg.folder_name = folder || folderName(name);
+        cfg.folder_name = folder;
       }
       // Retired fields — never persist even if an old client/draft sends them.
       if (cfg && typeof cfg === "object") { delete cfg.topic; delete cfg.requirements; }
@@ -6813,6 +6884,90 @@ const server = http.createServer(async (req, res) => {
       }
       return json(res, 200, await outputsPayload(dir));
     }
+    if (p === "/api/outputs/delete-beats" && req.method === "POST") {
+      let body;
+      try { body = await readJson(req); }
+      catch { return json(res, 400, { error: "bad json" }); }
+      const requested = String(body?.scenario || "");
+      if (!isSafe(requested) || !Array.isArray(body?.beats)) return json(res, 400, { error: "scenario and beats[] are required" });
+      if (!body.beats.every((n) => Number.isInteger(n) && n > 0))
+        return json(res, 400, { error: "beats[] must contain positive integer beat numbers" });
+      const beats = [...new Set(body.beats)].sort((a, b) => a - b);
+      if (!beats.length || beats.length > 500) return json(res, 400, { error: "select between 1 and 500 valid beats" });
+      const dirName = await storageDirFor(requested);
+      if (!isSafe(dirName)) return json(res, 400, { error: "bad output key" });
+      const matchingRun = [...runs.values()].find((run) => run.status === "running"
+        && outDirName(run.folder, run.engine, run.format) === dirName);
+      if (matchingRun) return json(res, 409, { error: "stop the active project run before deleting generated media" });
+
+      const { base } = splitDirSuffix(dirName);
+      let owner = pgUp ? await displayNameForFolder(base) : null;
+      if (!owner || owner === base) {
+        try {
+          const rows = await dbListScenarios();
+          const match = rows.find((row) => {
+            try { return JSON.parse(row.config)?.folder_name === base; } catch { return false; }
+          });
+          if (match) owner = match.name;
+        } catch { /* prompts JSON fallback below */ }
+      }
+      owner ||= cfgNameForDir(dirName);
+      let cfg = null;
+      try {
+        const file = promptsReadFile(owner);
+        if (fs.existsSync(file)) cfg = JSON.parse(fs.readFileSync(file, "utf8"));
+      } catch { cfg = null; }
+      if (!cfg) {
+        try { const raw = await dbGetScenario(owner); if (raw) cfg = JSON.parse(raw); }
+        catch { /* no saved scenario */ }
+      }
+      if (!Array.isArray(cfg?.sequence)) return json(res, 404, { error: "project prompts were not found" });
+      if (beats.some((n) => n > cfg.sequence.length)) return json(res, 400, { error: "a selected beat is outside this project's sequence" });
+
+      const outDir = path.join(OUTPUTS, dirName);
+      const prefix = prefixFor(dirName);
+      const removed = { keyframes: 0, clips: 0 };
+      for (const n of beats) {
+        const title = cfg.sequence[n - 1]?.title;
+        for (const [kind, ext, label] of [["seq", ".png", "keyframes"], ["clip", ".mp4", "clips"]]) {
+          for (const version of versionsOf(outDir, prefix, kind, n, ext, title)) {
+            const full = path.join(outDir, version.file);
+            try {
+              if (fs.existsSync(full) && fs.statSync(full).isFile()) {
+                fs.unlinkSync(full);
+                removed[label] += 1;
+              }
+            } catch (e) { return json(res, 500, { error: `failed to delete ${version.file}: ${e.message}` }); }
+          }
+        }
+      }
+      // Drop main/pin/ref-from pointers for those media only. Prompts remain
+      // in the scenario config and catalog rows below.
+      const statePath = path.join(outDir, "state.json");
+      if (fs.existsSync(statePath)) {
+        const state = loadState(outDir);
+        if (!state.beats || typeof state.beats !== "object") state.beats = {};
+        for (const n of beats) delete state.beats[String(n)];
+        saveState(outDir, state);
+      }
+      // Keep project_assets prompt history, but mark these outputs pending so
+      // dashboards and progress do not claim deleted files are complete.
+      if (pgUp) {
+        try {
+          const pid = await pgProjectId(owner);
+          if (pid != null) await pgPool.query(
+            `UPDATE project_assets
+                SET status = 'PENDING', file_path = NULL, error_message = NULL,
+                    started_at = NULL, completed_at = NULL,
+                    metadata = COALESCE(metadata, '{}'::jsonb) - 'file' - 'bytes' - 'mime' - 'w' - 'h'
+              WHERE project_id = $1 AND beat_index = ANY($2::int[])
+                AND asset_type IN ('KEYFRAME', 'VIDEO') AND video_type = $3
+                AND file_path LIKE $4`,
+            [pid, beats, /_vertical$/.test(dirName) ? "INSTAGRAM" : "YOUTUBE", `outputs/${dirName}/%`]);
+        } catch (e) { console.warn("[pg] deleted-media status sync failed:", e.message); }
+      }
+      return json(res, 200, { ok: true, beats, deleted: removed, outputs: await outputsPayload(dirName) });
+    }
     if (p === "/api/outputs/select" && req.method === "POST") {
       const body = await readJson(req);
       const { scenario, kind, index, file } = body;
@@ -7044,7 +7199,7 @@ const server = http.createServer(async (req, res) => {
           if (claimed) cfg.folder_name = claimed;
         } catch (e) { console.warn("[pg] resource project ensure failed:", e.message); }
       }
-      if (!cfg.folder_name) cfg.folder_name = folderName(newName);
+      if (!cfg.folder_name) cfg.folder_name = await ensureUniqueFolder(newName, newName);
       await dbSaveScenario(newName, cfg);
       fs.writeFileSync(promptsSlugFile(newName), JSON.stringify(cfg, null, 2));
       let project_id = null;
@@ -7125,7 +7280,7 @@ const server = http.createServer(async (req, res) => {
         await pgEnsureProject(name, cfg);
         folder = await getFolderNameFromRow(name);
       } else {
-        folder = folderName(name);
+        folder = await ensureUniqueFolder(name, name);
       }
       cfg.folder_name = folder;
       if (USE_SQLITE) {
@@ -7984,7 +8139,15 @@ const server = http.createServer(async (req, res) => {
       if (!blueprint.characters.length && !blueprint.locations.length && !blueprint.objects.length
         && !blueprint.logline && !Object.values(blueprint.analysis || {}).some((value) => Array.isArray(value) ? value.length : Boolean(value)))
         throw new Error("director returned an empty blueprint — try again");
-      const id = slug(input.title) || `story_${Date.now().toString(36)}`;
+      // Human titles remain display data. Internal Director IDs are numbered,
+      // space-free keys and also namespace every Director asset path.
+      let id;
+      do {
+        id = nextInternalId("DIRECTOR", [DIRECTOR]);
+        if (!pgUp) break;
+        const exists = await pgPool.query("SELECT 1 FROM director_boards WHERE board_id = $1 LIMIT 1", [id]);
+        if (!exists.rows.length) break;
+      } while (true);
       // The MEANING pass runs right after the bible: every source line is
       // analysed (language, meaning, visible action, camera) BEFORE any scene
       // is planned. The deterministic pass is instant; the model enrichment
@@ -10248,29 +10411,44 @@ except Exception as e:
         ...board,
         assetProduction: directorAssetWithVersions(id, getBoardAssetState(board)),
       };
-      const config = attachDirectorAssetGenerationData(boardToScenario(generationBoard));
-      // Partial-migration flow: the first approve claims a project name (the
-      // story title as a space-free KEY, _2-suffixed on collision); every
-      // later "migrate remaining" re-approve reuses board.scenarioName so the
-      // rest of the scenes land in the SAME project (client PUTs = overwrite,
-      // and generation is resumable, so already-built scenes are kept).
-      // INTERNAL KEY: the story title becomes the space-free scenario key
-      // ("Pyari billi" -> "pyari_billi") — /api/scenario/<key>/... URLs,
-      // output dirs and file names all use it; the typed title rides along
-      // as config.display_name for UI labels.
+      // Every Director-to-project import keeps the saved scene prompts exactly
+      // as they are. Never append global style, quality, identity, or motion
+      // lock text at the project boundary.
+      const config = attachDirectorAssetGenerationData(boardToScenario(generationBoard, {
+        preservePrompts: true,
+      }));
+      // Partial-migration flow: the first migration claims a numbered
+      // internal project key, while later migrations reuse the same key.
+      // Later migrations rebuild the project config from the complete board.
       const approveTitle = String(board.input.title || "").trim().slice(0, 120);
-      let target = board.scenarioName || spaceFreeName(approveTitle) || id;
-      if (approveTitle) config.display_name = approveTitle;
-      if (!board.scenarioName) {
+      // The board name is the normal link. Keep a board id in the saved
+      // project config as a recovery link as well: it survives board reloads
+      // and lets a later partial migration find the same project if the board
+      // link was lost or the project was renamed.
+      let linkedProjectName = board.scenarioName || null;
+      let existingRows = [];
+      try { existingRows = await dbListScenarios(); }
+      catch { /* the save path reports database availability */ }
+      for (const row of existingRows) {
         try {
-          const taken = new Set((await dbListScenarios()).map((r) => r.name));
-          if (taken.has(target)) {
-            for (let i = 2; ; i++) {
-              if (!taken.has(`${target}_${i}`)) { target = `${target}_${i}`; break; }
-            }
+          const saved = JSON.parse(row.config);
+          if (!linkedProjectName && String(saved?.director_board_id || "") === String(id)) {
+            linkedProjectName = row.name;
           }
-        } catch { /* name check is best-effort; save enforces uniqueness */ }
+        } catch { /* skip malformed project configs */ }
       }
+      let target = linkedProjectName;
+      if (!target) {
+        let taken = new Set(existingRows.map((row) => row.name));
+        target = spaceFreeName(approveTitle) || id;
+        if (taken.has(target)) {
+          for (let i = 2; ; i++) {
+            if (!taken.has(`${target}_${i}`)) { target = `${target}_${i}`; break; }
+          }
+        }
+      }
+      if (approveTitle) config.display_name = approveTitle;
+      config.director_board_id = String(id);
       const partial = board.scenes.length < board.sceneCount;
       board.status = partial ? "approved-partial" : "approved";
       board.scenarioName = target;

@@ -67,56 +67,41 @@ describe("buildFluxImg2ImgGraph", () => {
 describe("sequence wiring", () => {
   const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 
-  it("genKeyframe uploads the anchor and passes it to buildKeyframe", () => {
+  it("genKeyframe uses only beat-specific anchors and passes the saved prompt", () => {
     const src = read("lib/sequence.mjs");
-    assert.match(src, /resolveRefForRun\(outDir, prefix\)/);
     assert.match(src, /uploadToInput\(anchorPath/);
-    // kfPrompt is grounded via keyframePromptFor then passed to buildKeyframe
-    // (split across two lines for readability, not inline).
-    assert.match(src, /keyframePromptFor\(seq\[i\]\.image, cfg\)/);
-    assert.match(src, /buildKeyframe\(kfPrompt, i, refInput\)/);
+    assert.match(src, /keyframePromptFor\(seq\[i\]\.image\)/);
+    assert.match(src, /buildKeyframe\(kfPrompt, i, refInputs/);
+    assert.doesNotMatch(src, /runRef \?\? resolveRefForRun/);
   });
 
-  it("approved Director asset references override the global Flux anchor per scene", () => {
+  it("approved Director asset references are the only keyframe image anchors", () => {
     const src = read("lib/sequence.mjs");
-    assert.match(src, /imageMode === "flux" \? String\(seq\[i\]\.reference_image_path/);
-    assert.match(src, /approved scene asset/);
+    assert.match(src, /seq\[i\]\.reference_images/);
+    assert.match(src, /approved scene assets/);
     assert.match(src, /setKeyframeRefFrom\(outDir, n, refMain\)/);
   });
 
-  it("switching the main ref regenerates stale keyframes + clips", () => {
+  it("per-scene reference changes can mark a keyframe stale", () => {
     const src = read("lib/sequence.mjs");
     assert.match(src, /getKeyframeRefFrom/);
     assert.match(src, /setKeyframeRefFrom/);
-    assert.match(src, /ref main is now/);
   });
 
-  it("locks one reference for the whole run (mid-run switches can't split anchors)", () => {
+  it("excludes Generate Reference data from ordinary scene runs", () => {
     const src = read("lib/sequence.mjs");
-    // Snapshot variable shared by every keyframe in the run...
-    assert.match(src, /let runRef = null/);
-    assert.match(src, /runRef \?\? resolveRefForRun\(outDir, prefix\)/);
-    // ...resolved once, AFTER genRef (so a freshly generated ref is locked in).
-    const genRefAt = src.indexOf("await genRef()");
-    const lockAt = src.indexOf("runRef = resolveRefForRun(outDir, prefix)");
-    assert.ok(genRefAt >= 0 && lockAt > genRefAt, "runRef must snapshot after await genRef()");
-    // Visible in the run log so a wrong anchor is diagnosable per beat.
-    // Same-scene linkage: every keyframe anchors on the reference, every
-    // clip animates its own keyframe (no cross-scene pixel chaining).
-    assert.match(src, /reference lock: every keyframe anchors on/);
+    assert.doesNotMatch(src, /await genRef\(\)/);
+    assert.doesNotMatch(src, /runRef/);
+    assert.match(src, /project Generate Reference data is excluded/);
     assert.match(src, /every clip animates its own keyframe/);
   });
 
-  it("keyframes carry the character/reference text lock (can't drift off-ref)", async () => {
+  it("keyframes use only their saved image prompt, not Generate Reference text", async () => {
     const seq = await import("../lib/sequence.mjs");
     const cfg = { character: "a brave rabbit in blue kurta", referencePrompt: "cinematic key visual of the rabbit" };
     const out = seq.keyframePromptFor("the rabbit jumps", cfg);
-    assert.match(out, /the rabbit jumps/);
-    assert.match(out, /brave rabbit/);
-    assert.match(out, /cinematic key visual/);
-    // Never double-appends when the beat already carries the identity.
-    const again = seq.keyframePromptFor(out, cfg);
-    assert.equal(again, out);
+    assert.equal(out, "the rabbit jumps");
+    assert.doesNotMatch(out, /brave rabbit|cinematic key visual/);
   });
 
   it("clips carry the fidelity lock (animate the keyframe, never redesign)", async () => {

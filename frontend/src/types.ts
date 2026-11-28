@@ -47,6 +47,8 @@ export interface Beat {
 export interface Scenario {
   description?: string;
   character?: string;
+  /** Director import: pass scene prompts to image generation without global prompt additions. */
+  directorPromptMode?: "verbatim";
   // The user-typed project name ("Pyari billi"). The scenario identity (`name`
   // in URLs/DB) is the SPACE-FREE internal key ("pyari_billi") — UI labels
   // prefer this and fall back to the key when absent.
