@@ -11,6 +11,7 @@ import RunPanel from "./RunPanel";
 import GenerateReference from "./GenerateReference";
 import OutputGallery from "./OutputGallery";
 import InstagramCut from "./InstagramCut";
+import DirectorProjectAssets from "./DirectorProjectAssets";
 
 interface Props {
   /** Linked project display name (board.scenarioName). Empty = not approved yet. */
@@ -85,6 +86,7 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
   const [cfg, setCfg] = useState<Scenario | null>(null);
   const [refPrompt, setRefPrompt] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [mediaCounts, setMediaCounts] = useState({ scenes: 0, shots: 0, images: 0, videos: 0 });
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   // Run wiring (mirrors App's workspace queue, scoped to this panel).
@@ -172,8 +174,10 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
       setFolder("");
       setCfg(null);
       setRefPrompt("");
+      setMediaCounts({ scenes: 0, shots: 0, images: 0, videos: 0 });
       return;
     }
+    setMediaCounts({ scenes: 0, shots: 0, images: 0, videos: 0 });
     let cancelled = false;
     (async () => {
       try {
@@ -329,9 +333,25 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
         const outputs = await listOutputs(cutDir);
         if (cancelled) return;
         const sequence = Array.isArray((cfg as Scenario).sequence) ? (cfg as Scenario).sequence : [];
-        const mediaReady = sequence.length > 0 && sequence.every((_, i) => {
+        const generated = sequence.map((_, i) => {
           const beat = outputs.versions?.beats?.[String(i + 1)];
-          return Boolean(beat?.keyframe?.length && beat?.clip?.length);
+          return {
+            image: Boolean(beat?.keyframe?.length),
+            video: Boolean(beat?.clip?.length),
+          };
+        });
+        const mediaReady = sequence.length > 0 && generated.every((beat) => beat.image && beat.video);
+        const sceneBeats = new Map<string, number[]>();
+        sequence.forEach((beat, i) => {
+          const sceneNumber = Number((beat as { scene_number?: unknown })?.scene_number);
+          const sceneKey = Number.isFinite(sceneNumber) && sceneNumber > 0 ? String(sceneNumber) : String(i + 1);
+          sceneBeats.set(sceneKey, [...(sceneBeats.get(sceneKey) ?? []), i]);
+        });
+        setMediaCounts({
+          scenes: [...sceneBeats.values()].filter((indices) => indices.every((i) => generated[i]?.image && generated[i]?.video)).length,
+          shots: generated.filter((beat) => beat.image && beat.video).length,
+          images: generated.filter((beat) => beat.image).length,
+          videos: generated.filter((beat) => beat.video).length,
         });
         const exportReady = Boolean(outputs.versions?.final?.length)
           || outputs.files.some((file) => /_final(?:_v\d+)?\.mp4$/i.test(file));
@@ -341,7 +361,7 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
       }
     };
     void readStatus();
-    const timer = runActive ? window.setInterval(() => void readStatus(), 5000) : null;
+    const timer = runActive || attachRun ? window.setInterval(() => void readStatus(), 5000) : null;
     return () => {
       cancelled = true;
       if (timer != null) window.clearInterval(timer);
@@ -356,6 +376,9 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
         <h2>🎬 Generation — {displayName || projectName}</h2>
         <span className="pill" title="Multi-shot scenes flatten to one image + video clip per shot">
           🎞 {shotInfo.scenes} scenes · {shotInfo.beats} shots/beats{shotInfo.multi ? ` · ${shotInfo.multi} multi-shot` : ""}
+        </span>
+        <span className="pill" title={`Images ${mediaCounts.images}/${shotInfo.beats} · Videos ${mediaCounts.videos}/${shotInfo.beats}`}>
+          ✓ Scenes {mediaCounts.scenes}/{shotInfo.scenes} · Shots {mediaCounts.shots}/{shotInfo.beats} · Assets {mediaCounts.images + mediaCounts.videos}/{shotInfo.beats * 2}
         </span>
         <span className="spacer" />
         {onOpenProject && (
@@ -417,6 +440,7 @@ export default function DirectorGeneration({ projectName, displayName, boardScen
           ) : null}
         />
       </div>
+      {cfg?.director_board_id && <DirectorProjectAssets boardId={cfg.director_board_id} />}
 
       {cutDir ? (
         <div style={{ marginTop: 12 }}>

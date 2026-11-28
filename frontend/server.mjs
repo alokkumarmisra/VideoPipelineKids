@@ -4529,6 +4529,14 @@ function directorAssetRelPath(boardId, asset, version) {
     .slice(0, 72) || name.toLowerCase();
   return `${boardId}/${kind}/${name}/${stem}_v${Math.max(1, Number(version) || 1)}.png`;
 }
+function directorAssetFileVersion(file) {
+  if (!/\.(png|jpe?g|webp)$/i.test(String(file || ""))) return null;
+  const stem = path.basename(String(file), path.extname(String(file)));
+  if (/^reference$/i.test(stem)) return 1;
+  const match = stem.match(/^reference_v(\d+)$/i) || stem.match(/_v(\d+)$/i);
+  const version = match ? Number(match[1]) : null;
+  return Number.isInteger(version) && version > 0 ? version : null;
+}
 const directorAssetVersionsCache = new Map();
 function directorAssetWithVersions(boardId, state) {
   const assets = state.assets || [];
@@ -4545,16 +4553,8 @@ function directorAssetWithVersions(boardId, state) {
     const files = new Map();
     try {
       for (const file of fs.readdirSync(currentDir)) {
-        if (!file.toLowerCase().endsWith(".png")) continue;
-        let version = null;
-        if (file === "reference.png") version = 1;
-        else if (/^reference_v(\d+)\.png$/i.test(file)) version = Number(file.match(/^reference_v(\d+)\.png$/i)?.[1]);
-        else {
-          const stem = path.basename(file, path.extname(file));
-          const found = stem.match(/_v(\d+)$/i);
-          if (found) version = Number(found[1]);
-        }
-        if (!Number.isInteger(version) || version < 1) continue;
+        const version = directorAssetFileVersion(file);
+        if (version == null) continue;
         const rel = `${boardId}/${DIRECTOR_ASSET_KIND_DIR[asset.type] || "objects"}/${isSafe(asset.id) ? asset.id : "asset"}/${file}`;
         const existing = files.get(version);
         const preferred = current === rel || !existing
@@ -6640,7 +6640,7 @@ const server = http.createServer(async (req, res) => {
             try { await pgUpsertProjectSong(name, cfg, project_id, folder); }
             catch (e) { console.warn("[pg] song upsert failed:", e.message); }
             // An approved storyboard waiting on this project links now.
-            try { await pgLinkDirectorBoards(name, project_id); }
+            try { await pgLinkDirectorBoards(name, project_id, cfg?.director_board_id ?? null); }
             catch (e) { console.warn("[pg] director board link failed:", e.message); }
             // An approved documentary waiting on this project links now.
             try { await pgLinkDocBoards(name, project_id); }
@@ -6696,7 +6696,7 @@ const server = http.createServer(async (req, res) => {
           try { await pgUpsertProjectSong(name, cfg, project_id, folder); }
           catch (e) { console.warn("[pg] song upsert failed:", e.message); }
           // An approved storyboard waiting on this project links now.
-          try { await pgLinkDirectorBoards(name, project_id); }
+          try { await pgLinkDirectorBoards(name, project_id, cfg?.director_board_id ?? null); }
           catch (e) { console.warn("[pg] director board link failed:", e.message); }
           // An approved documentary waiting on this project links now.
           try { await pgLinkDocBoards(name, project_id); }
@@ -10498,6 +10498,13 @@ except Exception as e:
       board.migratedScenes = board.scenes.length;
       board.error = null;
       writeDirectorBoard(board);
+      // Ensure the board row exists before the client saves its project. The
+      // project PUT links by this stable board ID, even if the readable name
+      // was edited or the async board mirror has not run yet.
+      if (pgUp) {
+        try { await pgUpsertDirectorBoard(board); }
+        catch (e) { console.warn("[pg] director board migration mirror failed:", e.message); }
+      }
       // The CLIENT persists via the existing saveScenario (PUT
       // /api/scenario/:name) — identical semantics to the Scenario Editor
       // Save — then opens the workspace for standard generation.
@@ -13082,21 +13089,13 @@ if (p === "/api/database/rows" && (req.method === "POST" || req.method === "PUT"
       let next = 1;
       try {
         for (const file of fs.readdirSync(dir)) {
-          if (!file.toLowerCase().endsWith(".png")) continue;
-          const stem = path.basename(file, path.extname(file));
-          let v = null;
-          if (stem === "reference") v = 1;
-          else if (/^reference_v(\d+)$/i.test(stem)) v = Number(stem.match(/^reference_v(\d+)$/i)?.[1]);
-          else {
-            const found = stem.match(/_v(\d+)$/i);
-            if (found) v = Number(found[1]);
-          }
-          if (Number.isInteger(v) && v >= 1) next = Math.max(next, v + 1);
+          const version = directorAssetFileVersion(file);
+          if (version != null) next = Math.max(next, version + 1);
         }
       } catch { /* dir just created */ }
 
       const ext = match[1] === "jpeg" ? "jpg" : match[1];
-      const file = next === 1 ? "reference.png" : `reference_v${next}.${ext}`;
+      const file = next === 1 ? `reference.${ext}` : `reference_v${next}.${ext}`;
       fs.writeFileSync(path.join(dir, file), buf);
       const rel = `${upId}/${kind}/${safeId}/${file}`.replaceAll("\\", "/");
 

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   alertServiceError, directorAddEntry, directorAnalyze, directorAnalyzeLive, directorApprove, directorAssets, directorBiblePreview, directorBoard, directorBoards, directorDeleteBoard, directorOptimizePrompt,
-  directorDuplicateBoard, directorLive, directorPromptPreview, directorRegenEntry, directorRegenScene, directorScenes, directorSongUrl, directorUpdateBoard, fmtRelative, saveScenario, suggestDirectorInstructions,
+  directorDuplicateBoard, directorLive, directorPromptPreview, directorRegenEntry, directorRegenScene, directorScenes, directorSongUrl, directorUpdateBoard, fmtRelative, directorDisplayId, getScenario, listOutputs, outScenario, folderOf, saveScenario, suggestDirectorInstructions,
   uploadLyricAudio, startWhisperXAnalysis, getWhisperXJobStatus, directorMasterTimeline, approveMasterTimeline, listScenarios,
   directorGenerateAssets, directorApproveAssets, directorSkipAssets, directorRegenerateAsset, directorUploadAsset, directorAssetFileUrl,
   type DirectorAssetProduction, type DirectorMasterAsset, type DirectorBoard, type DirectorBoardMeta, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorPromptPreview, type DirectorScene, type DirectorShot, type ImageMode, type MasterTimelineResponse,
 } from "../api";
 import type { ScenarioInfo } from "../types";
+import type { Scenario } from "../types";
 import { useDialog } from "./Dialog";
 import { IconCheck, IconClapper, IconFilm, IconFolder, IconPanel, IconRefresh, IconSparkles, IconTrash, IconUpload, Spinner } from "./Icons";
 import Collapse from "./Collapse";
@@ -831,6 +832,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   const [chainContinuity, setChainContinuity] = useState(true);
   // Boards.
   const [boards, setBoards] = useState<DirectorBoardMeta[]>([]);
+  const [boardMediaProgress, setBoardMediaProgress] = useState<Record<string, { scenesGenerated: number; scenesTotal: number; shotsGenerated: number; shotsTotal: number; imagesGenerated: number; videosGenerated: number }>>({});
   const [board, setBoard] = useState<DirectorBoard | null>(null);
   const [addNewOpen, setAddNewOpen] = useState(false);
   const [addNewProjects, setAddNewProjects] = useState<{ name: string; label: string; boardId: string }[]>([]);
@@ -863,7 +865,13 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   // board — opening a board seeds the seen set, so old boards never replay.
   const [typingScenes, setTypingScenes] = useState<number[]>([]);
   const seenSceneNumsRef = useRef<{ boardId: string; nums: Set<number> } | null>(null);
-  const assetFileInputRef = useRef<HTMLInputElement>(null);
+  const assetFileInputRefs = useRef(new Map<string, HTMLInputElement>());
+  // Scene keyframes can consume approved pixel references only in Flux 2
+  // Klein mode. The global image selector defaults to Flux Reference Image,
+  // which is text-only, so switch it when the Director media stage opens.
+  useEffect(() => {
+    if (activeDirectorTab === "media") onImageMode?.("flux");
+  }, [activeDirectorTab, onImageMode]);
   const reduceMotion = useState(() =>
     typeof window !== "undefined" && typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches)[0];
@@ -1100,11 +1108,65 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   // ceiling in lib/director.mjs only guards runaway custom inputs.
   const plannedScenes = Math.min(300, Math.max(1, Math.round(targetSeconds / sceneSeconds)));
 
+  const refreshBoardMediaProgress = useCallback(async (boardList: DirectorBoardMeta[]) => {
+    try {
+      const projects = await listScenarios();
+      const linked = boardList.filter((item) => item.scenarioName);
+      const rows = await Promise.all(linked.map(async (item) => {
+        const project = projects.find((candidate) => candidate.name === item.scenarioName
+          || (item.project_id != null && candidate.project_id === item.project_id));
+        if (!project) return [item.id, null] as const;
+        try {
+          const [scenario, outputs] = await Promise.all([
+            getScenario(project.name),
+            Promise.all((["ltx", "wan"] as const).flatMap((engine) => (["landscape", "vertical"] as const).map((format) =>
+              listOutputs(outScenario(folderOf(project, project.name), engine, format))))),
+          ]);
+          const config = scenario.config;
+          const sequence = Array.isArray((config as Scenario).sequence) ? (config as Scenario).sequence : [];
+          const generated = sequence.map((_, i) => ({ image: false, video: false }));
+          for (const output of outputs) {
+            sequence.forEach((_, i) => {
+              const beat = output.versions?.beats?.[String(i + 1)];
+              if (beat?.keyframe?.length) generated[i].image = true;
+              if (beat?.clip?.length) generated[i].video = true;
+            });
+          }
+          const scenes = new Map<string, number[]>();
+          sequence.forEach((beat, i) => {
+            const n = Number((beat as { scene_number?: unknown })?.scene_number);
+            const key = Number.isFinite(n) && n > 0 ? String(n) : String(i + 1);
+            scenes.set(key, [...(scenes.get(key) ?? []), i]);
+          });
+          return [item.id, {
+            scenesGenerated: [...scenes.values()].filter((indices) => indices.every((i) => generated[i].image && generated[i].video)).length,
+            scenesTotal: scenes.size,
+            shotsGenerated: generated.filter((beat) => beat.image && beat.video).length,
+            shotsTotal: sequence.length,
+            imagesGenerated: generated.filter((beat) => beat.image).length,
+            videosGenerated: generated.filter((beat) => beat.video).length,
+          }] as const;
+        } catch {
+          return [item.id, null] as const;
+        }
+      }));
+      const nextProgress: Record<string, { scenesGenerated: number; scenesTotal: number; shotsGenerated: number; shotsTotal: number; imagesGenerated: number; videosGenerated: number }> = {};
+      for (const [id, value] of rows) if (value) nextProgress[id] = value;
+      setBoardMediaProgress(nextProgress);
+    } catch { /* progress is best-effort; board cards remain usable */ }
+  }, []);
   const refreshBoards = async () => {
-    try { setBoards(await directorBoards()); }
-    catch { /* board list is best-effort */ }
+    try {
+      const next = await directorBoards();
+      setBoards(next);
+      void refreshBoardMediaProgress(next);
+    } catch { /* board list is best-effort */ }
   };
-  useEffect(() => { void refreshBoards(); }, []);
+  useEffect(() => {
+    void refreshBoards();
+    const timer = window.setInterval(() => void refreshBoards(), 15000);
+    return () => window.clearInterval(timer);
+  }, [refreshBoardMediaProgress]);
 
   const openAddNew = async () => {
     setAddNewOpen(true);
@@ -1556,10 +1618,12 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     if (!board || assetUploading || busy) return;
     setAssetUploading(assetId);
     try {
-      const r = await directorUploadAsset(board.id, assetId, data);
-      setAssetProduction(r.production);
-      // Select the newly uploaded version for preview.
-      setSelectedAssetVersions((cur) => ({ ...cur, [`${board.id}:${assetId}`]: r.version }));
+      const uploaded = await directorUploadAsset(board.id, assetId, data);
+      setAssetProduction(uploaded.production as DirectorAssetProduction);
+      // Reload so directorAssetWithVersions populates image_versions with
+      // human-readable reference ids (e.g. SHIV_01, SHIV_02).
+      await loadAssetProduction(board.id);
+      setSelectedAssetVersions((cur) => ({ ...cur, [`${board.id}:${assetId}`]: uploaded.version }));
     } catch (e) { reportError(e); }
     finally { setAssetUploading(null); }
   };
@@ -2694,6 +2758,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
     ? ANALYZER_TYPES[storedAnalyzerType].role
     : (str(board?.input.masterPrompt).match(/^ROLE:\s*(.+)$/m)?.[1] || "Not recorded for this older board");
   const masterAssets = assetProduction?.assets ?? [];
+  const masterAssetsGenerated = masterAssets.filter((asset) => Boolean(asset.reference));
   const masterAssetsReady = masterAssets.filter((asset) => asset.status === "review" && Boolean(asset.reference));
   const masterAssetsApproved = masterAssets.filter((asset) => asset.status === "approved" && Boolean(asset.reference));
   const masterAssetsRendering = Boolean(assetProduction?.jobs?.some((job) => job.status === "PENDING" || job.status === "PROCESSING"));
@@ -2780,7 +2845,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
           <button
             className="ghost shotlist-btn"
             disabled={busy != null || assetBusy || assetUploading === asset.id || asset.status === "queued" || asset.status === "generating"}
-            onClick={() => assetFileInputRef.current?.click()}
+            onClick={() => assetFileInputRefs.current.get(asset.id)?.click()}
             title={`Upload a reference image for ${asset.name}`}
           >
             <IconUpload size={13} /> Upload image
@@ -2794,7 +2859,10 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
             <span className="spinner-inline" title="Uploading image…"><Spinner size={11} /> Uploading…</span>
           )}
           <input
-            ref={assetFileInputRef}
+            ref={(element) => {
+              if (element) assetFileInputRefs.current.set(asset.id, element);
+              else assetFileInputRefs.current.delete(asset.id);
+            }}
             type="file"
             accept="image/png,image/jpeg,image/webp"
             hidden
@@ -2949,6 +3017,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openBoard(b.id); } }}
           >
             <div className="dir-board-top">
+              <span className="dir-chip dir-board-id" title={`Internal Director ID: ${b.id}`}>{directorDisplayId(b.id)}</span>
               <span className={`pill ${st.cls}`.trim()}>{st.label}</span>
               <span className="muted dir-board-when" title={b.updatedAt ?? ""}>
                 {when != null ? fmtRelative(when) : ""}
@@ -2991,9 +3060,17 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
               <div className="dir-board-bar"><span style={{ width: `${pct}%` }} /></div>
               <span className="muted">{done}/{total} scenes · 🎞 {shotsDone}/{shotsTotal}</span>
             </div>
+            {boardMediaProgress[b.id] && (() => {
+              const media = boardMediaProgress[b.id];
+              return (
+                <div className="dir-board-media-progress" title={`Images ${media.imagesGenerated}/${media.shotsTotal} · videos ${media.videosGenerated}/${media.shotsTotal} · assets ${media.imagesGenerated + media.videosGenerated}/${media.shotsTotal * 2}`}>
+                  <span className="muted">Generated · Scenes {media.scenesGenerated}/{media.scenesTotal} · Shots {media.shotsGenerated}/{media.shotsTotal} · Assets {media.imagesGenerated + media.videosGenerated}/{media.shotsTotal * 2}</span>
+                </div>
+              );
+            })()}
             <div className="dir-board-foot">
               {b.scenarioName
-                ? <span className="pill done" title={`Approved as project ${b.scenarioName}${b.project_id != null ? ` (#${b.project_id})` : ""}`}>→ {b.scenarioName}{b.project_id != null ? ` #${b.project_id}` : ""}</span>
+                ? <span className="pill done" title={`${directorDisplayId(b.id)} linked to project ${b.scenarioName}${b.project_id != null ? ` (#${b.project_id})` : ""}`}>→ {directorDisplayId(b.id)} · {b.scenarioName}{b.project_id != null ? ` #${b.project_id}` : ""}</span>
                 : <span />}
               <button
                 type="button"
@@ -3769,6 +3846,9 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                     </p>
                   </div>
                   <span className="spacer" />
+                  <span className="pill" title="Master character, location, and object reference images generated">
+                    Images {masterAssetsGenerated.length}/{masterAssets.length}
+                  </span>
                   <span className="pill">
                     {assetProduction?.status === "approved"
                       ? (assetProduction.skipped ? "skipped" : "approved")
@@ -3821,7 +3901,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 )}
                 <div
                   className="grid grid-bible"
-                  style={{ gridTemplateColumns: `repeat(${Math.min(Math.max(chars.length, 1), 5)}, minmax(0, 1fr))` }}
+                  style={{ gridTemplateColumns: `repeat(${Math.min(Math.max(chars.length, 1), 4)}, minmax(0, 1fr))` }}
                 >
                   {chars.map((c, i) => (
                     <div className={`shot dir-bible-asset-card${masterAssetRendering(masterAssetFor("character", str(c.character_id))) ? " is-generating" : ""}`} key={String(c.character_id ?? i)}>
@@ -3987,7 +4067,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
                 </div>
                 <div
                   className="grid grid-bible"
-                  style={{ gridTemplateColumns: `repeat(${Math.min(Math.max(locs.length + objs.length, 1), 5)}, minmax(0, 1fr))` }}
+                  style={{ gridTemplateColumns: `repeat(${Math.min(Math.max(locs.length + objs.length, 1), 4)}, minmax(0, 1fr))` }}
                 >
                   {locs.map((l, i) => (
                     <div className={`shot dir-bible-asset-card${masterAssetRendering(masterAssetFor("location", str(l.location_id))) ? " is-generating" : ""}`} key={String(l.location_id ?? `l${i}`)}>

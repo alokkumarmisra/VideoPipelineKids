@@ -47,6 +47,8 @@ export interface Beat {
 export interface Scenario {
   description?: string;
   character?: string;
+  /** Stable internal Director board key when this project was migrated from a Director. */
+  director_board_id?: string;
   /** Director import: pass scene prompts to image generation without global prompt additions. */
   directorPromptMode?: "verbatim";
   // The user-typed project name ("Pyari billi"). The scenario identity (`name`

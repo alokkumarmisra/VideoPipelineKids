@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listScenarios, getScenario, getDashboard, saveScenario, deleteScenario, deleteBeatMedia, renameScenario, setFavorite, comfyStatus, getHealth, outScenario, folderOf, slugFolder, me, logout, fmtDateTime, listRuns, directorBoards, getTheme, saveTheme, DEFAULT_PRESET_ID, type DirectorBoardMeta, type Engine, type AuthUser, type ImageMode, type RegenSpec, type RunRequest, type VideoFormat, type VideoType } from "./api";
+import { listScenarios, getScenario, getDashboard, listOutputs, saveScenario, deleteScenario, deleteBeatMedia, renameScenario, setFavorite, comfyStatus, getHealth, outScenario, folderOf, slugFolder, me, logout, fmtDateTime, listRuns, directorBoards, directorDisplayId, getTheme, saveTheme, DEFAULT_PRESET_ID, type DirectorBoardMeta, type Engine, type AuthUser, type ImageMode, type RegenSpec, type RunRequest, type VideoFormat, type VideoType } from "./api";
 import type { Beat, Scenario, ScenarioInfo, ComfyStatus, AssetKind, DashboardProject, HealthResponse, Run } from "./types";
 import ScenarioEditor from "./components/ScenarioEditor";
 import GenerateReference from "./components/GenerateReference";
+import DirectorProjectAssets from "./components/DirectorProjectAssets";
 import ShotList, { summarizeBoard, type BoardSummary } from "./components/ShotList";
 import RunPanel from "./components/RunPanel";
 import GenerationProgressBar, { emptyProgress, loadPace, loadSongPace, formatDuration, type GenerationProgress } from "./components/GenerationProgressBar";
@@ -350,6 +351,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
   const [directorHoverOpen, setDirectorHoverOpen] = useState(false);
   const [directorHoverBoards, setDirectorHoverBoards] = useState<DirectorBoardMeta[]>([]);
+  const [directorProjectProgress, setDirectorProjectProgress] = useState<Record<string, { directorId: string; scenesGenerated: number; scenesTotal: number; shotsGenerated: number; shotsTotal: number; assetsGenerated: number; assetsTotal: number; images: number; videos: number }>>({});
   const [directorBoardRequest, setDirectorBoardRequest] = useState<{ id: string; nonce: number } | null>(null);
   const [directorSelectedBoardId, setDirectorSelectedBoardId] = useState<string | null>(null);
   const [view, setView] = useState<"home" | "workspace" | "resource" | "director" | "movie" | "song" | "documentary" | "database" | "components" | "settings">("home");
@@ -1096,16 +1098,79 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
   const byProjectIdDesc = (a: ScenarioInfo, b: ScenarioInfo) =>
     (b.createdAt ?? -1) - (a.createdAt ?? -1)
     || (b.project_id ?? -1) - (a.project_id ?? -1) || b.mtimeMs - a.mtimeMs;
+  const refreshDirectorProjectProgress = useCallback(async () => {
+    try {
+      const [projects, boards] = await Promise.all([listScenarios(), directorBoards()]);
+      setDirectorHoverBoards(boards);
+      const linked = new Map<string, DirectorBoardMeta>();
+      for (const project of projects) {
+        const matches = boards.filter((board) =>
+          (project.project_id != null && board.project_id === project.project_id) || board.scenarioName === project.name)
+          .sort((a, b) => Date.parse(String(b.updatedAt || "")) - Date.parse(String(a.updatedAt || "")));
+        if (matches[0]) linked.set(project.name, matches[0]);
+      }
+      const progressRows = await Promise.all([...linked].map(async ([projectName, board]) => {
+        const project = projects.find((candidate) => candidate.name === projectName)!;
+        try {
+          const [scenario, outputs] = await Promise.all([
+            getScenario(projectName),
+            Promise.all((["ltx", "wan"] as const).flatMap((engine) => (["landscape", "vertical"] as const).map((format) =>
+              listOutputs(outScenario(folderOf(project, projectName), engine, format))))),
+          ]);
+          const sequence: Beat[] = Array.isArray(scenario.config.sequence) ? scenario.config.sequence : [];
+          const media = sequence.map(() => ({ image: false, video: false }));
+          let hasReference = false;
+          for (const output of outputs) {
+            hasReference ||= Boolean(output.versions?.ref?.length);
+            sequence.forEach((_, i) => {
+              const beat = output.versions?.beats?.[String(i + 1)];
+              if (beat?.keyframe?.length) media[i].image = true;
+              if (beat?.clip?.length) media[i].video = true;
+            });
+          }
+          const sceneShots = new Map<string, number[]>();
+          sequence.forEach((beat, i) => {
+            const n = Number(beat.scene_number);
+            const key = Number.isFinite(n) && n > 0 ? String(n) : String(i + 1);
+            sceneShots.set(key, [...(sceneShots.get(key) ?? []), i]);
+          });
+          const shotsGenerated = media.filter((shot) => shot.image && shot.video).length;
+          const images = media.filter((shot) => shot.image).length;
+          const videos = media.filter((shot) => shot.video).length;
+          return [projectName, {
+            directorId: directorDisplayId(board.id),
+            scenesGenerated: [...sceneShots.values()].filter((indices) => indices.every((i) => media[i].image && media[i].video)).length,
+            scenesTotal: sceneShots.size,
+            shotsGenerated,
+            shotsTotal: sequence.length,
+            assetsGenerated: images + videos + (hasReference ? 1 : 0),
+            assetsTotal: sequence.length * 2 + 1,
+            images,
+            videos,
+          }] as const;
+        } catch { return [projectName, null] as const; }
+      }));
+      const next: typeof directorProjectProgress = {};
+      for (const [projectName, row] of progressRows) if (row) next[projectName] = row;
+      setDirectorProjectProgress(next);
+    } catch { /* project sidebar remains usable if progress data is unavailable */ }
+  }, []);
+  useEffect(() => {
+    void refreshDirectorProjectProgress();
+    const timer = window.setInterval(() => void refreshDirectorProjectProgress(), 15000);
+    return () => window.clearInterval(timer);
+  }, [refreshDirectorProjectProgress]);
   const refreshScenarios = useCallback(async () => {
     const all = await listScenarios();
     const seq = all.filter((s) => s.isSequence).sort(byProjectIdDesc);
     setScenarios(seq);
+    void refreshDirectorProjectProgress();
     // Best-effort asset counts for the sidebar (never blocks the list).
     getDashboard()
       .then((d) => setDashMap(new Map((d.projects || []).map((p) => [p.name, p]))))
       .catch(() => {});
     return seq;
-  }, []);
+  }, [refreshDirectorProjectProgress]);
 
   // Home -> workspace navigation. The workspace itself is unchanged —
   // opening a project just selects it and switches the view. The nonce
@@ -1849,7 +1914,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                 data-selected={directorSelectedBoardId === board.id ? "true" : undefined}
                 key={board.id}
                 type="button"
-                title={`Open ${board.title} in Director`}
+                title={`Open ${directorDisplayId(board.id)} · ${board.title} in Director`}
                 aria-pressed={directorSelectedBoardId === board.id}
                 onClick={() => {
                   setView("director");
@@ -1858,8 +1923,8 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                   setDirectorHoverOpen(false);
                 }}
               >
-                <span className="director-hover-item-title"><strong>{board.title}</strong><span className={`director-hover-status ${board.status === "approved" ? "approved" : ""}`}>{board.status}</span></span>
-                <span className="director-hover-project">{board.scenarioName ? (scenarios.find((project) => project.name === board.scenarioName)?.display_name || board.scenarioName) : "Project not linked"}</span>
+                <span className="director-hover-item-title"><strong><span className="director-hover-id">{directorDisplayId(board.id)}</span> {board.title}</strong><span className={`director-hover-status ${board.status === "approved" ? "approved" : ""}`}>{board.status}</span></span>
+                <span className="director-hover-project">{board.scenarioName ? `${directorDisplayId(board.id)} → ${scenarios.find((project) => project.name === board.scenarioName)?.display_name || board.scenarioName}` : "Project not linked"}</span>
                 <span className="director-hover-detail">{board.scenes}/{board.sceneCount} scenes <i /> {board.genre || "Genre not set"}</span>
                 {board.updatedAt && <time className="director-hover-time">Updated {fmtDateTime(Date.parse(board.updatedAt))}</time>}
               </button>
@@ -1981,6 +2046,10 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
             )}
             {sideScenarios.map((s) => {
               const d = dashMap.get(s.name);
+              const linkedDirector = directorHoverBoards.find((board) =>
+                (s.project_id != null && board.project_id === s.project_id) || board.scenarioName === s.name);
+              const directorId = linkedDirector ? directorDisplayId(linkedDirector.id) : null;
+              const linkedProgress = directorProjectProgress[s.name];
               const isAudioRow = s.project_type === "AUDIO";
               const selected = view === "song"
                 ? songProject?.name === s.name
@@ -2026,18 +2095,22 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                       {s.project_id != null && (
                         <span className="scenario-id" title={`Project #${s.project_id}`}>#{s.project_id}</span>
                       )}
+                      {directorId && (
+                        <span className="scenario-id director-id" title={`Linked Director ${linkedDirector?.id}`}>{directorId}</span>
+                      )}
                       <span className="scenario-name-text">{s.display_name || s.name}</span>
                     </span>
                     <span className="scenario-date" title={fmtDateTime(s.mtimeMs)}>{fmtDateTime(s.mtimeMs)}</span>
                   </span>
-                  <span className="scenario-stats" title={
-                    d
+                  <span className="scenario-stats" title={linkedProgress
+                    ? `${linkedProgress.directorId} · ${linkedProgress.scenesGenerated}/${linkedProgress.scenesTotal} scenes · ${linkedProgress.shotsGenerated}/${linkedProgress.shotsTotal} shots · ${linkedProgress.assetsGenerated}/${linkedProgress.assetsTotal} assets (${linkedProgress.images} images, ${linkedProgress.videos} videos)`
+                    : d
                       ? isAudioRow
                         ? `${songs} song${songs === 1 ? "" : "s"} rendered`
                         : `${assets} assets · ${d.imageCount} images · ${d.videoCount} videos · ${d.sceneCount} scenes`
                       : "Asset counts unavailable"
                   }>
-                    {d ? (
+                    {d || linkedProgress ? (
                       isAudioRow ? (
                         <>
                           <span className="stat-line">Songs: <b>{songs}</b></span>
@@ -2045,9 +2118,19 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
                         </>
                       ) : (
                       <>
-                        <span className="stat-line">Assets: <b>{assets}</b></span>
-                        <span className="stat-line dim">Images: <b>{d.imageCount}</b></span>
-                        <span className="stat-line dim">Videos: <b>{d.videoCount}</b></span>
+                        {linkedProgress ? (
+                          <>
+                            <span className="stat-line">Assets <b>{linkedProgress.assetsGenerated}/{linkedProgress.assetsTotal}</b></span>
+                            <span className="stat-line dim">Scenes <b>{linkedProgress.scenesGenerated}/{linkedProgress.scenesTotal}</b></span>
+                            <span className="stat-line dim">Shots <b>{linkedProgress.shotsGenerated}/{linkedProgress.shotsTotal}</b></span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="stat-line">Assets: <b>{assets ?? 0}</b></span>
+                            <span className="stat-line dim">Images: <b>{d?.imageCount ?? 0}</b></span>
+                            <span className="stat-line dim">Videos: <b>{d?.videoCount ?? 0}</b></span>
+                          </>
+                        )}
                       </>
                       )
                     ) : (
@@ -2204,6 +2287,7 @@ function Studio({ user, onLogout, theme, onToggleTheme, draftBg, draftBtn, onDra
               />
             ) : null}
           />
+          {!draft && cfg?.director_board_id && <DirectorProjectAssets boardId={cfg.director_board_id} />}
           {/* Keyframes → clips: its own separate section directly below
               Generate Reference (was below the Shot List), with the same
               persisted hide/show toggle as every other card (ss-sec-beats).

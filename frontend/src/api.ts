@@ -1244,6 +1244,12 @@ export interface DirectorBoardMeta {
   logline?: string | null;
 }
 
+/** Compact display label for the stable internal Director board key. */
+export const directorDisplayId = (id: string) => {
+  const match = String(id || "").match(/^DIRECTOR_(\d+)$/i);
+  return match ? `D${match[1]}` : String(id || "");
+};
+
 const directorOk = <T,>(label: string) => (r: Response) =>
   r.ok
     ? r.json() as Promise<T>
