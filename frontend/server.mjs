@@ -13052,6 +13052,78 @@ if (p === "/api/database/rows" && (req.method === "POST" || req.method === "PUT"
     }
 
     // ----- Generate Assets stage (real jobs, persisted on the board JSON) -----
+    // POST /api/director/boards/:id/assets/:assetId/upload — upload a user
+    // reference image for one master asset (character / location / object).
+    const assetUploadMatch = p.match(/^\/api\/director\/boards\/([^/]+)\/assets\/([^/]+)\/upload$/);
+    if (assetUploadMatch && req.method === "POST") {
+      const upId = decodeURIComponent(assetUploadMatch[1]);
+      const upAssetId = decodeURIComponent(assetUploadMatch[2]);
+      if (!isValidAssetId(upAssetId)) return json(res, 400, { error: "invalid asset id" });
+      const body = (await readJson(req).catch(() => ({}))) || {};
+      if (typeof body.data !== "string") return json(res, 400, { error: "data (base64) required" });
+      const match = String(body.data).match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/s);
+      if (!match) return json(res, 400, { error: "expected a data:image base64 payload (png/jpeg/webp)" });
+      const buf = Buffer.from(match[2], "base64");
+      if (!buf.length) return json(res, 400, { error: "empty image" });
+      if (buf.length > 12 * 1024 * 1024) return json(res, 413, { error: "reference image must be under 12 MB" });
+
+      const board = readDirectorBoard(upId);
+      if (!board) return json(res, 404, { error: "director board not found" });
+      const state = getBoardAssetState(board);
+      const asset = findAsset(state, upAssetId);
+      if (!asset) return json(res, 404, { error: "no such asset on this board" });
+
+      const kind = DIRECTOR_ASSET_KIND_DIR[asset.type] || "objects";
+      const safeId = isSafe(asset.id) ? asset.id : "asset";
+      const dir = path.join(DIRECTOR_ASSETS_DIR, upId, kind, safeId);
+      fs.mkdirSync(dir, { recursive: true });
+
+      // Determine next version from existing files.
+      let next = 1;
+      try {
+        for (const file of fs.readdirSync(dir)) {
+          if (!file.toLowerCase().endsWith(".png")) continue;
+          const stem = path.basename(file, path.extname(file));
+          let v = null;
+          if (stem === "reference") v = 1;
+          else if (/^reference_v(\d+)$/i.test(stem)) v = Number(stem.match(/^reference_v(\d+)$/i)?.[1]);
+          else {
+            const found = stem.match(/_v(\d+)$/i);
+            if (found) v = Number(found[1]);
+          }
+          if (Number.isInteger(v) && v >= 1) next = Math.max(next, v + 1);
+        }
+      } catch { /* dir just created */ }
+
+      const ext = match[1] === "jpeg" ? "jpg" : match[1];
+      const file = next === 1 ? "reference.png" : `reference_v${next}.${ext}`;
+      fs.writeFileSync(path.join(dir, file), buf);
+      const rel = `${upId}/${kind}/${safeId}/${file}`.replaceAll("\\", "/");
+
+      const now = new Date().toISOString();
+      const updatedAssets = (state.assets || []).map((a) => {
+        if (a.id !== upAssetId) return a;
+        return {
+          ...a,
+          reference: rel,
+          version: next,
+          status: "review",
+          error: null,
+          updatedAt: now,
+        };
+      });
+      board.assetProduction = {
+        ...state,
+        assets: updatedAssets,
+        updatedAt: now,
+      };
+      directorAssetWriteBoard(board);
+
+      // Refresh cached versioned view so the UI sees the upload immediately.
+      directorAssetVersionsCache.delete(upId);
+      return json(res, 200, { production: board.assetProduction, assetId: upAssetId, reference: rel, version: next });
+    }
+
     const assetBoardMatch = p.match(/^\/api\/director\/boards\/([^/]+)\/assets\/(generate|approve|skip|regenerate)$/);
     if (assetBoardMatch && req.method === "POST") {
       const id = decodeURIComponent(assetBoardMatch[1]);

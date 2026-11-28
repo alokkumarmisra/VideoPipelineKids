@@ -5280,6 +5280,7 @@ button.rm-chip:disabled:hover { background: transparent; border-color: var(--lin
 .dir-master-asset-prompt summary { padding: 6px 8px; color: var(--text-2); font-size: 11px; cursor: pointer; }
 .dir-master-asset-prompt p { margin: 0; padding: 0 8px 8px; color: var(--text-3); font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dir-master-asset-actions { gap: 6px; flex-wrap: wrap; }
+.spinner-inline { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-2); margin-left: 6px; }
 .dir-saved-brief { margin: 8px 0 12px; padding: 14px; background: color-mix(in srgb, var(--inset) 72%, transparent); border: 1px solid var(--line); }
 .dir-saved-brief-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
 .dir-saved-brief-head .hint { margin: 3px 0 0; }

@@ -1847,6 +1847,12 @@ export const directorApproveAssets = (id: string, ids?: string[]) =>
   directorAssetAction(id, "approve", ids?.length ? { ids } : {});
 /** Continue the pipeline without rendering assets (honest, explicit skip). */
 export const directorSkipAssets = (id: string) => directorAssetAction(id, "skip", {});
+/** Upload a user-provided reference image for one master asset (character/location/object). */
+export const directorUploadAsset = (id: string, assetId: string, data: string) =>
+  post<{ production: any; assetId: string; reference: string; version: number }>(
+    `/api/director/boards/${encodeURIComponent(id)}/assets/${encodeURIComponent(assetId)}/upload`,
+    { data }
+  );
 export const directorAssetFileUrl = (filePath: string) =>
   (() => {
     const input = String(filePath || "").trim();

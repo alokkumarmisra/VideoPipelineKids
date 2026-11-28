@@ -3,12 +3,12 @@ import {
   alertServiceError, directorAddEntry, directorAnalyze, directorAnalyzeLive, directorApprove, directorAssets, directorBiblePreview, directorBoard, directorBoards, directorDeleteBoard, directorOptimizePrompt,
   directorDuplicateBoard, directorLive, directorPromptPreview, directorRegenEntry, directorRegenScene, directorScenes, directorSongUrl, directorUpdateBoard, fmtRelative, saveScenario, suggestDirectorInstructions,
   uploadLyricAudio, startWhisperXAnalysis, getWhisperXJobStatus, directorMasterTimeline, approveMasterTimeline, listScenarios,
-  directorGenerateAssets, directorApproveAssets, directorSkipAssets, directorRegenerateAsset, directorAssetFileUrl,
+  directorGenerateAssets, directorApproveAssets, directorSkipAssets, directorRegenerateAsset, directorUploadAsset, directorAssetFileUrl,
   type DirectorAssetProduction, type DirectorMasterAsset, type DirectorBoard, type DirectorBoardMeta, type DirectorEntryKind, type DirectorInput, type DirectorLive, type DirectorPromptPreview, type DirectorScene, type DirectorShot, type ImageMode, type MasterTimelineResponse,
 } from "../api";
 import type { ScenarioInfo } from "../types";
 import { useDialog } from "./Dialog";
-import { IconCheck, IconClapper, IconFilm, IconFolder, IconPanel, IconRefresh, IconSparkles, IconTrash, Spinner } from "./Icons";
+import { IconCheck, IconClapper, IconFilm, IconFolder, IconPanel, IconRefresh, IconSparkles, IconTrash, IconUpload, Spinner } from "./Icons";
 import Collapse from "./Collapse";
 import AudioIntelligencePanel from "./AudioIntelligencePanel";
 import BatchSizeSelect, { SCENE_BATCH } from "./BatchSizeSelect";
@@ -849,6 +849,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   // Generate Assets stage — master stills reused by every scene of the board.
   const [assetProduction, setAssetProduction] = useState<DirectorAssetProduction | null>(null);
   const [assetBusy, setAssetBusy] = useState(false);
+  const [assetUploading, setAssetUploading] = useState<string | null>(null);
   const [selectedAssetVersions, setSelectedAssetVersions] = useState<Record<string, number | null>>({});
   const [assetPromptEditor, setAssetPromptEditor] = useState<{ assetId: string; name: string; prompt: string } | null>(null);
   const [busy, setBusy] = useState<{ label: string; since: number } | null>(null);
@@ -862,6 +863,7 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
   // board — opening a board seeds the seen set, so old boards never replay.
   const [typingScenes, setTypingScenes] = useState<number[]>([]);
   const seenSceneNumsRef = useRef<{ boardId: string; nums: Set<number> } | null>(null);
+  const assetFileInputRef = useRef<HTMLInputElement>(null);
   const reduceMotion = useState(() =>
     typeof window !== "undefined" && typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches)[0];
@@ -1548,6 +1550,34 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
       setAssetProduction(r.production);
     } catch (e) { reportError(e); }
     finally { setAssetBusy(false); }
+  };
+
+  const doUploadAsset = async (assetId: string, data: string) => {
+    if (!board || assetUploading || busy) return;
+    setAssetUploading(assetId);
+    try {
+      const r = await directorUploadAsset(board.id, assetId, data);
+      setAssetProduction(r.production);
+      // Select the newly uploaded version for preview.
+      setSelectedAssetVersions((cur) => ({ ...cur, [`${board.id}:${assetId}`]: r.version }));
+    } catch (e) { reportError(e); }
+    finally { setAssetUploading(null); }
+  };
+
+  const handleAssetFileChange = (assetId: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { reportError(new Error("Please select an image file (PNG, JPEG, WebP).")); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = String(reader.result);
+      if (!data.startsWith("data:")) return;
+      void doUploadAsset(assetId, data);
+    };
+    reader.onerror = () => reportError(new Error("Failed to read the selected image."));
+    reader.readAsDataURL(file);
+    // Reset so the same file can be re-selected next time.
+    e.target.value = "";
   };
 
   // Poll only while a render is actually in flight — never while idle.
@@ -2741,17 +2771,35 @@ export default function DirectorPage({ onOpenProject, onProjectsChanged, onPlann
         <div className="row dir-master-asset-actions">
           <button
             className="ghost shotlist-btn"
-            disabled={busy != null || assetBusy || asset.status === "queued" || asset.status === "generating"}
+            disabled={busy != null || assetBusy || assetUploading === asset.id || asset.status === "queued" || asset.status === "generating"}
             onClick={() => setAssetPromptEditor({ assetId: asset.id, name: asset.name, prompt: asset.prompt || "" })}
             title="Edit the image prompt and generate a new master still"
           >
             {asset.reference ? "Edit prompt & regenerate" : "Set prompt & generate"}
           </button>
+          <button
+            className="ghost shotlist-btn"
+            disabled={busy != null || assetBusy || assetUploading === asset.id || asset.status === "queued" || asset.status === "generating"}
+            onClick={() => assetFileInputRef.current?.click()}
+            title={`Upload a reference image for ${asset.name}`}
+          >
+            <IconUpload size={13} /> Upload image
+          </button>
           {asset.status === "review" && (
-            <button className="btn-green" disabled={busy != null || assetBusy} onClick={() => void doApproveAssets([asset.id])}>
+            <button className="btn-green" disabled={busy != null || assetBusy || assetUploading === asset.id} onClick={() => void doApproveAssets([asset.id])}>
               <IconCheck size={13} /> Approve image
             </button>
           )}
+          {assetUploading === asset.id && (
+            <span className="spinner-inline" title="Uploading image…"><Spinner size={11} /> Uploading…</span>
+          )}
+          <input
+            ref={assetFileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            hidden
+            onChange={handleAssetFileChange(asset.id)}
+          />
         </div>
       </div>
     );
